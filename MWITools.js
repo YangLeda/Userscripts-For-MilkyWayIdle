@@ -9074,8 +9074,7 @@
       /* @__PURE__ */ new Set()
     );
   }
-  function getGuildBuffLevel(guildBuffHrid) {
-    const levels = runtime.state.guildBuffLevels;
+  function getGuildBuffLevel(guildBuffHrid, levels) {
     const record = Array.isArray(levels) ? levels.find(
       (value) => (value?.guildBuffHrid ?? value?.hrid) === guildBuffHrid
     ) : levels?.[guildBuffHrid];
@@ -9084,39 +9083,71 @@
     );
     return Number.isSafeInteger(level) && level > 0 ? level : 0;
   }
-  function getGuildShrineValue() {
-    if (!runtime.state.guildDataLoaded) return null;
+  function getGuildShrineValues(guildBuffLevels2) {
+    const usesCurrentCharacter = guildBuffLevels2 === void 0;
+    if (usesCurrentCharacter && !runtime.state.guildDataLoaded) return null;
+    const levels = usesCurrentCharacter ? runtime.state.guildBuffLevels : guildBuffLevels2;
+    if (!levels || typeof levels !== "object") return null;
     const details = entriesOfMap(runtime.state.initData_guildBuffDetailMap);
     if (!details.length) return null;
-    let total = 0;
+    const values = { battle: 0, skilling: 0 };
+    const valid = { battle: true, skilling: true };
     for (const [fallbackHrid, detail] of details) {
       const guildBuffHrid = detail?.guildBuffHrid ?? detail?.hrid ?? fallbackHrid;
-      const levelCosts = detail?.levelCosts;
-      if (!guildBuffHrid || !levelCosts) continue;
-      const currentLevel = getGuildBuffLevel(guildBuffHrid);
+      if (!guildBuffHrid) continue;
+      const currentLevel = getGuildBuffLevel(guildBuffHrid, levels);
+      if (!currentLevel) continue;
+      if (typeof detail?.isCombat !== "boolean") return null;
+      const group = detail.isCombat ? "battle" : "skilling";
+      if (!valid[group]) continue;
+      const levelCosts = detail.levelCosts;
+      if (!levelCosts) {
+        valid[group] = false;
+        continue;
+      }
       for (let level = 1; level <= currentLevel; level += 1) {
         const cost = levelCosts[level] ?? levelCosts[String(level)];
-        if (!cost) return null;
+        if (!cost) {
+          valid[group] = false;
+          break;
+        }
         const guildTokenCount = positiveNumber2(cost.guildTokenCost);
         if (guildTokenCount) {
           const tokenValue = getAssetValue("/items/guild_token", 0);
-          if (!(tokenValue > 0)) return null;
-          total += guildTokenCount * tokenValue;
+          if (!(tokenValue > 0)) {
+            valid[group] = false;
+            break;
+          }
+          values[group] += guildTokenCount * tokenValue;
         }
         for (const creditCost of cost.creditCosts ?? []) {
           const count = positiveNumber2(creditCost?.count);
           if (!count) continue;
           const creditValue = getAssetValue(creditCost.itemHrid, 0);
-          if (!(creditValue > 0)) return null;
-          total += count * creditValue;
+          if (!(creditValue > 0)) {
+            valid[group] = false;
+            break;
+          }
+          values[group] += count * creditValue;
         }
+        if (!valid[group]) break;
       }
     }
-    return total;
+    const battle = valid.battle ? values.battle : null;
+    const skilling = valid.skilling ? values.skilling : null;
+    return {
+      battle,
+      skilling,
+      total: Number.isFinite(battle) && Number.isFinite(skilling) ? battle + skilling : null
+    };
+  }
+  function getGuildShrineValue() {
+    return getGuildShrineValues()?.total ?? null;
   }
   Object.assign(runtime.api, {
     getAssetValue,
     getAssetLiquidationValue,
+    getGuildShrineValues,
     getGuildShrineValue,
     projectLootChest,
     isBackEquipment,
@@ -9671,26 +9702,42 @@
     }
     return { combat, skilling, all };
   }
+  function createEmptyShrineScores() {
+    return { battle: null, skilling: null };
+  }
+  function calculateGuildShrineScores(guildBuffLevels2) {
+    if (typeof runtime.api.getGuildShrineValues !== "function") {
+      return createEmptyShrineScores();
+    }
+    const values = guildBuffLevels2 === void 0 ? runtime.api.getGuildShrineValues() : runtime.api.getGuildShrineValues(guildBuffLevels2);
+    return {
+      battle: Number.isFinite(values?.battle) ? values.battle / SCORE_UNIT : null,
+      skilling: Number.isFinite(values?.skilling) ? values.skilling / SCORE_UNIT : null
+    };
+  }
   function createScoreResult({
     houseScores,
     abilityScore,
     allAbilityScore,
     gearScores,
+    shrineScores = createEmptyShrineScores(),
     equipmentHidden = false
   }) {
     const battle = {
       house: houseScores.combat,
       abilities: abilityScore,
-      equipment: gearScores.combatEquipment
+      equipment: gearScores.combatEquipment,
+      shrine: shrineScores.battle
     };
-    battle.total = battle.house + battle.abilities + battle.equipment;
+    battle.total = battle.house + battle.abilities + battle.equipment + (Number.isFinite(battle.shrine) ? battle.shrine : 0);
     const skilling = {
       house: houseScores.skilling,
       tools: gearScores.skillingTools,
       equipment: gearScores.skillingEquipment,
+      shrine: shrineScores.skilling,
       available: !equipmentHidden
     };
-    skilling.total = skilling.house + skilling.tools + skilling.equipment;
+    skilling.total = skilling.house + skilling.tools + skilling.equipment + (Number.isFinite(skilling.shrine) ? skilling.shrine : 0);
     return {
       battle,
       skilling,
@@ -9706,6 +9753,9 @@
       runtime.state.initData_characterHouseRoomMap
     );
     const gearScores = calculateGearScores(runtime.state.initData_characterItems);
+    const guildBuffLevels2 = runtime.state.guildBuffLevels;
+    const hasGuildBuffLevels = Array.isArray(guildBuffLevels2) ? guildBuffLevels2.length > 0 : Object.keys(guildBuffLevels2 ?? {}).length > 0;
+    const shrineScores = runtime.state.guildDataLoaded && (Boolean(runtime.state.guild) || hasGuildBuffLevels) ? calculateGuildShrineScores() : createEmptyShrineScores();
     let abilityScore = 0;
     try {
       abilityScore = await calculateAbilityScore();
@@ -9728,7 +9778,8 @@
       houseScores,
       abilityScore,
       allAbilityScore,
-      gearScores
+      gearScores,
+      shrineScores
     });
   }
   async function getHouseFullBuildPrice(house) {
@@ -9821,6 +9872,7 @@
     const scores = await getBuildScoreByProfile(profile_shared_obj);
     const hiddenText = scores.equipmentHidden ? runtime.config.isZH ? "（装备隐藏）" : " (Equipment hidden)" : "";
     const hiddenValue = scores.equipmentHidden ? "-" : null;
+    const optionalScore = (value) => Number.isFinite(value) ? runtime.api.formatScore(value) : "—";
     const panel = await getInfoPanel();
     panel.style.height = "auto";
     panel.querySelector("#script_profile_gear_scores")?.remove();
@@ -9845,6 +9897,10 @@
                             <span style="display: inline !important; color: var(--color-text-secondary, #9da6b2) !important; float: none !important;">${runtime.config.isZH ? "装备：" : "Equipment: "}</span>
                             <span style="display: inline !important; font-weight: 600 !important; color: #f3f5f7 !important; margin-left: 2px !important; float: none !important;">${hiddenValue ?? runtime.api.formatScore(scores.battle.equipment)}</span>
                     </p>
+                    <p style="display: block !important; margin: 2px 0 !important; padding: 3px 0 !important; text-align: left !important; width: fit-content !important; float: none !important;">
+                            <span style="display: inline !important; color: var(--color-text-secondary, #9da6b2) !important; float: none !important;">${runtime.config.isZH ? "战斗神龛：" : "Combat shrine: "}</span>
+                            <span style="display: inline !important; font-weight: 600 !important; color: #f3f5f7 !important; margin-left: 2px !important; float: none !important;">${optionalScore(scores.battle.shrine)}</span>
+                    </p>
             </section>
             <p id="toggleSkillingScores_profile" style="display: block !important; margin: 4px 0 !important; padding: 4px 0 !important; cursor: pointer !important; font-weight: 650 !important; text-align: left !important; width: fit-content !important; float: none !important;">
                     <span class="mwi-profile-toggle-icon" style="display: inline !important; font-weight: bold !important; margin-right: 4px !important; float: none !important;">+</span>
@@ -9863,6 +9919,10 @@
                     <p style="display: block !important; margin: 2px 0 !important; padding: 3px 0 !important; text-align: left !important; width: fit-content !important; float: none !important;">
                             <span style="display: inline !important; color: var(--color-text-secondary, #9da6b2) !important; float: none !important;">${runtime.config.isZH ? "装备：" : "Equipment: "}</span>
                             <span style="display: inline !important; font-weight: 600 !important; color: #f3f5f7 !important; margin-left: 2px !important; float: none !important;">${hiddenValue ?? runtime.api.formatScore(scores.skilling.equipment)}</span>
+                    </p>
+                    <p style="display: block !important; margin: 2px 0 !important; padding: 3px 0 !important; text-align: left !important; width: fit-content !important; float: none !important;">
+                            <span style="display: inline !important; color: var(--color-text-secondary, #9da6b2) !important; float: none !important;">${runtime.config.isZH ? "生活神龛：" : "Skilling shrine: "}</span>
+                            <span style="display: inline !important; font-weight: 600 !important; color: #f3f5f7 !important; margin-left: 2px !important; float: none !important;">${optionalScore(scores.skilling.shrine)}</span>
                     </p>
             </section>
         </section>`
@@ -9886,6 +9946,7 @@
   async function getBuildScoreByProfile(profile_shared_obj) {
     const profile = profile_shared_obj.profile;
     const houseScores = await calculateHouseScores(profile.characterHouseRoomMap);
+    const shrineScores = profile.guildId && profile.guildBuffLevelMap && typeof profile.guildBuffLevelMap === "object" ? calculateGuildShrineScores(profile.guildBuffLevelMap) : createEmptyShrineScores();
     const equipmentHidden = profile.hideWearableItems === true;
     const emptyGearScores = createEmptyGearScores();
     if (equipmentHidden) {
@@ -9894,6 +9955,7 @@
         abilityScore: 0,
         allAbilityScore: 0,
         gearScores: emptyGearScores,
+        shrineScores,
         equipmentHidden: true
       });
     }
@@ -9919,7 +9981,8 @@
       houseScores,
       abilityScore,
       allAbilityScore: 0,
-      gearScores
+      gearScores,
+      shrineScores
     });
   }
   async function calculateSkill(profile_shared_obj) {
@@ -9973,6 +10036,7 @@
     isSkillingHouse,
     calculateGearScores,
     calculateHouseScores,
+    calculateGuildShrineScores,
     calculateAbilityScore,
     getInfoPanel,
     showBuildScoreOnProfile,
@@ -15348,11 +15412,12 @@ ${preview}`
 
   // src/features/public-api.js
   var PUBLIC_API_VERSION = 1;
-  var SCORE_SCHEMA_VERSION = 1;
+  var SCORE_SCHEMA_VERSION = 2;
   var SCORES_UPDATED_EVENT = "mwitools:scores-updated";
   var pageGlobal3 = globalThis.unsafeWindow ?? globalThis.window ?? globalThis;
   var latestScores = null;
   function finiteOrNull3(value) {
+    if (value === null || value === void 0) return null;
     const number3 = Number(value);
     return Number.isFinite(number3) ? number3 : null;
   }
@@ -15374,13 +15439,15 @@ ${preview}`
         total: finiteOrNull3(scores.battle.total),
         house: finiteOrNull3(scores.battle.house),
         abilities: finiteOrNull3(scores.battle.abilities),
-        equipment: finiteOrNull3(scores.battle.equipment)
+        equipment: finiteOrNull3(scores.battle.equipment),
+        shrine: finiteOrNull3(scores.battle.shrine)
       },
       skilling: {
         total: finiteOrNull3(scores.skilling.total),
         house: finiteOrNull3(scores.skilling.house),
         tools: finiteOrNull3(scores.skilling.tools),
         equipment: finiteOrNull3(scores.skilling.equipment),
+        shrine: finiteOrNull3(scores.skilling.shrine),
         available: scores.skilling.available !== false
       }
     };
@@ -17268,6 +17335,7 @@ ${preview}`
                 <div class="mwi-summary-stat"><span class="mwi-summary-stat-label">${runtime.config.isZH ? "房屋：" : "House: "}</span><span class="mwi-summary-stat-value">${runtime.api.formatScore(scores.battle.house)}</span></div>
                 <div class="mwi-summary-stat"><span class="mwi-summary-stat-label">${runtime.config.isZH ? "技能：" : "Abilities: "}</span><span class="mwi-summary-stat-value">${runtime.api.formatScore(scores.battle.abilities)}</span></div>
                 <div class="mwi-summary-stat"><span class="mwi-summary-stat-label">${runtime.config.isZH ? "装备：" : "Equipment: "}</span><span class="mwi-summary-stat-value">${runtime.api.formatScore(scores.battle.equipment)}</span></div>
+                <div class="mwi-summary-stat"><span class="mwi-summary-stat-label">${runtime.config.isZH ? "战斗神龛：" : "Combat shrine: "}</span><span class="mwi-summary-stat-value">${Number.isFinite(scores.battle.shrine) ? runtime.api.formatScore(scores.battle.shrine) : "—"}</span></div>
               </div>
             </div>
           </section>
@@ -17285,6 +17353,7 @@ ${preview}`
                 <div class="mwi-summary-stat"><span class="mwi-summary-stat-label">${runtime.config.isZH ? "房屋：" : "House: "}</span><span class="mwi-summary-stat-value">${runtime.api.formatScore(scores.skilling.house)}</span></div>
                 <div class="mwi-summary-stat"><span class="mwi-summary-stat-label">${runtime.config.isZH ? "工具：" : "Tools: "}</span><span class="mwi-summary-stat-value">${runtime.api.formatScore(scores.skilling.tools)}</span></div>
                 <div class="mwi-summary-stat"><span class="mwi-summary-stat-label">${runtime.config.isZH ? "装备：" : "Equipment: "}</span><span class="mwi-summary-stat-value">${runtime.api.formatScore(scores.skilling.equipment)}</span></div>
+                <div class="mwi-summary-stat"><span class="mwi-summary-stat-label">${runtime.config.isZH ? "生活神龛：" : "Skilling shrine: "}</span><span class="mwi-summary-stat-value">${Number.isFinite(scores.skilling.shrine) ? runtime.api.formatScore(scores.skilling.shrine) : "—"}</span></div>
               </div>
             </div>
           </section>
@@ -28870,6 +28939,7 @@ ${locks}` : ""}`;
       }),
       body: Object.freeze({
         zh: Object.freeze([
+          "战斗与生活着装评分现在会分别计入当前公会全部战斗神龛和生活神龛的累计升级价值；查看他人资料时会使用对方公开的神龛等级，缺少公会数据时显示横线且不影响其余评分。",
           "地牢宝箱与精炼宝箱的库存估值和开箱期望现在都会同时扣除宝箱开启钥匙与对应地牢门票钥匙；开箱面板会分别展示两项成本，普通无门票宝箱不受影响。",
           "修复强化披风与其他背部装备时未比较贤者之镜方案的问题；包括精炼 +14 在内的强化成本现在会保留保护之镜作为普通保护材料，同时完整比较贤者之镜合成方案并选择总成本更低的路线。",
           "完整队列的耗时与完成时间不再依赖市场悬浮价格；队列重建、无限动作和缺少投影时会自动重试或显示明确原因。普通战斗任务会按目标怪物合并，任务“新”标记只跟随真正新增的任务。",
@@ -28881,6 +28951,7 @@ ${locks}` : ""}`;
           "任务筛选按钮现在可用鼠标或触屏长按 1 秒分别锁定；命中锁定类型的任务会让两种刷新选项变灰并显示锁图标。筛选中刷新出的卡片即使改变类型也会保留到重新进入任务页，关闭任务统计筛选栏会清除已有锁定。锁定只显示小锁，不会改变筛选高亮，再次长按解锁后小锁会立即消失。"
         ]),
         en: Object.freeze([
+          "Combat and Skilling Gear Scores now include the cumulative upgrade value of every matching guild shrine. Shared profiles use that player's public shrine levels, while missing guild data shows a dash without affecting the remaining score.",
           "Inventory valuations and opening estimates for dungeon and refinement chests now deduct both the chest key and the matching dungeon entry key. The opening panel shows the two costs separately, while ordinary chests without entry keys are unchanged.",
           "Fixed Philosopher's Mirror plans being skipped for enhanced capes and other back equipment. Enhancement costs, including refined +14 items, now keep Mirrors of Protection for regular protection while comparing the full Philosopher's Mirror synthesis route and selecting the lower total cost.",
           "Full-queue duration and completion estimates no longer depend on hover prices. Queue rebuilds now retry, while infinite actions and missing projections show an explicit reason. Regular combat tasks merge by target monster, and New badges follow only genuinely added task IDs.",

@@ -1403,8 +1403,7 @@ function getAssetLiquidationValue(
   );
 }
 
-function getGuildBuffLevel(guildBuffHrid) {
-  const levels = runtime.state.guildBuffLevels;
+function getGuildBuffLevel(guildBuffHrid, levels) {
   const record = Array.isArray(levels)
     ? levels.find(
         (value) => (value?.guildBuffHrid ?? value?.hrid) === guildBuffHrid,
@@ -1418,41 +1417,83 @@ function getGuildBuffLevel(guildBuffHrid) {
   return Number.isSafeInteger(level) && level > 0 ? level : 0;
 }
 
-function getGuildShrineValue() {
-  if (!runtime.state.guildDataLoaded) return null;
+function getGuildShrineValues(guildBuffLevels) {
+  const usesCurrentCharacter = guildBuffLevels === undefined;
+  if (usesCurrentCharacter && !runtime.state.guildDataLoaded) return null;
+  const levels = usesCurrentCharacter
+    ? runtime.state.guildBuffLevels
+    : guildBuffLevels;
+  if (!levels || typeof levels !== "object") return null;
+
   const details = entriesOfMap(runtime.state.initData_guildBuffDetailMap);
   if (!details.length) return null;
 
-  let total = 0;
+  const values = { battle: 0, skilling: 0 };
+  const valid = { battle: true, skilling: true };
   for (const [fallbackHrid, detail] of details) {
     const guildBuffHrid = detail?.guildBuffHrid ?? detail?.hrid ?? fallbackHrid;
-    const levelCosts = detail?.levelCosts;
-    if (!guildBuffHrid || !levelCosts) continue;
-    const currentLevel = getGuildBuffLevel(guildBuffHrid);
+    if (!guildBuffHrid) continue;
+    const currentLevel = getGuildBuffLevel(guildBuffHrid, levels);
+    if (!currentLevel) continue;
+    if (typeof detail?.isCombat !== "boolean") return null;
+
+    const group = detail.isCombat ? "battle" : "skilling";
+    if (!valid[group]) continue;
+    const levelCosts = detail.levelCosts;
+    if (!levelCosts) {
+      valid[group] = false;
+      continue;
+    }
+
     for (let level = 1; level <= currentLevel; level += 1) {
       const cost = levelCosts[level] ?? levelCosts[String(level)];
-      if (!cost) return null;
+      if (!cost) {
+        valid[group] = false;
+        break;
+      }
       const guildTokenCount = positiveNumber(cost.guildTokenCost);
       if (guildTokenCount) {
         const tokenValue = getAssetValue("/items/guild_token", 0);
-        if (!(tokenValue > 0)) return null;
-        total += guildTokenCount * tokenValue;
+        if (!(tokenValue > 0)) {
+          valid[group] = false;
+          break;
+        }
+        values[group] += guildTokenCount * tokenValue;
       }
       for (const creditCost of cost.creditCosts ?? []) {
         const count = positiveNumber(creditCost?.count);
         if (!count) continue;
         const creditValue = getAssetValue(creditCost.itemHrid, 0);
-        if (!(creditValue > 0)) return null;
-        total += count * creditValue;
+        if (!(creditValue > 0)) {
+          valid[group] = false;
+          break;
+        }
+        values[group] += count * creditValue;
       }
+      if (!valid[group]) break;
     }
   }
-  return total;
+
+  const battle = valid.battle ? values.battle : null;
+  const skilling = valid.skilling ? values.skilling : null;
+  return {
+    battle,
+    skilling,
+    total:
+      Number.isFinite(battle) && Number.isFinite(skilling)
+        ? battle + skilling
+        : null,
+  };
+}
+
+function getGuildShrineValue() {
+  return getGuildShrineValues()?.total ?? null;
 }
 
 Object.assign(runtime.api, {
   getAssetValue,
   getAssetLiquidationValue,
+  getGuildShrineValues,
   getGuildShrineValue,
   projectLootChest,
   isBackEquipment,

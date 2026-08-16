@@ -157,6 +157,12 @@ runtime.state.initData_characterItems = [
 runtime.state.initData_combatAbilities = [];
 runtime.state.initData_characterAbilities = [];
 runtime.state.initData_levelExperienceTable = [0];
+runtime.state.guild = { id: 1 };
+runtime.state.guildDataLoaded = true;
+runtime.state.guildBuffLevels = {
+  "/guild_buffs/force_combat": 2,
+  "/guild_buffs/force_skilling": 3,
+};
 runtime.state.marketItemValues = {
   "/items/coin": { 0: 1_000_000 },
   "/items/combat_sword": { 1: 10_000_000 },
@@ -200,6 +206,16 @@ for (const toolType of additionalToolTypes) {
   });
 }
 runtime.api.fetchMarketJSON = async () => ({ marketData: {} });
+const profileGuildBuffLevels = {
+  "/guild_buffs/force_combat": 4,
+  "/guild_buffs/force_skilling": 5,
+};
+runtime.api.getGuildShrineValues = (guildBuffLevels) => {
+  if (guildBuffLevels === profileGuildBuffLevels) {
+    return { battle: 4_000_000, skilling: 5_000_000, total: 9_000_000 };
+  }
+  return { battle: 2_000_000, skilling: 3_000_000, total: 5_000_000 };
+};
 
 test("equipment data separates combat, skilling, tools and dual-use gear", () => {
   const scores = runtime.api.calculateGearScores(
@@ -350,14 +366,16 @@ test("combat and skilling houses are dynamic while all houses remain fixed asset
     house: 7,
     abilities: 0,
     equipment: 40,
-    total: 47,
+    shrine: 2,
+    total: 49,
   });
   assert.deepEqual(scores.skilling, {
     house: 10,
     tools: 49,
     equipment: 50,
+    shrine: 3,
     available: true,
-    total: 109,
+    total: 112,
   });
   assert.deepEqual(scores.assets, { allHouses: 17, allAbilities: 0 });
 });
@@ -365,6 +383,8 @@ test("combat and skilling houses are dynamic while all houses remain fixed asset
 test("profile scores include tools and show unavailable values when hidden", async () => {
   const publicProfile = {
     profile: {
+      guildId: 2,
+      guildBuffLevelMap: profileGuildBuffLevels,
       hideWearableItems: false,
       characterHouseRoomMap: runtime.state.initData_characterHouseRoomMap,
       wearableItemMap: Object.fromEntries(
@@ -377,21 +397,44 @@ test("profile scores include tools and show unavailable values when hidden", asy
     },
   };
   const publicScores = await runtime.api.getBuildScoreByProfile(publicProfile);
-  assert.equal(publicScores.battle.total, 47);
-  assert.equal(publicScores.skilling.total, 109);
+  assert.equal(publicScores.battle.shrine, 4);
+  assert.equal(publicScores.skilling.shrine, 5);
+  assert.equal(publicScores.battle.total, 51);
+  assert.equal(publicScores.skilling.total, 114);
+
+  const unguildedScores = await runtime.api.getBuildScoreByProfile({
+    profile: { ...publicProfile.profile, guildId: null },
+  });
+  assert.equal(unguildedScores.battle.shrine, null);
+  assert.equal(unguildedScores.skilling.shrine, null);
+  assert.equal(unguildedScores.battle.total, 47);
+  assert.equal(unguildedScores.skilling.total, 109);
+
+  const missingProfileShrines = await runtime.api.getBuildScoreByProfile({
+    profile: {
+      ...publicProfile.profile,
+      guildBuffLevelMap: undefined,
+    },
+  });
+  assert.equal(missingProfileShrines.battle.shrine, null);
+  assert.equal(missingProfileShrines.skilling.shrine, null);
+  assert.equal(missingProfileShrines.battle.total, 47);
+  assert.equal(missingProfileShrines.skilling.total, 109);
 
   await runtime.api.showBuildScoreOnProfile(publicProfile);
   const profileScores = document.querySelector("#script_profile_gear_scores");
   assert.equal(profileScores.tagName, "SECTION");
   assert.match(profileScores.getAttribute("style"), /width: fit-content/);
   assert.match(profileScores.getAttribute("style"), /border-left: 2px solid/);
-  assert.match(document.body.textContent, /战斗着装评分：\s*47\.0/);
-  assert.match(document.body.textContent, /生活着装评分：\s*109/);
+  assert.match(document.body.textContent, /战斗着装评分：\s*51\.0/);
+  assert.match(document.body.textContent, /生活着装评分：\s*114/);
   assert.match(
     document.querySelector("#skillingScores_profile").textContent,
     /房屋：\s*10\.0/,
   );
   assert.match(document.body.textContent, /工具：\s*49\.0/);
+  assert.match(document.body.textContent, /战斗神龛：\s*4\.0/);
+  assert.match(document.body.textContent, /生活神龛：\s*5\.0/);
   const battleToggle = document.querySelector("#toggleScores_profile");
   const battleDetails = document.querySelector("#buildScores_profile");
   const battleIcon = battleToggle.querySelector(".mwi-profile-toggle-icon");
@@ -418,7 +461,7 @@ test("profile scores include tools and show unavailable values when hidden", asy
     document.querySelectorAll("#script_profile_gear_scores").length,
     1,
   );
-  assert.match(document.body.textContent, /战斗着装评分：\s*7\.0（装备隐藏）/);
+  assert.match(document.body.textContent, /战斗着装评分：\s*11\.0（装备隐藏）/);
   assert.match(document.body.textContent, /生活着装评分：\s*-（装备隐藏）/);
   assert.match(
     document.querySelector("#buildScores_profile").textContent,
@@ -432,14 +475,18 @@ test("profile scores include tools and show unavailable values when hidden", asy
     document.querySelector("#skillingScores_profile").textContent,
     /房屋：\s*10\.0/,
   );
+  assert.match(document.body.textContent, /战斗神龛：\s*4\.0/);
+  assert.match(document.body.textContent, /生活神龛：\s*5\.0/);
   assert.doesNotMatch(document.body.textContent, /战力打造分/);
 
   runtime.config.isZH = false;
   await runtime.api.showBuildScoreOnProfile(publicProfile);
-  assert.match(document.body.textContent, /Combat Gear Score:\s*47\.0/);
-  assert.match(document.body.textContent, /Skilling Gear Score:\s*109/);
+  assert.match(document.body.textContent, /Combat Gear Score:\s*51\.0/);
+  assert.match(document.body.textContent, /Skilling Gear Score:\s*114/);
   assert.match(document.body.textContent, /House:\s*7\.0/);
   assert.match(document.body.textContent, /Abilities:\s*0\.0/);
+  assert.match(document.body.textContent, /Combat shrine:\s*4\.0/);
+  assert.match(document.body.textContent, /Skilling shrine:\s*5\.0/);
 });
 
 test("score formatting keeps one decimal through 100 and groups larger integers", () => {

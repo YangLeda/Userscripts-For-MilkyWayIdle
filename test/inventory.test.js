@@ -73,8 +73,15 @@ runtime.state.initData_itemDetailMap = {
 runtime.state.itemEnNameToHridMap = { Milk: "/items/milk" };
 runtime.api.fetchMarketJSON = async () => runtime.state.marketApiJson;
 runtime.api.getSelfBuildScores = async () => ({
-  battle: { house: 1, abilities: 2, equipment: 3, total: 6 },
-  skilling: { house: 1, tools: 4, equipment: 5, total: 10, available: true },
+  battle: { house: 1, abilities: 2, equipment: 3, shrine: null, total: 6 },
+  skilling: {
+    house: 1,
+    tools: 4,
+    equipment: 5,
+    shrine: null,
+    total: 10,
+    available: true,
+  },
   assets: { allHouses: 10, allAbilities: 20 },
   equipmentHidden: false,
 });
@@ -344,12 +351,20 @@ test("inventory asset summaries rerender without restoring the removed header UI
     /房屋：\s*1\.0/,
   );
   assert.match(
+    document.querySelector("#buildScores").textContent,
+    /战斗神龛：\s*—/,
+  );
+  assert.match(
     document.querySelector("#skillingScores").textContent,
     /房屋：\s*1\.0/,
   );
   assert.match(
     document.querySelector("#skillingScores").textContent,
     /工具：\s*4\.0/,
+  );
+  assert.match(
+    document.querySelector("#skillingScores").textContent,
+    /生活神龛：\s*—/,
   );
   assert.match(
     document.querySelector("#toggleNetWorth").textContent,
@@ -429,6 +444,14 @@ test("inventory asset summaries rerender without restoring the removed header UI
   ]) {
     assert.match(englishAssets.textContent, new RegExp(label));
   }
+  assert.match(
+    document.querySelector("#buildScores").textContent,
+    /Combat shrine:\s*—/,
+  );
+  assert.match(
+    document.querySelector("#skillingScores").textContent,
+    /Skilling shrine:\s*—/,
+  );
   assert.doesNotMatch(englishAssets.textContent, /value/i);
   runtime.config.isZH = true;
   await runtime.api.calculateNetworth();
@@ -623,6 +646,7 @@ test("guild currencies move to fixed assets while task tokens stay inventory", a
   ];
   runtime.state.initData_guildBuffDetailMap = {
     "/guild_buffs/test": {
+      isCombat: true,
       levelCosts: [
         null,
         {

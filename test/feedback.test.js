@@ -421,7 +421,15 @@ test("announcement history preserves each release separately through 26.4.14", (
   assert.match(latest.title.zh, /26\.4\.14 更新公告/);
   assert.match(latest.title.en, /Version 26\.4\.14 update/);
   assert.equal(latest.body.zh.length, latest.body.en.length);
-  assert.equal(latest.body.zh.length, 9);
+  assert.equal(latest.body.zh.length, 10);
+  assert.match(
+    latest.body.zh.join("\n"),
+    /战斗与生活着装评分.*全部战斗神龛和生活神龛.*对方公开的神龛等级.*缺少公会数据.*不影响其余评分/,
+  );
+  assert.match(
+    latest.body.en.join("\n"),
+    /Combat and Skilling Gear Scores.*every matching guild shrine.*player's public shrine levels.*missing guild data.*without affecting the remaining score/i,
+  );
   assert.match(
     latest.body.zh.join("\n"),
     /地牢宝箱.*精炼宝箱.*库存估值.*开箱期望.*宝箱开启钥匙.*地牢门票钥匙.*分别展示.*普通无门票宝箱.*不受影响/,

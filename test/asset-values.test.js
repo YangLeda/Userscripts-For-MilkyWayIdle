@@ -817,6 +817,7 @@ test("all enhanced back equipment uses forced protection-mirror value", () => {
 test("guild shrine value accumulates every purchased buff level", () => {
   runtime.state.initData_guildBuffDetailMap = {
     "/guild_buffs/force_combat": {
+      isCombat: true,
       levelCosts: [
         null,
         {
@@ -830,6 +831,7 @@ test("guild shrine value accumulates every purchased buff level", () => {
       ],
     },
     "/guild_buffs/force_skilling": {
+      isCombat: false,
       levelCosts: [
         null,
         {
@@ -838,16 +840,66 @@ test("guild shrine value accumulates every purchased buff level", () => {
         },
       ],
     },
+    "/guild_buffs/scholar_combat": {
+      isCombat: true,
+      levelCosts: [
+        null,
+        {
+          guildTokenCost: 0,
+          creditCosts: [{ itemHrid: "/items/green_guild_credit", count: 4 }],
+        },
+      ],
+    },
+    "/guild_buffs/scholar_skilling": {
+      isCombat: false,
+      levelCosts: [
+        null,
+        {
+          guildTokenCost: 0,
+          creditCosts: [{ itemHrid: "/items/green_guild_credit", count: 6 }],
+        },
+      ],
+    },
   };
   runtime.state.guildBuffLevels = {
     "/guild_buffs/force_combat": { level: 2 },
     "/guild_buffs/force_skilling": 1,
+    "/guild_buffs/scholar_combat": 1,
+    "/guild_buffs/scholar_skilling": 1,
   };
   runtime.state.guildDataLoaded = true;
-  assert.equal(runtime.api.getGuildShrineValue(), 800);
+  assert.deepEqual(runtime.api.getGuildShrineValues(), {
+    battle: 840,
+    skilling: 160,
+    total: 1000,
+  });
+  assert.equal(runtime.api.getGuildShrineValue(), 1000);
 
   runtime.state.guildDataLoaded = false;
   assert.equal(runtime.api.getGuildShrineValue(), null);
+  assert.deepEqual(
+    runtime.api.getGuildShrineValues({
+      "/guild_buffs/force_combat": 1,
+      "/guild_buffs/force_skilling": 0,
+      "/guild_buffs/scholar_combat": 0,
+      "/guild_buffs/scholar_skilling": 0,
+    }),
+    { battle: 460, skilling: 0, total: 460 },
+  );
+
+  const savedCost =
+    runtime.state.initData_guildBuffDetailMap["/guild_buffs/force_combat"]
+      .levelCosts[2];
+  runtime.state.initData_guildBuffDetailMap[
+    "/guild_buffs/force_combat"
+  ].levelCosts[2] = null;
+  assert.deepEqual(
+    runtime.api.getGuildShrineValues(runtime.state.guildBuffLevels),
+    { battle: null, skilling: 160, total: null },
+  );
+  runtime.state.initData_guildBuffDetailMap[
+    "/guild_buffs/force_combat"
+  ].levelCosts[2] = savedCost;
 });
 
 test("recipe and shop reverse indexes rebuild when source objects are replaced", () => {

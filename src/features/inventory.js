@@ -524,6 +524,7 @@ async function calculateNetworth(options = {}) {
                 <div class="mwi-summary-stat"><span class="mwi-summary-stat-label">${runtime.config.isZH ? "房屋：" : "House: "}</span><span class="mwi-summary-stat-value">${runtime.api.formatScore(scores.battle.house)}</span></div>
                 <div class="mwi-summary-stat"><span class="mwi-summary-stat-label">${runtime.config.isZH ? "技能：" : "Abilities: "}</span><span class="mwi-summary-stat-value">${runtime.api.formatScore(scores.battle.abilities)}</span></div>
                 <div class="mwi-summary-stat"><span class="mwi-summary-stat-label">${runtime.config.isZH ? "装备：" : "Equipment: "}</span><span class="mwi-summary-stat-value">${runtime.api.formatScore(scores.battle.equipment)}</span></div>
+                <div class="mwi-summary-stat"><span class="mwi-summary-stat-label">${runtime.config.isZH ? "战斗神龛：" : "Combat shrine: "}</span><span class="mwi-summary-stat-value">${Number.isFinite(scores.battle.shrine) ? runtime.api.formatScore(scores.battle.shrine) : "—"}</span></div>
               </div>
             </div>
           </section>
@@ -541,6 +542,7 @@ async function calculateNetworth(options = {}) {
                 <div class="mwi-summary-stat"><span class="mwi-summary-stat-label">${runtime.config.isZH ? "房屋：" : "House: "}</span><span class="mwi-summary-stat-value">${runtime.api.formatScore(scores.skilling.house)}</span></div>
                 <div class="mwi-summary-stat"><span class="mwi-summary-stat-label">${runtime.config.isZH ? "工具：" : "Tools: "}</span><span class="mwi-summary-stat-value">${runtime.api.formatScore(scores.skilling.tools)}</span></div>
                 <div class="mwi-summary-stat"><span class="mwi-summary-stat-label">${runtime.config.isZH ? "装备：" : "Equipment: "}</span><span class="mwi-summary-stat-value">${runtime.api.formatScore(scores.skilling.equipment)}</span></div>
+                <div class="mwi-summary-stat"><span class="mwi-summary-stat-label">${runtime.config.isZH ? "生活神龛：" : "Skilling shrine: "}</span><span class="mwi-summary-stat-value">${Number.isFinite(scores.skilling.shrine) ? runtime.api.formatScore(scores.skilling.shrine) : "—"}</span></div>
               </div>
             </div>
           </section>

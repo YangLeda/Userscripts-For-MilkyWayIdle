@@ -11,6 +11,7 @@ export const ANNOUNCEMENTS = Object.freeze([
     }),
     body: Object.freeze({
       zh: Object.freeze([
+        "战斗与生活着装评分现在会分别计入当前公会全部战斗神龛和生活神龛的累计升级价值；查看他人资料时会使用对方公开的神龛等级，缺少公会数据时显示横线且不影响其余评分。",
         "地牢宝箱与精炼宝箱的库存估值和开箱期望现在都会同时扣除宝箱开启钥匙与对应地牢门票钥匙；开箱面板会分别展示两项成本，普通无门票宝箱不受影响。",
         "修复强化披风与其他背部装备时未比较贤者之镜方案的问题；包括精炼 +14 在内的强化成本现在会保留保护之镜作为普通保护材料，同时完整比较贤者之镜合成方案并选择总成本更低的路线。",
         "完整队列的耗时与完成时间不再依赖市场悬浮价格；队列重建、无限动作和缺少投影时会自动重试或显示明确原因。普通战斗任务会按目标怪物合并，任务“新”标记只跟随真正新增的任务。",
@@ -22,6 +23,7 @@ export const ANNOUNCEMENTS = Object.freeze([
         "任务筛选按钮现在可用鼠标或触屏长按 1 秒分别锁定；命中锁定类型的任务会让两种刷新选项变灰并显示锁图标。筛选中刷新出的卡片即使改变类型也会保留到重新进入任务页，关闭任务统计筛选栏会清除已有锁定。锁定只显示小锁，不会改变筛选高亮，再次长按解锁后小锁会立即消失。",
       ]),
       en: Object.freeze([
+        "Combat and Skilling Gear Scores now include the cumulative upgrade value of every matching guild shrine. Shared profiles use that player's public shrine levels, while missing guild data shows a dash without affecting the remaining score.",
         "Inventory valuations and opening estimates for dungeon and refinement chests now deduct both the chest key and the matching dungeon entry key. The opening panel shows the two costs separately, while ordinary chests without entry keys are unchanged.",
         "Fixed Philosopher's Mirror plans being skipped for enhanced capes and other back equipment. Enhancement costs, including refined +14 items, now keep Mirrors of Protection for regular protection while comparing the full Philosopher's Mirror synthesis route and selecting the lower total cost.",
         "Full-queue duration and completion estimates no longer depend on hover prices. Queue rebuilds now retry, while infinite actions and missing projections show an explicit reason. Regular combat tasks merge by target monster, and New badges follow only genuinely added task IDs.",
