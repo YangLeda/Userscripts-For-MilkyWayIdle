@@ -613,6 +613,14 @@ test("the current announcement covers task reroll and navigation compatibility",
     current.body.en.join("\n"),
     /filter buttons.*one-second.*locked type.*both reroll choices.*re-entered.*clears existing locks/i,
   );
+  assert.match(
+    current.body.zh.join("\n"),
+    /只显示小锁.*不会改变筛选高亮.*再次长按解锁.*立即消失/,
+  );
+  assert.match(
+    current.body.en.join("\n"),
+    /small padlock.*without changing filter highlighting.*hold unlocks.*removes the padlock immediately/i,
+  );
 });
 
 test("the announcement history covers every player-facing update bilingually", () => {

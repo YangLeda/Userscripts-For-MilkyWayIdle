@@ -292,6 +292,10 @@ test("tasks use a flat sorted list with statistics filters", () => {
     /data-mwitools-lock-pressing[^}]*mwi-task-lock-progress 1000ms/,
   );
   assert.match(styles, /data-mwitools-task-lock-disabled/);
+  assert.doesNotMatch(
+    styles,
+    /data-mwitools-task-locked="true"\]\s*\{[^}]*opacity:\s*1/,
+  );
   assert.doesNotMatch(styles, /repeat\(auto-fit/);
   assert.match(styles, /@media \(max-width:640px\)/);
   assert.equal(document.querySelector(".mwi-task-profession-group"), null);
@@ -2272,6 +2276,11 @@ test("task filter locks persist per character and disable both reroll choices", 
   );
   assert.equal(craftingFilter.dataset.mwitoolsTaskLocked, "true");
   assert.ok(craftingFilter.querySelector(".mwi-task-filter-lock"));
+  assert.equal(
+    craftingFilter.getAttribute("aria-pressed"),
+    "false",
+    "locking a filter must not select or highlight it",
+  );
   craftingFilter.click();
   toolbar.querySelector('[data-filter-kind="reset"]').click();
   assert.equal(
@@ -2318,8 +2327,17 @@ test("task filter locks persist per character and disable both reroll choices", 
   assert.ok(choices.every((button) => !button.disabled));
   options.remove();
   runtime.settings.settingsMap.taskStatistics.isTrue = true;
-  runtime.state.currentCharacterId = originalCharacterId;
   runtime.api.renderTasks();
+  const unlockedCraftingFilter = document.querySelector(
+    '[data-filter-kind="profession"][data-filter-value="crafting"]',
+  );
+  assert.equal(unlockedCraftingFilter.dataset.mwitoolsTaskLocked, undefined);
+  assert.equal(
+    unlockedCraftingFilter.querySelector(".mwi-task-filter-lock"),
+    null,
+    "unlocking removes the lock indicator node immediately",
+  );
+  runtime.state.currentCharacterId = originalCharacterId;
   localStorage.removeItem(storageKey);
 });
 

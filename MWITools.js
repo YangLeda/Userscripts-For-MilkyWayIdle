@@ -25742,7 +25742,6 @@ ${locks}` : ""}`;
     .mwi-task-filter:focus-visible,.mwi-task-sort-button:focus-visible { outline:2px solid ${runtime.config.SCRIPT_COLOR_MAIN}; outline-offset:1px; }
     .mwi-task-filter[aria-pressed="true"] { border-color:rgba(226,181,79,.62); background:rgba(226,181,79,.18); color:#f3d58b; }
     .mwi-task-filter[aria-pressed="false"] { opacity:.38; filter:saturate(.35); }
-    .mwi-task-filter[data-mwitools-task-locked="true"] { opacity:1; filter:none; border-color:rgba(113,190,255,.78); box-shadow:0 0 0 1px rgba(113,190,255,.18); }
     .mwi-task-filter-lock { position:absolute; z-index:3; top:-5px; right:-5px; display:none; width:13px; height:13px; align-items:center; justify-content:center; border:1px solid rgba(151,211,255,.85); border-radius:50%; background:#15304a; color:#dff3ff; font:700 8px/1 system-ui,sans-serif; box-shadow:0 1px 3px rgba(0,0,0,.55); pointer-events:none; }
     .mwi-task-filter[data-mwitools-task-locked="true"] > .mwi-task-filter-lock { display:inline-flex; }
     .mwi-task-filter::after { content:""; position:absolute; z-index:4; inset:-4px; border-radius:9px; padding:2px; opacity:0; background:conic-gradient(from -90deg,${runtime.config.SCRIPT_COLOR_MAIN} var(--mwi-task-lock-angle),transparent var(--mwi-task-lock-angle)); -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0); -webkit-mask-composite:xor; mask-composite:exclude; pointer-events:none; }
@@ -26684,11 +26683,6 @@ ${locks}` : ""}`;
     }
     if (showCount) button.append(count);
     if (onLongPress) {
-      const lock = document.createElement("span");
-      lock.className = "mwi-task-filter-lock";
-      lock.textContent = "🔒";
-      lock.setAttribute("aria-hidden", "true");
-      button.append(lock);
       wireTaskFilterLongPress(button, onLongPress);
     }
     button.addEventListener("click", onClick);
@@ -26715,8 +26709,20 @@ ${locks}` : ""}`;
   }
   function updateTaskFilterButton(button, { label, count, pressed, locked }) {
     updatePressedState(button, pressed);
-    if (locked) button.dataset.mwitoolsTaskLocked = "true";
-    else delete button.dataset.mwitoolsTaskLocked;
+    let lock = button.querySelector(":scope > .mwi-task-filter-lock");
+    if (locked) {
+      button.dataset.mwitoolsTaskLocked = "true";
+      if (!lock) {
+        lock = document.createElement("span");
+        lock.className = "mwi-task-filter-lock";
+        lock.textContent = "🔒";
+        lock.setAttribute("aria-hidden", "true");
+        button.append(lock);
+      }
+    } else {
+      delete button.dataset.mwitoolsTaskLocked;
+      lock?.remove();
+    }
     const countText = String(count);
     const countNode = button.querySelector(".mwi-task-filter-count");
     if (countNode?.textContent !== countText) countNode.textContent = countText;
@@ -28872,7 +28878,7 @@ ${locks}` : ""}`;
           "购物清单较长时，修改数量、删除或打开商品会保持当前滚动位置；商品弹窗打开后可直接切换其他购物项，也可从购物清单或商品导航删除当前项并自动前往下一项。",
           "中国服同时兼容有无 www 的访问地址，市场接口统一使用无 www 端点；关闭 MWITools 任务功能时不再提示 TaskManager 冲突，也可按脚本永久静默并在设置中恢复提醒。",
           "左侧利润网入口现在会注明包含强化模拟，并移除重复的插件设置入口；任务图片会在多次刷新时保持稳定，也修复了与 Ranged Way Idle 同时使用时便宜刷新选项可能错误卡死的问题。",
-          "任务筛选按钮现在可用鼠标或触屏长按 1 秒分别锁定；命中锁定类型的任务会让两种刷新选项变灰并显示锁图标。筛选中刷新出的卡片即使改变类型也会保留到重新进入任务页，关闭任务统计筛选栏会清除已有锁定。"
+          "任务筛选按钮现在可用鼠标或触屏长按 1 秒分别锁定；命中锁定类型的任务会让两种刷新选项变灰并显示锁图标。筛选中刷新出的卡片即使改变类型也会保留到重新进入任务页，关闭任务统计筛选栏会清除已有锁定。锁定只显示小锁，不会改变筛选高亮，再次长按解锁后小锁会立即消失。"
         ]),
         en: Object.freeze([
           "Inventory valuations and opening estimates for dungeon and refinement chests now deduct both the chest key and the matching dungeon entry key. The opening panel shows the two costs separately, while ordinary chests without entry keys are unchanged.",
@@ -28883,7 +28889,7 @@ ${locks}` : ""}`;
           "Long shopping lists now keep their scroll position when quantities change, items are removed, or products are opened. While a product modal is open, another shopping item can be opened directly, and the current item can be removed from either the cart or product navigation before advancing automatically.",
           "China servers now support both www and bare hostnames while using the bare-host market endpoint. TaskManager warnings are silent when MWITools task features are off, and individual conflicts can be muted permanently and restored from Settings.",
           "The sidebar profit-site shortcut now notes that it includes an enhancement simulator, and the redundant script-settings shortcut has been removed. Task artwork stays stable through repeated rerolls, and cheaper reroll options no longer become incorrectly stuck when Ranged Way Idle is also enabled.",
-          "Task filter buttons can now be locked individually with a one-second mouse or touch hold. Tasks matching a locked type gray out both reroll choices and show lock icons. Cards rerolled while filtering remain visible even if their type changes until the task page is re-entered, and disabling task statistics filters clears existing locks."
+          "Task filter buttons can now be locked individually with a one-second mouse or touch hold. Tasks matching a locked type gray out both reroll choices and show lock icons. Cards rerolled while filtering remain visible even if their type changes until the task page is re-entered, and disabling task statistics filters clears existing locks. Locking only shows the small padlock without changing filter highlighting, and another one-second hold unlocks it and removes the padlock immediately."
         ])
       })
     }),

@@ -264,7 +264,6 @@ function addStyles() {
     .mwi-task-filter:focus-visible,.mwi-task-sort-button:focus-visible { outline:2px solid ${runtime.config.SCRIPT_COLOR_MAIN}; outline-offset:1px; }
     .mwi-task-filter[aria-pressed="true"] { border-color:rgba(226,181,79,.62); background:rgba(226,181,79,.18); color:#f3d58b; }
     .mwi-task-filter[aria-pressed="false"] { opacity:.38; filter:saturate(.35); }
-    .mwi-task-filter[data-mwitools-task-locked="true"] { opacity:1; filter:none; border-color:rgba(113,190,255,.78); box-shadow:0 0 0 1px rgba(113,190,255,.18); }
     .mwi-task-filter-lock { position:absolute; z-index:3; top:-5px; right:-5px; display:none; width:13px; height:13px; align-items:center; justify-content:center; border:1px solid rgba(151,211,255,.85); border-radius:50%; background:#15304a; color:#dff3ff; font:700 8px/1 system-ui,sans-serif; box-shadow:0 1px 3px rgba(0,0,0,.55); pointer-events:none; }
     .mwi-task-filter[data-mwitools-task-locked="true"] > .mwi-task-filter-lock { display:inline-flex; }
     .mwi-task-filter::after { content:""; position:absolute; z-index:4; inset:-4px; border-radius:9px; padding:2px; opacity:0; background:conic-gradient(from -90deg,${runtime.config.SCRIPT_COLOR_MAIN} var(--mwi-task-lock-angle),transparent var(--mwi-task-lock-angle)); -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0); -webkit-mask-composite:xor; mask-composite:exclude; pointer-events:none; }
@@ -1435,11 +1434,6 @@ function createTaskFilterButton({
   }
   if (showCount) button.append(count);
   if (onLongPress) {
-    const lock = document.createElement("span");
-    lock.className = "mwi-task-filter-lock";
-    lock.textContent = "🔒";
-    lock.setAttribute("aria-hidden", "true");
-    button.append(lock);
     wireTaskFilterLongPress(button, onLongPress);
   }
   button.addEventListener("click", onClick);
@@ -1470,8 +1464,20 @@ function updateTaskFilterIcon(button) {
 
 function updateTaskFilterButton(button, { label, count, pressed, locked }) {
   updatePressedState(button, pressed);
-  if (locked) button.dataset.mwitoolsTaskLocked = "true";
-  else delete button.dataset.mwitoolsTaskLocked;
+  let lock = button.querySelector(":scope > .mwi-task-filter-lock");
+  if (locked) {
+    button.dataset.mwitoolsTaskLocked = "true";
+    if (!lock) {
+      lock = document.createElement("span");
+      lock.className = "mwi-task-filter-lock";
+      lock.textContent = "🔒";
+      lock.setAttribute("aria-hidden", "true");
+      button.append(lock);
+    }
+  } else {
+    delete button.dataset.mwitoolsTaskLocked;
+    lock?.remove();
+  }
   const countText = String(count);
   const countNode = button.querySelector(".mwi-task-filter-count");
   if (countNode?.textContent !== countText) countNode.textContent = countText;
