@@ -19,6 +19,7 @@ export const ANNOUNCEMENTS = Object.freeze([
         "购物清单较长时，修改数量、删除或打开商品会保持当前滚动位置；商品弹窗打开后可直接切换其他购物项，也可从购物清单或商品导航删除当前项并自动前往下一项。",
         "中国服同时兼容有无 www 的访问地址，市场接口统一使用无 www 端点；关闭 MWITools 任务功能时不再提示 TaskManager 冲突，也可按脚本永久静默并在设置中恢复提醒。",
         "左侧利润网入口现在会注明包含强化模拟，并移除重复的插件设置入口；任务图片会在多次刷新时保持稳定，也修复了与 Ranged Way Idle 同时使用时便宜刷新选项可能错误卡死的问题。",
+        "任务筛选按钮现在可用鼠标或触屏长按 1 秒分别锁定；命中锁定类型的任务会让两种刷新选项变灰并显示锁图标。筛选中刷新出的卡片即使改变类型也会保留到重新进入任务页，关闭任务统计筛选栏会清除已有锁定。",
       ]),
       en: Object.freeze([
         "Inventory valuations and opening estimates for dungeon and refinement chests now deduct both the chest key and the matching dungeon entry key. The opening panel shows the two costs separately, while ordinary chests without entry keys are unchanged.",
@@ -29,6 +30,7 @@ export const ANNOUNCEMENTS = Object.freeze([
         "Long shopping lists now keep their scroll position when quantities change, items are removed, or products are opened. While a product modal is open, another shopping item can be opened directly, and the current item can be removed from either the cart or product navigation before advancing automatically.",
         "China servers now support both www and bare hostnames while using the bare-host market endpoint. TaskManager warnings are silent when MWITools task features are off, and individual conflicts can be muted permanently and restored from Settings.",
         "The sidebar profit-site shortcut now notes that it includes an enhancement simulator, and the redundant script-settings shortcut has been removed. Task artwork stays stable through repeated rerolls, and cheaper reroll options no longer become incorrectly stuck when Ranged Way Idle is also enabled.",
+        "Task filter buttons can now be locked individually with a one-second mouse or touch hold. Tasks matching a locked type gray out both reroll choices and show lock icons. Cards rerolled while filtering remain visible even if their type changes until the task page is re-entered, and disabling task statistics filters clears existing locks.",
       ]),
     }),
   }),

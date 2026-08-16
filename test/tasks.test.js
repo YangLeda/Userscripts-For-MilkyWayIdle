@@ -44,9 +44,13 @@ await import("../src/core/action-projection.js");
 await import("../src/core/procurement.js");
 const {
   dungeonLocationsForCard,
+  readTaskFilterLocks,
   repairRangedWayIdleRerollButtons,
   shouldRenderTaskMutations,
   taskArtworkForCard,
+  taskFilterLocksStorageKey,
+  wireTaskFilterLongPress,
+  writeTaskFilterLocks,
 } = await import("../src/features/tasks.js");
 const { taskNewStorageKey, writeTaskNewState } =
   await import("../src/features/task-new-badge.js");
@@ -283,6 +287,11 @@ test("tasks use a flat sorted list with statistics filters", () => {
     styles,
     /\.mwi-task-merge-toast[^}]*position:fixed[^}]*z-index:2147483200/,
   );
+  assert.match(
+    styles,
+    /data-mwitools-lock-pressing[^}]*mwi-task-lock-progress 1000ms/,
+  );
+  assert.match(styles, /data-mwitools-task-lock-disabled/);
   assert.doesNotMatch(styles, /repeat\(auto-fit/);
   assert.match(styles, /@media \(max-width:640px\)/);
   assert.equal(document.querySelector(".mwi-task-profession-group"), null);
@@ -2166,4 +2175,328 @@ test("localized task controls wire merge and reset behavior", () => {
   });
   runtime.state.pendingMergedTask = null;
   localStorage.setItem("i18nextLng", "zh-CN");
+});
+
+test("task filter long press completes, cancels, and suppresses its click", async () => {
+  const button = document.createElement("button");
+  document.body.append(button);
+  let longPresses = 0;
+  let clicks = 0;
+  wireTaskFilterLongPress(
+    button,
+    () => {
+      longPresses += 1;
+    },
+    { holdMs: 20, moveTolerance: 5 },
+  );
+  button.addEventListener("click", () => {
+    clicks += 1;
+  });
+  const pointer = (type, x = 0, y = 0) => {
+    const event = new dom.window.MouseEvent(type, {
+      bubbles: true,
+      button: 0,
+      clientX: x,
+      clientY: y,
+    });
+    Object.defineProperty(event, "pointerId", { value: 7 });
+    return event;
+  };
+
+  button.click();
+  assert.equal(clicks, 1);
+  button.dispatchEvent(pointer("pointerdown"));
+  assert.equal(button.dataset.mwitoolsLockPressing, "true");
+  button.dispatchEvent(pointer("pointerup"));
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.equal(longPresses, 0);
+
+  button.dispatchEvent(pointer("pointerdown"));
+  button.dispatchEvent(pointer("pointermove", 10, 0));
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.equal(longPresses, 0);
+
+  button.dispatchEvent(pointer("pointerdown"));
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.equal(longPresses, 1);
+  button.dispatchEvent(pointer("pointerup"));
+  button.click();
+  assert.equal(clicks, 1, "the click following a completed hold is suppressed");
+
+  button.dispatchEvent(pointer("pointerdown"));
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  button.dispatchEvent(pointer("pointerup"));
+  button.click();
+  assert.equal(longPresses, 2, "the same gesture can unlock again");
+  assert.equal(clicks, 1);
+  button.remove();
+});
+
+test("task filter locks persist per character and disable both reroll choices", () => {
+  const originalCharacterId = runtime.state.currentCharacterId;
+  const characterId = "task-filter-lock-role";
+  const storageKey = taskFilterLocksStorageKey(characterId);
+  localStorage.setItem(
+    storageKey,
+    JSON.stringify({
+      locked: [
+        "profession:crafting",
+        "dungeon:/actions/combat/chimerical_den",
+        "profession:unknown",
+        "invalid",
+      ],
+    }),
+  );
+  assert.deepEqual([...readTaskFilterLocks(storageKey)].sort(), [
+    "dungeon:/actions/combat/chimerical_den",
+    "profession:crafting",
+  ]);
+
+  runtime.state.currentCharacterId = characterId;
+  document.querySelector('[class*="TasksPanel_taskList"]')?.remove();
+  document.body.insertAdjacentHTML(
+    "beforeend",
+    `<div class="TasksPanel_taskList__filter-lock">
+      ${card("制作 - 木板", "0 / 5")}
+    </div>`,
+  );
+  runtime.state.characterQuests = [
+    { id: "locked-crafting", actionHrid: "/actions/crafting/lumber" },
+  ];
+  runtime.settings.settingsMap.taskStatistics.isTrue = true;
+  runtime.api.renderTasks();
+
+  const toolbar = document.querySelector(".mwi-task-toolbar");
+  const craftingFilter = toolbar.querySelector(
+    '[data-filter-kind="profession"][data-filter-value="crafting"]',
+  );
+  assert.equal(craftingFilter.dataset.mwitoolsTaskLocked, "true");
+  assert.ok(craftingFilter.querySelector(".mwi-task-filter-lock"));
+  craftingFilter.click();
+  toolbar.querySelector('[data-filter-kind="reset"]').click();
+  assert.equal(
+    craftingFilter.dataset.mwitoolsTaskLocked,
+    "true",
+    "resetting visible filters must not unlock a type",
+  );
+
+  const taskCard = document.querySelector(
+    ".TasksPanel_taskList__filter-lock " + TASK_SELECTOR,
+  );
+  const sourceReset = [...taskCard.querySelectorAll("button")].find(
+    (button) => button.textContent === "重置",
+  );
+  sourceReset.click();
+  const options = document.createElement("div");
+  options.className = "RandomTask_rerollOptionsContainer__locked";
+  for (const expensive of [true, false]) {
+    const option = document.createElement("button");
+    option.className = "RangedWayIdleTaskButton";
+    option.dataset.moreExpensive = String(expensive);
+    option.textContent = expensive ? "Expensive" : "Preferred";
+    options.append(option);
+  }
+  document.body.append(options);
+  runtime.api.renderTasks();
+  const choices = [...options.querySelectorAll("button")];
+  assert.equal(sourceReset.disabled, false);
+  assert.ok(
+    choices.every(
+      (button) =>
+        button.disabled &&
+        button.dataset.mwitoolsTaskLockDisabled === "true" &&
+        button.querySelector(".mwi-task-reroll-lock"),
+    ),
+  );
+  assert.equal(repairRangedWayIdleRerollButtons(), 0);
+
+  runtime.settings.settingsMap.taskStatistics.isTrue = false;
+  runtime.api.renderTasks();
+  assert.deepEqual(JSON.parse(localStorage.getItem(storageKey)), {
+    locked: [],
+  });
+  assert.ok(choices.every((button) => !button.disabled));
+  options.remove();
+  runtime.settings.settingsMap.taskStatistics.isTrue = true;
+  runtime.state.currentCharacterId = originalCharacterId;
+  runtime.api.renderTasks();
+  localStorage.removeItem(storageKey);
+});
+
+test("a rerolled task that becomes a locked type is protected next time", () => {
+  const originalCharacterId = runtime.state.currentCharacterId;
+  const characterId = "task-filter-new-lock-role";
+  const storageKey = taskFilterLocksStorageKey(characterId);
+  writeTaskFilterLocks(storageKey, new Set(["profession:crafting"]));
+  runtime.state.currentCharacterId = characterId;
+  document.querySelector('[class*="TasksPanel_taskList"]')?.remove();
+  document.body.insertAdjacentHTML(
+    "beforeend",
+    `<div class="TasksPanel_taskList__new-lock">
+      ${card("挤奶 - 奶牛", "0 / 5")}
+    </div>`,
+  );
+  runtime.state.characterQuests = [
+    { id: "new-lock-milking", actionHrid: "/actions/milking/cow" },
+  ];
+  runtime.api.renderTasks();
+  const taskCard = document.querySelector(
+    ".TasksPanel_taskList__new-lock " + TASK_SELECTOR,
+  );
+  const reset = [...taskCard.querySelectorAll("button")].find(
+    (button) => button.textContent === "重置",
+  );
+  reset.click();
+  const firstOptions = document.createElement("div");
+  firstOptions.className = "RandomTask_rerollOptionsContainer__first";
+  firstOptions.innerHTML = "<button>One</button><button>Two</button>";
+  document.body.append(firstOptions);
+  runtime.api.renderTasks();
+  assert.ok(
+    [...firstOptions.querySelectorAll("button")].every(
+      (button) => !button.disabled,
+    ),
+  );
+  firstOptions.querySelector("button").click();
+  firstOptions.remove();
+
+  taskCard.querySelector('[class*="RandomTask_name"]').textContent =
+    "制作 - 新木板";
+  runtime.state.characterQuests = [
+    { id: "new-lock-crafting", actionHrid: "/actions/crafting/lumber" },
+  ];
+  runtime.api.renderTasks();
+  reset.click();
+  const secondOptions = document.createElement("div");
+  secondOptions.className = "RandomTask_rerollOptionsContainer__second";
+  secondOptions.innerHTML = "<button>One</button><button>Two</button>";
+  document.body.append(secondOptions);
+  runtime.api.renderTasks();
+  assert.ok(
+    [...secondOptions.querySelectorAll("button")].every(
+      (button) => button.dataset.mwitoolsTaskLockDisabled === "true",
+    ),
+  );
+  secondOptions.remove();
+  runtime.api.renderTasks();
+  runtime.state.currentCharacterId = originalCharacterId;
+  localStorage.removeItem(storageKey);
+});
+
+test("a filtered reroll stays visible until the task page is re-entered", () => {
+  const originalCharacterId = runtime.state.currentCharacterId;
+  const characterId = "task-filter-sticky-role";
+  localStorage.removeItem(taskFilterLocksStorageKey(characterId));
+  runtime.state.currentCharacterId = characterId;
+  document.querySelector('[class*="TasksPanel_taskList"]')?.remove();
+  document.body.insertAdjacentHTML(
+    "beforeend",
+    `<div class="TasksPanel_taskList__sticky-filter">
+      ${card("制作 - 木板", "0 / 5")}
+      ${card("挤奶 - 奶牛", "0 / 5")}
+    </div>`,
+  );
+  runtime.state.characterQuests = [
+    { id: "sticky-crafting", actionHrid: "/actions/crafting/lumber" },
+    { id: "sticky-milking", actionHrid: "/actions/milking/cow" },
+  ];
+  runtime.api.renderTasks();
+  const toolbar = document.querySelector(".mwi-task-toolbar");
+  const craftingFilter = toolbar.querySelector(
+    '[data-filter-kind="profession"][data-filter-value="crafting"]',
+  );
+  craftingFilter.click();
+  const stickyCard = [...document.querySelectorAll(TASK_SELECTOR)].find(
+    (taskCard) =>
+      taskCard.querySelector('[class*="RandomTask_name"]').textContent ===
+      "制作 - 木板",
+  );
+  [...stickyCard.querySelectorAll("button")]
+    .find((button) => button.textContent === "重置")
+    .click();
+  const options = document.createElement("div");
+  options.className = "RandomTask_rerollOptionsContainer__sticky";
+  options.innerHTML = "<button>One</button><button>Two</button>";
+  document.body.append(options);
+  runtime.api.renderTasks();
+  options.querySelector("button").click();
+  options.remove();
+
+  stickyCard.querySelector('[class*="RandomTask_name"]').textContent =
+    "挤奶 - 新奶牛";
+  runtime.state.characterQuests[0] = {
+    id: "sticky-rerolled-milking",
+    actionHrid: "/actions/milking/cow",
+  };
+  runtime.api.renderTasks();
+  assert.equal(stickyCard.dataset.mwitoolsFiltered, "false");
+
+  craftingFilter.click();
+  document
+    .querySelector(
+      '[data-filter-kind="profession"][data-filter-value="foraging"]',
+    )
+    .click();
+  assert.equal(
+    stickyCard.dataset.mwitoolsFiltered,
+    "false",
+    "a retained card remains visible after later filter changes",
+  );
+
+  document.querySelector(".TasksPanel_taskList__sticky-filter").remove();
+  document.body.insertAdjacentHTML(
+    "beforeend",
+    `<div class="TasksPanel_taskList__sticky-reentered">
+      ${card("挤奶 - 新奶牛", "0 / 5")}
+    </div>`,
+  );
+  runtime.state.characterQuests = [runtime.state.characterQuests[0]];
+  runtime.api.renderTasks();
+  document
+    .querySelector(
+      '[data-filter-kind="profession"][data-filter-value="crafting"]',
+    )
+    .click();
+  assert.equal(
+    document.querySelector(
+      ".TasksPanel_taskList__sticky-reentered " + TASK_SELECTOR,
+    ).dataset.mwitoolsFiltered,
+    "true",
+  );
+
+  document
+    .querySelector(
+      '[data-filter-kind="profession"][data-filter-value="crafting"]',
+    )
+    .click();
+  document
+    .querySelector(
+      '[data-filter-kind="profession"][data-filter-value="milking"]',
+    )
+    .click();
+  const reenteredCard = document.querySelector(
+    ".TasksPanel_taskList__sticky-reentered " + TASK_SELECTOR,
+  );
+  [...reenteredCard.querySelectorAll("button")]
+    .find((button) => button.textContent === "重置")
+    .click();
+  const cancelledOptions = document.createElement("div");
+  cancelledOptions.className = "RandomTask_rerollOptionsContainer__cancelled";
+  cancelledOptions.innerHTML = "<button>One</button><button>Two</button>";
+  document.body.append(cancelledOptions);
+  runtime.api.renderTasks();
+  cancelledOptions.remove();
+  runtime.api.renderTasks();
+  reenteredCard.querySelector('[class*="RandomTask_name"]').textContent =
+    "制作 - 取消后变化";
+  runtime.state.characterQuests = [
+    { id: "cancelled-change", actionHrid: "/actions/crafting/lumber" },
+  ];
+  runtime.api.renderTasks();
+  assert.equal(
+    reenteredCard.dataset.mwitoolsFiltered,
+    "true",
+    "cancelling the reroll must not retain a later replacement",
+  );
+  runtime.state.currentCharacterId = originalCharacterId;
 });

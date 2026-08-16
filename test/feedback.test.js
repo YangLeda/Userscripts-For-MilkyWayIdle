@@ -421,7 +421,7 @@ test("announcement history preserves each release separately through 26.4.14", (
   assert.match(latest.title.zh, /26\.4\.14 更新公告/);
   assert.match(latest.title.en, /Version 26\.4\.14 update/);
   assert.equal(latest.body.zh.length, latest.body.en.length);
-  assert.equal(latest.body.zh.length, 8);
+  assert.equal(latest.body.zh.length, 9);
   assert.match(
     latest.body.zh.join("\n"),
     /地牢宝箱.*精炼宝箱.*库存估值.*开箱期望.*宝箱开启钥匙.*地牢门票钥匙.*分别展示.*普通无门票宝箱.*不受影响/,
@@ -605,6 +605,14 @@ test("the current announcement covers task reroll and navigation compatibility",
     /profit-site.*enhancement simulator.*script-settings.*Task artwork/i,
   );
   assert.match(current.body.en.join("\n"), /reroll options.*Ranged Way Idle/i);
+  assert.match(
+    current.body.zh.join("\n"),
+    /筛选按钮.*长按 1 秒.*锁定.*两种刷新选项.*重新进入任务页.*清除已有锁定/,
+  );
+  assert.match(
+    current.body.en.join("\n"),
+    /filter buttons.*one-second.*locked type.*both reroll choices.*re-entered.*clears existing locks/i,
+  );
 });
 
 test("the announcement history covers every player-facing update bilingually", () => {

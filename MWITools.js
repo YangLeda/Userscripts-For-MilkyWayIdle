@@ -25545,8 +25545,13 @@ ${locks}` : ""}`;
   var TASK_SELECTOR = 'div[class*="RandomTask_randomTask"]:not([data-mwitools-task-mirror="true"])';
   var REROLL_OPTIONS_SELECTOR = '[class*="RandomTask_rerollOptionsContainer"]';
   var RANGED_REROLL_BUTTON_SELECTOR = ".RangedWayIdleTaskButton[data-more-expensive]";
-  var OWNED_TASK_SELECTOR = '.mwi-task-insight,.mwi-task-toolbar,.mwi-task-profession-group,.mwi-task-combat-location,.mwi-task-combat-mode,.mwi-task-bg,.mwi-task-merged-note,.mwi-task-merge-toast,.mwi-task-train-planner,.mwi-task-new-badge,[data-mwitools-task-mirror="true"]';
+  var TASK_FILTER_LOCK_STORAGE_PREFIX = "MWITools_task_filter_locks_v1";
+  var TASK_FILTER_LOCK_HOLD_MS = 1e3;
+  var TASK_FILTER_LOCK_MOVE_TOLERANCE = 10;
+  var OWNED_TASK_SELECTOR = '.mwi-task-insight,.mwi-task-toolbar,.mwi-task-profession-group,.mwi-task-combat-location,.mwi-task-combat-mode,.mwi-task-bg,.mwi-task-merged-note,.mwi-task-merge-toast,.mwi-task-train-planner,.mwi-task-new-badge,.mwi-task-reroll-lock,[data-mwitools-task-mirror="true"]';
   var MERGE_HANDLER = /* @__PURE__ */ Symbol("mwitoolsTaskMergeHandler");
+  var REROLL_LOCK_HANDLER = /* @__PURE__ */ Symbol("mwitoolsTaskRerollLockHandler");
+  var REROLL_CHOICE_HANDLER = /* @__PURE__ */ Symbol("mwitoolsTaskRerollChoiceHandler");
   var originalCards = [];
   var taskListParent = null;
   var pageClassifications = /* @__PURE__ */ new Map();
@@ -25569,6 +25574,13 @@ ${locks}` : ""}`;
   var activeProfessionFilters = /* @__PURE__ */ new Set();
   var combatFilterEnabled = false;
   var activeDungeonFilters = /* @__PURE__ */ new Set();
+  var lockedTaskFilters = /* @__PURE__ */ new Set();
+  var taskFilterLockStorageKey = "";
+  var stickyVisibleSlots = /* @__PURE__ */ new Set();
+  var pendingStickyResetSlots = /* @__PURE__ */ new Map();
+  var activeRerollContext = null;
+  var warnedUnexpectedRerollButtons = false;
+  var rerollButtonSnapshots = /* @__PURE__ */ new WeakMap();
   var PROFESSIONS = [
     ["milking", "挤奶", "Milking"],
     ["foraging", "采摘", "Foraging"],
@@ -25596,6 +25608,76 @@ ${locks}` : ""}`;
   }
   function taskId(task) {
     return taskCardTaskId(task);
+  }
+  function taskFilterLocksStorageKey(characterId, server = globalThis.location?.hostname ?? "unknown") {
+    return `${TASK_FILTER_LOCK_STORAGE_PREFIX}:${server}:${String(characterId ?? "")}`;
+  }
+  function normalizedTaskFilterLock(value) {
+    const entry = String(value ?? "");
+    const separator = entry.indexOf(":");
+    if (separator <= 0) return "";
+    const kind = entry.slice(0, separator);
+    const filterValue = entry.slice(separator + 1);
+    if (kind === "profession" && LIFE_PROFESSIONS.some(({ key }) => key === filterValue)) {
+      return entry;
+    }
+    if (kind === "combat" && filterValue === "combat") return entry;
+    if (kind === "dungeon" && filterValue.startsWith("/actions/combat/")) {
+      return entry;
+    }
+    return "";
+  }
+  function readTaskFilterLocks(storageKey) {
+    try {
+      const value = JSON.parse(localStorage.getItem(storageKey) || "null");
+      return new Set(
+        (Array.isArray(value?.locked) ? value.locked : []).map(normalizedTaskFilterLock).filter(Boolean)
+      );
+    } catch {
+      return /* @__PURE__ */ new Set();
+    }
+  }
+  function writeTaskFilterLocks(storageKey, locks) {
+    if (!storageKey) return;
+    try {
+      localStorage.setItem(
+        storageKey,
+        JSON.stringify({ locked: [...locks].sort() })
+      );
+    } catch {
+    }
+  }
+  function ensureTaskFilterLockState(characterId = runtime.state.currentCharacterId) {
+    const storageKey = taskFilterLocksStorageKey(characterId);
+    if (taskFilterLockStorageKey === storageKey) return;
+    taskFilterLockStorageKey = storageKey;
+    lockedTaskFilters = readTaskFilterLocks(storageKey);
+  }
+  function taskFilterLockKey(kind, value) {
+    return normalizedTaskFilterLock(`${kind}:${value}`);
+  }
+  function isTaskFilterLocked(kind, value) {
+    const key = taskFilterLockKey(kind, value);
+    return Boolean(key && lockedTaskFilters.has(key));
+  }
+  function clearTaskFilterLocks({ persist = true } = {}) {
+    if (!lockedTaskFilters.size) return false;
+    lockedTaskFilters.clear();
+    if (persist)
+      writeTaskFilterLocks(taskFilterLockStorageKey, lockedTaskFilters);
+    lastTaskRenderSignature = "";
+    return true;
+  }
+  function toggleTaskFilterLock(kind, value) {
+    ensureTaskFilterLockState();
+    const key = taskFilterLockKey(kind, value);
+    if (!key) return false;
+    if (lockedTaskFilters.has(key)) lockedTaskFilters.delete(key);
+    else lockedTaskFilters.add(key);
+    writeTaskFilterLocks(taskFilterLockStorageKey, lockedTaskFilters);
+    lastTaskRenderSignature = "";
+    renderTasks();
+    return lockedTaskFilters.has(key);
   }
   function armTemporaryTaskReturn(expiresAt) {
     const deadline = Number(expiresAt);
@@ -25639,6 +25721,7 @@ ${locks}` : ""}`;
     const style = document.createElement("style");
     style.id = STYLE_ID11;
     style.textContent = `
+    @property --mwi-task-lock-angle { syntax:"<angle>"; inherits:false; initial-value:0deg; }
     [class*="TasksPanel_taskList"] { grid-template-columns:repeat(auto-fill,minmax(min(100%,270px),1fr)) !important; gap:8px !important; }
     [class*="TasksPanel_taskList"] > * { min-width:0 !important; max-width:100% !important; box-sizing:border-box !important; }
     [class*="RandomTask_randomTask"] { min-width:0 !important; }
@@ -25652,22 +25735,31 @@ ${locks}` : ""}`;
     .mwi-task-filter-group--life,.mwi-task-filter-group--combat { flex-wrap:nowrap; }
     .mwi-task-filter-group--combat { flex:0 0 auto; }
     .mwi-task-dungeon-filters { display:inline-flex; align-items:center; gap:3px; padding-left:4px; border-left:1px solid rgba(255,255,255,.12); }
-    .mwi-task-filter,.mwi-task-sort-button { display:inline-flex; min-height:28px; align-items:center; justify-content:center; gap:4px; box-sizing:border-box; padding:3px 7px; border:1px solid rgba(255,255,255,.14); border-radius:5px; background:rgba(255,255,255,.08); color:var(--color-text-primary,#eee); font:inherit; font-size:.7rem; cursor:pointer; }
+    .mwi-task-filter,.mwi-task-sort-button { position:relative; display:inline-flex; min-height:28px; align-items:center; justify-content:center; gap:4px; box-sizing:border-box; padding:3px 7px; border:1px solid rgba(255,255,255,.14); border-radius:5px; background:rgba(255,255,255,.08); color:var(--color-text-primary,#eee); font:inherit; font-size:.7rem; cursor:pointer; }
+    .mwi-task-filter { touch-action:manipulation; user-select:none; -webkit-user-select:none; }
     .mwi-task-filter:hover,.mwi-task-sort-button:hover { background:rgba(255,255,255,.14); }
     .mwi-task-filter:disabled { opacity:.38; cursor:default; filter:saturate(.35); }
     .mwi-task-filter:focus-visible,.mwi-task-sort-button:focus-visible { outline:2px solid ${runtime.config.SCRIPT_COLOR_MAIN}; outline-offset:1px; }
     .mwi-task-filter[aria-pressed="true"] { border-color:rgba(226,181,79,.62); background:rgba(226,181,79,.18); color:#f3d58b; }
     .mwi-task-filter[aria-pressed="false"] { opacity:.38; filter:saturate(.35); }
+    .mwi-task-filter[data-mwitools-task-locked="true"] { opacity:1; filter:none; border-color:rgba(113,190,255,.78); box-shadow:0 0 0 1px rgba(113,190,255,.18); }
+    .mwi-task-filter-lock { position:absolute; z-index:3; top:-5px; right:-5px; display:none; width:13px; height:13px; align-items:center; justify-content:center; border:1px solid rgba(151,211,255,.85); border-radius:50%; background:#15304a; color:#dff3ff; font:700 8px/1 system-ui,sans-serif; box-shadow:0 1px 3px rgba(0,0,0,.55); pointer-events:none; }
+    .mwi-task-filter[data-mwitools-task-locked="true"] > .mwi-task-filter-lock { display:inline-flex; }
+    .mwi-task-filter::after { content:""; position:absolute; z-index:4; inset:-4px; border-radius:9px; padding:2px; opacity:0; background:conic-gradient(from -90deg,${runtime.config.SCRIPT_COLOR_MAIN} var(--mwi-task-lock-angle),transparent var(--mwi-task-lock-angle)); -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0); -webkit-mask-composite:xor; mask-composite:exclude; pointer-events:none; }
+    .mwi-task-filter[data-mwitools-lock-pressing="true"]::after { opacity:1; animation:mwi-task-lock-progress ${TASK_FILTER_LOCK_HOLD_MS}ms linear forwards; }
     .mwi-task-filter-icon { display:inline-flex; width:18px; height:18px; flex:0 0 18px; align-items:center; justify-content:center; font-size:13px; line-height:1; }
     .mwi-task-filter-icon svg { width:100%; height:100%; }
     .mwi-task-filter-label { white-space:nowrap; }
     .mwi-task-filter-count { min-width:1.1em; color:inherit; font-weight:750; font-variant-numeric:tabular-nums; text-align:center; }
     .mwi-task-sort-button { margin-left:auto; border-color:rgba(120,174,255,.45); color:#b8d5ff; }
+    ${REROLL_OPTIONS_SELECTOR} button[data-mwitools-task-lock-disabled="true"] { position:relative!important; opacity:.38!important; filter:grayscale(.72) saturate(.25)!important; cursor:not-allowed!important; }
+    .mwi-task-reroll-lock { position:absolute; z-index:4; top:3px; right:3px; display:inline-flex; width:16px; height:16px; align-items:center; justify-content:center; border-radius:50%; background:rgba(20,34,48,.94); color:#dff3ff; font:700 10px/1 system-ui,sans-serif; box-shadow:0 1px 4px rgba(0,0,0,.55); pointer-events:none; }
     ${TASK_SELECTOR}[data-mwitools-filtered="true"] { display:none !important; }
     .mwi-task-bg { position:absolute; z-index:0; top:6%; right:8%; left:0; display:flex; height:88%; flex-direction:row-reverse; align-items:center; justify-content:flex-start; opacity:.3; pointer-events:none; }
     .mwi-task-bg svg { width:24%; height:100%; flex:0 0 24%; }
     ${TASK_SELECTOR} > :not(.mwi-task-bg) { position:relative; z-index:1; }
     .mwi-task-merge-toast { position:fixed; top:56px; right:14px; z-index:2147483200; max-width:min(360px,calc(100vw - 28px)); box-sizing:border-box; padding:8px 11px; border:1px solid rgba(102,205,135,.5); border-radius:6px; background:rgba(15,24,20,.97); box-shadow:0 8px 22px rgba(0,0,0,.4); color:#a8e5b7; font-size:.75rem; line-height:1.35; animation:mwi-task-toast-in .16s ease-out; }
+    @keyframes mwi-task-lock-progress { from { --mwi-task-lock-angle:0deg; } to { --mwi-task-lock-angle:360deg; } }
     @keyframes mwi-task-toast-in { from { opacity:0; transform:translateY(-6px); } to { opacity:1; transform:translateY(0); } }
     @media (max-width:640px) {
       .mwi-task-toolbar { gap:3px; padding:4px; }
@@ -26485,6 +26577,78 @@ ${locks}` : ""}`;
       button.setAttribute("aria-pressed", value);
     }
   }
+  function wireTaskFilterLongPress(button, onLongPress, {
+    holdMs = TASK_FILTER_LOCK_HOLD_MS,
+    moveTolerance = TASK_FILTER_LOCK_MOVE_TOLERANCE
+  } = {}) {
+    let press = null;
+    let suppressClickUntil = 0;
+    const cancelPress = () => {
+      if (!press) return;
+      clearTimeout(press.timer);
+      press = null;
+      delete button.dataset.mwitoolsLockPressing;
+    };
+    const finishPress = (event) => {
+      if (!press || press.pointerId !== event.pointerId) return;
+      cancelPress();
+    };
+    button.addEventListener("pointerdown", (event) => {
+      if (button.disabled || event.button !== void 0 && event.button !== 0) {
+        return;
+      }
+      cancelPress();
+      const current = {
+        pointerId: event.pointerId,
+        x: Number(event.clientX) || 0,
+        y: Number(event.clientY) || 0,
+        timer: null
+      };
+      current.timer = setTimeout(() => {
+        if (press !== current || !button.isConnected || button.disabled) {
+          cancelPress();
+          return;
+        }
+        suppressClickUntil = Date.now() + 700;
+        onLongPress();
+      }, holdMs);
+      press = current;
+      button.dataset.mwitoolsLockPressing = "true";
+      try {
+        if (event.pointerId !== void 0) {
+          button.setPointerCapture?.(event.pointerId);
+        }
+      } catch {
+      }
+    });
+    button.addEventListener("pointermove", (event) => {
+      if (!press || press.pointerId !== event.pointerId) return;
+      if (Math.hypot(
+        (Number(event.clientX) || 0) - press.x,
+        (Number(event.clientY) || 0) - press.y
+      ) > moveTolerance) {
+        cancelPress();
+      }
+    });
+    button.addEventListener("pointerup", finishPress);
+    button.addEventListener("pointercancel", finishPress);
+    button.addEventListener("lostpointercapture", cancelPress);
+    button.addEventListener("contextmenu", (event) => {
+      if (!press && Date.now() > suppressClickUntil) return;
+      event.preventDefault();
+    });
+    button.addEventListener(
+      "click",
+      (event) => {
+        if (Date.now() > suppressClickUntil) return;
+        suppressClickUntil = 0;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+      },
+      true
+    );
+    return cancelPress;
+  }
   function createTaskFilterButton({
     kind,
     value,
@@ -26494,7 +26658,8 @@ ${locks}` : ""}`;
     fallback = "•",
     showLabel = false,
     showCount = true,
-    onClick
+    onClick,
+    onLongPress = null
   }) {
     const button = document.createElement("button");
     button.type = "button";
@@ -26518,6 +26683,14 @@ ${locks}` : ""}`;
       button.append(text);
     }
     if (showCount) button.append(count);
+    if (onLongPress) {
+      const lock = document.createElement("span");
+      lock.className = "mwi-task-filter-lock";
+      lock.textContent = "🔒";
+      lock.setAttribute("aria-hidden", "true");
+      button.append(lock);
+      wireTaskFilterLongPress(button, onLongPress);
+    }
     button.addEventListener("click", onClick);
     return button;
   }
@@ -26540,17 +26713,32 @@ ${locks}` : ""}`;
     svg.append(use);
     icon.append(svg);
   }
-  function updateTaskFilterButton(button, { label, count, pressed }) {
+  function updateTaskFilterButton(button, { label, count, pressed, locked }) {
     updatePressedState(button, pressed);
+    if (locked) button.dataset.mwitoolsTaskLocked = "true";
+    else delete button.dataset.mwitoolsTaskLocked;
     const countText = String(count);
     const countNode = button.querySelector(".mwi-task-filter-count");
     if (countNode?.textContent !== countText) countNode.textContent = countText;
     const title = `${label} (${countText})`;
     if (button.title !== title) button.title = title;
-    if (button.getAttribute("aria-label") !== title) {
-      button.setAttribute("aria-label", title);
+    const accessibleLabel = locked ? `${title} · ${t11("已锁定", "Locked")}` : title;
+    if (button.getAttribute("aria-label") !== accessibleLabel) {
+      button.setAttribute("aria-label", accessibleLabel);
     }
     updateTaskFilterIcon(button);
+  }
+  function taskMatchesLockedFilters(classification) {
+    if (!classification || !runtime.settings.get("taskStatistics")) return false;
+    if (classification.profession?.key !== "combat" && isTaskFilterLocked("profession", classification.profession?.key)) {
+      return true;
+    }
+    if (classification.profession?.key === "combat" && isTaskFilterLocked("combat", "combat")) {
+      return true;
+    }
+    return classification.dungeonLocations?.some(
+      ({ isDungeon, actionHrid }) => isDungeon && isTaskFilterLocked("dungeon", actionHrid)
+    );
   }
   function applyTaskFilters(rows2) {
     const statisticsEnabled = runtime.settings.get("taskStatistics");
@@ -26563,7 +26751,7 @@ ${locks}` : ""}`;
         const dungeonMatches = row.profession.key === "combat" && row.dungeonLocations.some(
           ({ isDungeon, actionHrid }) => isDungeon && activeDungeonFilters.has(actionHrid)
         );
-        visible2 = professionMatches || combatMatches || dungeonMatches;
+        visible2 = stickyVisibleSlots.has(row.slot) || professionMatches || combatMatches || dungeonMatches;
       }
       const filtered = String(!visible2);
       if (row.card.dataset.mwitoolsFiltered !== filtered) {
@@ -26620,6 +26808,7 @@ ${locks}` : ""}`;
               iconKind: "skills",
               iconHrid: profession.key,
               fallback: (runtime.config.isZH ? profession.zh : profession.en)[0],
+              onLongPress: () => toggleTaskFilterLock("profession", profession.key),
               onClick: () => {
                 if (activeProfessionFilters.has(profession.key)) {
                   activeProfessionFilters.delete(profession.key);
@@ -26643,6 +26832,7 @@ ${locks}` : ""}`;
             iconKind: "misc",
             iconHrid: "combat",
             fallback: "⚔",
+            onLongPress: () => toggleTaskFilterLock("combat", "combat"),
             onClick: () => {
               combatFilterEnabled = !combatFilterEnabled;
               lastTaskRenderSignature = "";
@@ -26661,6 +26851,7 @@ ${locks}` : ""}`;
               iconKind: "actions",
               iconHrid: dungeon.actionHrid,
               fallback: "◆",
+              onLongPress: () => toggleTaskFilterLock("dungeon", dungeon.actionHrid),
               onClick: () => {
                 if (activeDungeonFilters.has(dungeon.actionHrid)) {
                   activeDungeonFilters.delete(dungeon.actionHrid);
@@ -26727,13 +26918,15 @@ ${locks}` : ""}`;
       updateTaskFilterButton(button, {
         label: runtime.config.isZH ? profession.zh : profession.en,
         count: professionCounts.get(profession.key),
-        pressed: activeProfessionFilters.has(profession.key)
+        pressed: activeProfessionFilters.has(profession.key),
+        locked: isTaskFilterLocked("profession", profession.key)
       });
     }
     updateTaskFilterButton(toolbar.querySelector('[data-filter-kind="combat"]'), {
       label: t11("战斗", "Combat"),
       count: combatCount,
-      pressed: combatFilterEnabled
+      pressed: combatFilterEnabled,
+      locked: isTaskFilterLocked("combat", "combat")
     });
     for (const dungeon of currentDungeonFilters) {
       const button = toolbar.querySelector(
@@ -26742,7 +26935,8 @@ ${locks}` : ""}`;
       updateTaskFilterButton(button, {
         label: dungeon.label,
         count: dungeonCounts.get(dungeon.actionHrid),
-        pressed: activeDungeonFilters.has(dungeon.actionHrid)
+        pressed: activeDungeonFilters.has(dungeon.actionHrid),
+        locked: isTaskFilterLocked("dungeon", dungeon.actionHrid)
       });
     }
   }
@@ -26835,6 +27029,35 @@ ${locks}` : ""}`;
       card.addEventListener("click", handler, true);
     });
   }
+  function stickyResetSignature(card, task) {
+    return [taskId(task), taskActionHrid(task), visibleTaskTitle(card)].join(
+      ""
+    );
+  }
+  function clearPendingStickyReset(slot) {
+    const pending = pendingStickyResetSlots.get(slot);
+    if (!pending) return;
+    clearTimeout(pending.timeout);
+    pendingStickyResetSlots.delete(slot);
+  }
+  function clearAllPendingStickyResets() {
+    for (const slot of [...pendingStickyResetSlots.keys()]) {
+      clearPendingStickyReset(slot);
+    }
+  }
+  function finalizeStickyResetSlots(cards, tasks) {
+    cards.forEach((card, index) => {
+      const slot = Number(card.dataset.mwitoolsOriginalIndex ?? index);
+      const pending = pendingStickyResetSlots.get(slot);
+      if (!pending) return;
+      const task = tasks[index];
+      if (task === pending.task && stickyResetSignature(card, task) === pending.signature) {
+        return;
+      }
+      stickyVisibleSlots.add(slot);
+      clearPendingStickyReset(slot);
+    });
+  }
   function wireResetButtons(cards) {
     cards.forEach((card, index) => {
       if (card.dataset.mwitoolsResetWired) return;
@@ -26856,6 +27079,30 @@ ${locks}` : ""}`;
           nativeResetChoiceUntil = Date.now() + 1e4;
           const slot = Number(card.dataset.mwitoolsOriginalIndex ?? index);
           pendingResetSlots.add(slot);
+          activeRerollContext = {
+            slot,
+            optionsSeen: false,
+            confirmed: false
+          };
+          clearPendingStickyReset(slot);
+          if (runtime.settings.get("taskStatistics") && hasActiveTaskFilters() && card.dataset.mwitoolsFiltered !== "true") {
+            const task = liveTaskForCard(
+              card,
+              runtime.state.characterQuests ?? []
+            );
+            const pending = {
+              task,
+              signature: stickyResetSignature(card, task),
+              timeout: null
+            };
+            pending.timeout = setTimeout(() => {
+              if (pendingStickyResetSlots.get(slot) === pending) {
+                pendingStickyResetSlots.delete(slot);
+              }
+            }, 3e4);
+            pending.timeout?.unref?.();
+            pendingStickyResetSlots.set(slot, pending);
+          }
           const timeout = setTimeout(
             () => pendingResetSlots.delete(slot),
             3e4
@@ -26926,6 +27173,11 @@ ${locks}` : ""}`;
         ...record.addedNodes ?? [],
         ...record.removedNodes ?? []
       ].filter((node) => node?.nodeType === 1);
+      if (target?.closest?.(REROLL_OPTIONS_SELECTOR) || changedNodes.some(
+        (node) => node.matches?.(REROLL_OPTIONS_SELECTOR) || node.querySelector?.(REROLL_OPTIONS_SELECTOR)
+      )) {
+        return true;
+      }
       if (changedNodes.length && changedNodes.every(
         (node) => node.matches?.(OWNED_TASK_SELECTOR) || node.closest?.(OWNED_TASK_SELECTOR)
       )) {
@@ -26954,6 +27206,121 @@ ${locks}` : ""}`;
       (name) => name.startsWith("Button_disabled__")
     );
   }
+  function rerollChoiceButtons(container) {
+    const ranged = [...container.querySelectorAll(RANGED_REROLL_BUTTON_SELECTOR)];
+    if (ranged.length) return ranged.length === 2 ? ranged : [];
+    const native = [...container.querySelectorAll("button")];
+    return native.length === 2 ? native : [];
+  }
+  function wireRerollChoiceButton(button) {
+    if (button[REROLL_CHOICE_HANDLER]) return;
+    const handler = () => {
+      if (button.dataset.mwitoolsTaskLockDisabled === "true") return;
+      if (activeRerollContext) activeRerollContext.confirmed = true;
+    };
+    button[REROLL_CHOICE_HANDLER] = handler;
+    button.addEventListener("click", handler, true);
+  }
+  function lockRerollButton(button) {
+    wireRerollChoiceButton(button);
+    if (!rerollButtonSnapshots.has(button)) {
+      rerollButtonSnapshots.set(button, {
+        disabled: button.disabled,
+        ariaDisabled: button.getAttribute("aria-disabled"),
+        ariaLabel: button.getAttribute("aria-label")
+      });
+    }
+    if (!button[REROLL_LOCK_HANDLER]) {
+      const handler = (event) => {
+        if (button.dataset.mwitoolsTaskLockDisabled !== "true") return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+      };
+      button[REROLL_LOCK_HANDLER] = handler;
+      button.addEventListener("click", handler, true);
+    }
+    button.dataset.mwitoolsTaskLockDisabled = "true";
+    button.disabled = true;
+    button.setAttribute("aria-disabled", "true");
+    const snapshot = rerollButtonSnapshots.get(button);
+    const baseLabel = snapshot.ariaLabel || String(button.textContent ?? "").trim();
+    button.setAttribute(
+      "aria-label",
+      `${baseLabel}${baseLabel ? " · " : ""}${t11("已锁定", "Locked")}`
+    );
+    let icon = button.querySelector(":scope > .mwi-task-reroll-lock");
+    if (!icon) {
+      icon = document.createElement("span");
+      icon.className = "mwi-task-reroll-lock";
+      icon.textContent = "🔒";
+      icon.setAttribute("aria-hidden", "true");
+      button.append(icon);
+    }
+  }
+  function restoreRerollButton(button) {
+    if (button.dataset.mwitoolsTaskLockDisabled !== "true") return;
+    const snapshot = rerollButtonSnapshots.get(button);
+    if (snapshot) {
+      button.disabled = snapshot.disabled;
+      if (snapshot.ariaDisabled === null) button.removeAttribute("aria-disabled");
+      else button.setAttribute("aria-disabled", snapshot.ariaDisabled);
+      if (snapshot.ariaLabel === null) button.removeAttribute("aria-label");
+      else button.setAttribute("aria-label", snapshot.ariaLabel);
+    }
+    delete button.dataset.mwitoolsTaskLockDisabled;
+    button.querySelector(":scope > .mwi-task-reroll-lock")?.remove();
+    const handler = button[REROLL_LOCK_HANDLER];
+    if (handler) button.removeEventListener("click", handler, true);
+    delete button[REROLL_LOCK_HANDLER];
+    rerollButtonSnapshots.delete(button);
+  }
+  function syncTaskRerollLocks(root = document) {
+    ensureTaskFilterLockState();
+    const containers = [
+      ...root.querySelectorAll?.(REROLL_OPTIONS_SELECTOR) ?? []
+    ];
+    if (!containers.length) {
+      for (const button of root.querySelectorAll?.(
+        '[data-mwitools-task-lock-disabled="true"]'
+      ) ?? []) {
+        restoreRerollButton(button);
+      }
+      if (activeRerollContext?.optionsSeen) {
+        if (!activeRerollContext.confirmed) {
+          clearPendingStickyReset(activeRerollContext.slot);
+          pendingResetSlots.delete(activeRerollContext.slot);
+        }
+        activeRerollContext = null;
+      }
+      return 0;
+    }
+    if (activeRerollContext) activeRerollContext.optionsSeen = true;
+    const classification = activeRerollContext ? pageClassifications.get(activeRerollContext.slot) : null;
+    const locked = taskMatchesLockedFilters(classification);
+    let changed = 0;
+    for (const container of containers) {
+      const buttons = rerollChoiceButtons(container);
+      if (buttons.length !== 2) {
+        if (activeRerollContext && container.querySelector("button") && !warnedUnexpectedRerollButtons) {
+          warnedUnexpectedRerollButtons = true;
+          console.warn(
+            "[MWITools] Task reroll choices were not recognized; filter locks were left unchanged."
+          );
+        }
+        continue;
+      }
+      for (const button of buttons) {
+        wireRerollChoiceButton(button);
+        if (locked) {
+          lockRerollButton(button);
+          changed += 1;
+        } else {
+          restoreRerollButton(button);
+        }
+      }
+    }
+    return changed;
+  }
   function repairRangedWayIdleRerollButtons(root = document) {
     let repaired = 0;
     for (const container of root.querySelectorAll?.(REROLL_OPTIONS_SELECTOR) ?? []) {
@@ -26961,6 +27328,11 @@ ${locks}` : ""}`;
         ...container.querySelectorAll(RANGED_REROLL_BUTTON_SELECTOR)
       ];
       if (buttons.length !== 2) continue;
+      if (buttons.some(
+        (button2) => button2.dataset.mwitoolsTaskLockDisabled === "true"
+      )) {
+        continue;
+      }
       const expensive = buttons.filter(
         (button2) => button2.dataset.moreExpensive === "true"
       );
@@ -26997,7 +27369,9 @@ ${locks}` : ""}`;
       [...pageNewTaskIds].sort().join(","),
       [...activeProfessionFilters].sort().join(","),
       combatFilterEnabled,
-      [...activeDungeonFilters].sort().join(",")
+      [...activeDungeonFilters].sort().join(","),
+      [...lockedTaskFilters].sort().join(","),
+      [...stickyVisibleSlots].sort((left, right) => left - right).join(",")
     ];
     const rows2 = snapshots.map((snapshot) => {
       return [
@@ -27011,6 +27385,9 @@ ${locks}` : ""}`;
     return [...settings2, ...rows2].join("");
   }
   function renderTasks({ forceSort = false, allowReusedPositional = true } = {}) {
+    ensureTaskFilterLockState();
+    if (!runtime.settings.get("taskStatistics")) clearTaskFilterLocks();
+    syncTaskRerollLocks();
     repairRangedWayIdleRerollButtons();
     if (document.querySelector(REROLL_OPTIONS_SELECTOR)) return true;
     let cards = [...document.querySelectorAll(TASK_SELECTOR)];
@@ -27029,6 +27406,8 @@ ${locks}` : ""}`;
           pageTaskIds = /* @__PURE__ */ new Map();
           pageNewTaskIds = /* @__PURE__ */ new Set();
           pendingResetSlots = /* @__PURE__ */ new Set();
+          stickyVisibleSlots = /* @__PURE__ */ new Set();
+          clearAllPendingStickyResets();
           pageOrderBySlot = /* @__PURE__ */ new Map();
           runtime.state.mwitoolsPageNewTaskIds = /* @__PURE__ */ new Set();
         }
@@ -27051,6 +27430,9 @@ ${locks}` : ""}`;
         pendingResetSlots = /* @__PURE__ */ new Set();
       }
       if (!resumedResetPage) {
+        stickyVisibleSlots = /* @__PURE__ */ new Set();
+        clearAllPendingStickyResets();
+        activeRerollContext = null;
         pageOrderBySlot = /* @__PURE__ */ new Map();
         resetTaskFilters();
       }
@@ -27075,6 +27457,7 @@ ${locks}` : ""}`;
     if (cardEntries.some((entry) => !entry.resolved)) return false;
     const cardTasks = cardEntries.map(({ task }) => task);
     assignStablePageSlots(cards, cardTasks);
+    finalizeStickyResetSlots(cards, cardTasks);
     const newTaskSetChanged = syncPageNewTasks(
       cards,
       cardTasks,
@@ -27122,6 +27505,11 @@ ${locks}` : ""}`;
     renderTasks({ forceSort: true });
   }
   function cleanupTasks() {
+    for (const button of document.querySelectorAll(
+      '[data-mwitools-task-lock-disabled="true"]'
+    )) {
+      restoreRerollButton(button);
+    }
     cleanupListDecorations();
     document.querySelectorAll(
       ".mwi-task-insight,.mwi-task-toolbar,.mwi-task-profession-group,.mwi-task-bg,.mwi-task-merged-note,.mwi-task-merge-toast"
@@ -27142,6 +27530,9 @@ ${locks}` : ""}`;
     pageTaskIds = /* @__PURE__ */ new Map();
     pageNewTaskIds = /* @__PURE__ */ new Set();
     pendingResetSlots = /* @__PURE__ */ new Set();
+    stickyVisibleSlots = /* @__PURE__ */ new Set();
+    clearAllPendingStickyResets();
+    activeRerollContext = null;
     nativeResetChoiceUntil = 0;
     temporaryTaskReturn = null;
     runtime.state.mwitoolsPageNewTaskIds = /* @__PURE__ */ new Set();
@@ -27150,13 +27541,17 @@ ${locks}` : ""}`;
     lastActionDetails = null;
     lastActionCategories = null;
     pageOrderBySlot = /* @__PURE__ */ new Map();
+    lockedTaskFilters = /* @__PURE__ */ new Set();
+    taskFilterLockStorageKey = "";
+    warnedUnexpectedRerollButtons = false;
     resetTaskFilters();
   }
   runtime.features.register({
     id: "taskInsights",
     setting: "taskInsights",
     scope: "character",
-    initialize({ scope }) {
+    initialize({ scope, characterId }) {
+      ensureTaskFilterLockState(characterId);
       addStyles9();
       let settleRetries = 0;
       let renderScheduler = null;
@@ -27187,6 +27582,7 @@ ${locks}` : ""}`;
           scope
         },
         (records) => {
+          syncTaskRerollLocks();
           repairRangedWayIdleRerollButtons();
           if (shouldRenderTaskMutations(records)) scheduleRender();
         }
@@ -28475,7 +28871,8 @@ ${locks}` : ""}`;
           "制造面板在打开配装下拉、切换配装或延迟重建后会恢复制造链、计划、缺料、生产摘要和快捷输入等模块；即使游戏只移除其中一张卡片也会自动补回。设置中新增自定义快捷小时与次数，并修复逗号小数及不同千位分隔格式造成的耗时误读。",
           "购物清单较长时，修改数量、删除或打开商品会保持当前滚动位置；商品弹窗打开后可直接切换其他购物项，也可从购物清单或商品导航删除当前项并自动前往下一项。",
           "中国服同时兼容有无 www 的访问地址，市场接口统一使用无 www 端点；关闭 MWITools 任务功能时不再提示 TaskManager 冲突，也可按脚本永久静默并在设置中恢复提醒。",
-          "左侧利润网入口现在会注明包含强化模拟，并移除重复的插件设置入口；任务图片会在多次刷新时保持稳定，也修复了与 Ranged Way Idle 同时使用时便宜刷新选项可能错误卡死的问题。"
+          "左侧利润网入口现在会注明包含强化模拟，并移除重复的插件设置入口；任务图片会在多次刷新时保持稳定，也修复了与 Ranged Way Idle 同时使用时便宜刷新选项可能错误卡死的问题。",
+          "任务筛选按钮现在可用鼠标或触屏长按 1 秒分别锁定；命中锁定类型的任务会让两种刷新选项变灰并显示锁图标。筛选中刷新出的卡片即使改变类型也会保留到重新进入任务页，关闭任务统计筛选栏会清除已有锁定。"
         ]),
         en: Object.freeze([
           "Inventory valuations and opening estimates for dungeon and refinement chests now deduct both the chest key and the matching dungeon entry key. The opening panel shows the two costs separately, while ordinary chests without entry keys are unchanged.",
@@ -28485,7 +28882,8 @@ ${locks}` : ""}`;
           "Manufacturing chains, plans, shortages, production summaries, targets, and quick inputs now recover after opening the loadout picker, switching loadouts, or delayed panel rebuilds, even when the game removes only one extension card. Settings add custom quick-hour and quick-count presets, and duration parsing now supports comma decimals and mixed thousands separators.",
           "Long shopping lists now keep their scroll position when quantities change, items are removed, or products are opened. While a product modal is open, another shopping item can be opened directly, and the current item can be removed from either the cart or product navigation before advancing automatically.",
           "China servers now support both www and bare hostnames while using the bare-host market endpoint. TaskManager warnings are silent when MWITools task features are off, and individual conflicts can be muted permanently and restored from Settings.",
-          "The sidebar profit-site shortcut now notes that it includes an enhancement simulator, and the redundant script-settings shortcut has been removed. Task artwork stays stable through repeated rerolls, and cheaper reroll options no longer become incorrectly stuck when Ranged Way Idle is also enabled."
+          "The sidebar profit-site shortcut now notes that it includes an enhancement simulator, and the redundant script-settings shortcut has been removed. Task artwork stays stable through repeated rerolls, and cheaper reroll options no longer become incorrectly stuck when Ranged Way Idle is also enabled.",
+          "Task filter buttons can now be locked individually with a one-second mouse or touch hold. Tasks matching a locked type gray out both reroll choices and show lock icons. Cards rerolled while filtering remain visible even if their type changes until the task page is re-entered, and disabling task statistics filters clears existing locks."
         ])
       })
     }),
