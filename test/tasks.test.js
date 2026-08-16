@@ -44,6 +44,7 @@ await import("../src/core/action-projection.js");
 await import("../src/core/procurement.js");
 const {
   dungeonLocationsForCard,
+  repairRangedWayIdleRerollButtons,
   shouldRenderTaskMutations,
   taskArtworkForCard,
 } = await import("../src/features/tasks.js");
@@ -766,6 +767,107 @@ test("opening the native reset payment choice pauses task regrouping", () => {
     id: "reset-choice-completed",
   };
   runtime.api.renderTasks();
+});
+
+test("Ranged Way Idle interop restores only a stale preferred reroll button", () => {
+  const container = document.createElement("div");
+  container.className = "RandomTask_rerollOptionsContainer__ranged-fixture";
+  const expensive = document.createElement("button");
+  expensive.className = "RangedWayIdleTaskButton Button_disabled__fixture";
+  expensive.dataset.moreExpensive = "true";
+  expensive.disabled = true;
+  const preferred = document.createElement("button");
+  preferred.className = "RangedWayIdleTaskButton Button_disabled__fixture";
+  preferred.dataset.moreExpensive = "false";
+  preferred.disabled = true;
+  const preferredState = { isOnCooldown: true };
+  preferred.__reactFiber$rangedFixture = {
+    return: { stateNode: { state: preferredState } },
+  };
+  container.append(expensive, preferred);
+  document.body.append(container);
+
+  assert.equal(repairRangedWayIdleRerollButtons(), 1);
+  assert.equal(preferred.disabled, false);
+  assert.equal(preferredState.isOnCooldown, false);
+  assert.equal(
+    [...preferred.classList].some((name) =>
+      name.startsWith("Button_disabled__"),
+    ),
+    false,
+  );
+  assert.equal(expensive.disabled, true);
+  assert.equal(expensive.classList.contains("Button_disabled__fixture"), true);
+
+  expensive.disabled = false;
+  expensive.classList.remove("Button_disabled__fixture");
+  preferred.disabled = true;
+  preferredState.isOnCooldown = true;
+  assert.equal(repairRangedWayIdleRerollButtons(), 0);
+  assert.equal(
+    preferred.disabled,
+    true,
+    "disabled mode must be inferred safely",
+  );
+  assert.equal(preferredState.isOnCooldown, true);
+
+  const extra = document.createElement("button");
+  extra.className = "RangedWayIdleTaskButton";
+  extra.dataset.moreExpensive = "false";
+  container.append(extra);
+  expensive.disabled = true;
+  expensive.classList.add("Button_disabled__fixture");
+  assert.equal(repairRangedWayIdleRerollButtons(), 0);
+  container.remove();
+});
+
+test("an open reroll payment choice pauses task artwork writes until it closes", () => {
+  document.querySelector('[class*="TasksPanel_taskList"]')?.remove();
+  document.body.insertAdjacentHTML(
+    "afterbegin",
+    `<div class="TasksPanel_taskList__reroll-pause">
+       ${card("制作 - 木板", "0 / 5")}
+     </div>`,
+  );
+  runtime.settings.settingsMap.taskNewBadge.isTrue = false;
+  runtime.settings.settingsMap.taskIcons.isTrue = true;
+  runtime.state.characterQuests = [
+    { id: "reroll-pause", actionHrid: "/actions/crafting/lumber" },
+  ];
+  assert.equal(runtime.api.renderTasks(), true);
+  const taskCard = document.querySelector(
+    ".TasksPanel_taskList__reroll-pause " + TASK_SELECTOR,
+  );
+  const background = taskCard.querySelector(".mwi-task-bg");
+  const options = document.createElement("div");
+  options.className = "RandomTask_rerollOptionsContainer__pause";
+  document.body.append(options);
+  taskCard.querySelector('[class*="RandomTask_name"]').textContent =
+    "制作 - New Output";
+  runtime.state.initData_actionDetailMap["/actions/crafting/new_output"] = {
+    hrid: "/actions/crafting/new_output",
+    name: "New Output",
+    type: "/action_types/crafting",
+    outputItems: [{ itemHrid: "/items/new_output", count: 1 }],
+  };
+  runtime.state.characterQuests = [
+    { id: "reroll-pause-new", actionHrid: "/actions/crafting/new_output" },
+  ];
+  assert.equal(runtime.api.renderTasks(), true);
+  assert.equal(taskCard.querySelector(".mwi-task-bg"), background);
+  assert.match(
+    background.querySelector("use").getAttribute("href"),
+    /#lumber$/,
+  );
+
+  options.remove();
+  assert.equal(runtime.api.renderTasks(), true);
+  assert.equal(taskCard.querySelector(".mwi-task-bg"), background);
+  assert.match(
+    background.querySelector("use").getAttribute("href"),
+    /#new_output$/,
+  );
+  runtime.settings.settingsMap.taskIcons.isTrue = false;
 });
 
 test("disabling task statistics keeps the manual sort control only", () => {
@@ -1963,6 +2065,9 @@ test("reused task cards keep the old icon during transition and settle on the ne
     reusedCard.querySelector(".mwi-task-bg use").getAttribute("href"),
     /items_sprite\.test\.svg#old_output$|items_sprite\.reuse\.svg#old_output$/,
   );
+  const background = reusedCard.querySelector(".mwi-task-bg");
+  const artworkSvg = background.querySelector("svg");
+  const artworkUse = artworkSvg.querySelector("use");
 
   runtime.state.characterQuests = [newQuest];
   assert.equal(
@@ -1986,6 +2091,9 @@ test("reused task cards keep the old icon during transition and settle on the ne
     reusedCard.querySelector(".mwi-task-bg use").getAttribute("href"),
     /#new_output$/,
   );
+  assert.equal(reusedCard.querySelector(".mwi-task-bg"), background);
+  assert.equal(background.querySelector("svg"), artworkSvg);
+  assert.equal(artworkSvg.querySelector("use"), artworkUse);
 
   const removedBackground = reusedCard.querySelector(".mwi-task-bg");
   removedBackground.remove();

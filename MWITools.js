@@ -971,6 +971,11 @@
 
   // src/core/game-assets.js
   var SPRITE_PATTERN = /((?:https?:\/\/[^/]+)?[^?#]*\/(abilities|actions|avatars|combat_monsters|items|misc|skills)_sprite(?:\.[^/#?]+)?\.svg(?:\?[^#]*)?)/i;
+  var SPRITE_SOURCE_PRIORITY = Object.freeze({
+    dom: 1,
+    resource: 2,
+    manifest: 3
+  });
   var spriteBases = /* @__PURE__ */ new Map();
   var lastScanAt = Number.NEGATIVE_INFINITY;
   var spriteManifestPromise = null;
@@ -984,11 +989,17 @@
     if (value === "skill") return "skills";
     return value;
   }
-  function registerGameSpriteSource(rawValue) {
+  function registerGameSpriteSource(rawValue, options = {}) {
     const value = String(rawValue ?? "").split("#")[0];
     const match = value.match(SPRITE_PATTERN);
     if (!match) return false;
-    spriteBases.set(normalizeKind(match[2]), match[1]);
+    const kind = normalizeKind(match[2]);
+    const source = String(options.source ?? "dom");
+    const priority = SPRITE_SOURCE_PRIORITY[source] ?? SPRITE_SOURCE_PRIORITY.dom;
+    const existing = spriteBases.get(kind);
+    if (!existing || priority > existing.priority || priority === existing.priority && options.replaceSamePriority === true) {
+      spriteBases.set(kind, { base: match[1], priority });
+    }
     return true;
   }
   function scanGameSpriteSources({ force = false } = {}) {
@@ -999,7 +1010,10 @@
       for (const entry of globalThis.performance?.getEntriesByType?.(
         "resource"
       ) ?? []) {
-        registerGameSpriteSource(entry?.name);
+        registerGameSpriteSource(entry?.name, {
+          source: "resource",
+          replaceSamePriority: true
+        });
       }
     } catch {
     }
@@ -1008,7 +1022,8 @@
         "svg use,img[src],link[href]"
       ) ?? []) {
         registerGameSpriteSource(
-          node.getAttribute?.("href") ?? node.getAttribute?.("xlink:href") ?? node.getAttribute?.("src") ?? node.currentSrc ?? node.src
+          node.getAttribute?.("href") ?? node.getAttribute?.("xlink:href") ?? node.getAttribute?.("src") ?? node.currentSrc ?? node.src,
+          { source: "dom" }
         );
       }
     } catch {
@@ -1030,7 +1045,10 @@
         if (!response.ok) return spriteBases.size;
         const manifest = await response.json();
         for (const value of Object.values(manifest?.files ?? {})) {
-          registerGameSpriteSource(value);
+          registerGameSpriteSource(value, {
+            source: "manifest",
+            replaceSamePriority: true
+          });
         }
       } catch {
       }
@@ -1041,7 +1059,7 @@
   function getGameSpriteBase(kind) {
     const normalizedKind = normalizeKind(kind);
     if (!spriteBases.has(normalizedKind)) scanGameSpriteSources();
-    return spriteBases.get(normalizedKind) ?? "";
+    return spriteBases.get(normalizedKind)?.base ?? "";
   }
   function getGameSpriteHref(kind, hrid) {
     const base = getGameSpriteBase(kind);
@@ -1252,7 +1270,7 @@
     },
     ThirdPartyLinks: {
       id: "ThirdPartyLinks",
-      desc: isZH ? "左侧菜单栏显示：第三方工具网站链接、脚本设置链接" : "Left sidebar: Links to 3rd-party websites, script settings.",
+      desc: isZH ? "左侧菜单栏显示：第三方工具网站链接" : "Left sidebar: Links to 3rd-party websites.",
       isTrue: true
     },
     actionQueue: {
@@ -2066,8 +2084,8 @@
       "tools",
       "第三方工具入口",
       "External tool shortcuts",
-      "在左侧菜单提供模拟器、计算器和脚本设置入口。",
-      "Add sidebar shortcuts for simulators, calculators, and MWITools settings."
+      "在左侧菜单提供模拟器、计算器和第三方数据入口。",
+      "Add sidebar shortcuts for simulators, calculators, and third-party data."
     ],
     [
       "skillbook",
@@ -25525,6 +25543,8 @@ ${locks}` : ""}`;
   // src/features/tasks.js
   var STYLE_ID11 = "mwitools-task-style";
   var TASK_SELECTOR = 'div[class*="RandomTask_randomTask"]:not([data-mwitools-task-mirror="true"])';
+  var REROLL_OPTIONS_SELECTOR = '[class*="RandomTask_rerollOptionsContainer"]';
+  var RANGED_REROLL_BUTTON_SELECTOR = ".RangedWayIdleTaskButton[data-more-expensive]";
   var OWNED_TASK_SELECTOR = '.mwi-task-insight,.mwi-task-toolbar,.mwi-task-profession-group,.mwi-task-combat-location,.mwi-task-combat-mode,.mwi-task-bg,.mwi-task-merged-note,.mwi-task-merge-toast,.mwi-task-train-planner,.mwi-task-new-badge,[data-mwitools-task-mirror="true"]';
   var MERGE_HANDLER = /* @__PURE__ */ Symbol("mwitoolsTaskMergeHandler");
   var originalCards = [];
@@ -25942,6 +25962,40 @@ ${locks}` : ""}`;
   function artworkHrefs(artworks) {
     return artworks.map(({ kind, hrid }) => getGameSpriteHref(kind, hrid)).filter(Boolean);
   }
+  function createArtworkSvg(href) {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("width", "100%");
+    svg.setAttribute("height", "100%");
+    svg.setAttribute("aria-hidden", "true");
+    const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+    use.setAttribute("href", href);
+    svg.appendChild(use);
+    return svg;
+  }
+  function syncArtworkBackground(existing, hrefs) {
+    const background = existing ?? document.createElement("div");
+    if (!existing) background.className = "mwi-task-bg";
+    hrefs.forEach((href, index) => {
+      let svg = background.children[index];
+      if (svg?.namespaceURI !== "http://www.w3.org/2000/svg") {
+        const replacement = createArtworkSvg(href);
+        if (svg) svg.replaceWith(replacement);
+        else background.appendChild(replacement);
+        svg = replacement;
+      }
+      let use = svg.querySelector(":scope > use");
+      if (!use) {
+        use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+        svg.appendChild(use);
+      }
+      if (use.getAttribute("href") !== href) use.setAttribute("href", href);
+    });
+    while (background.children.length > hrefs.length) {
+      background.lastElementChild?.remove();
+    }
+    background.dataset.spriteHref = hrefs.join("\n");
+    return background;
+  }
   function decorateCard(card, task, artworks = null) {
     card.querySelector(".mwi-task-insight")?.remove();
     if (!runtime.settings.get("taskIcons")) {
@@ -25957,24 +26011,13 @@ ${locks}` : ""}`;
       card.dataset.mwitoolsTaskIconSignature = "";
       return;
     }
-    card.dataset.mwitoolsTaskIconSignature = signature;
-    if (existing?.dataset.spriteHref === signature) return;
-    existing?.remove();
-    const background = document.createElement("div");
-    background.className = "mwi-task-bg";
-    background.dataset.spriteHref = signature;
-    for (const href of hrefs) {
-      const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-      svg.setAttribute("width", "100%");
-      svg.setAttribute("height", "100%");
-      svg.setAttribute("aria-hidden", "true");
-      const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
-      use.setAttribute("href", href);
-      svg.appendChild(use);
-      background.appendChild(svg);
+    if (card.dataset.mwitoolsTaskIconSignature !== signature) {
+      card.dataset.mwitoolsTaskIconSignature = signature;
     }
+    if (existing?.dataset.spriteHref === signature) return;
+    const background = syncArtworkBackground(existing, hrefs);
     card.style.position = "relative";
-    card.appendChild(background);
+    if (!existing) card.appendChild(background);
   }
   function taskIconMatches(card) {
     const existing = card.querySelector(":scope > .mwi-task-bg");
@@ -26894,6 +26937,57 @@ ${locks}` : ""}`;
       );
     });
   }
+  function reactCooldownState(button) {
+    const key = Object.getOwnPropertyNames(button ?? {}).find(
+      (name) => name.startsWith("__reactFiber$") || name.startsWith("__reactInternalInstance$")
+    );
+    let fiber = key ? button[key] : null;
+    for (let depth = 0; fiber && depth < 8; depth += 1) {
+      const state = fiber.stateNode?.state;
+      if (state && "isOnCooldown" in state) return state;
+      fiber = fiber.return;
+    }
+    return null;
+  }
+  function hasNativeDisabledClass(button) {
+    return [...button?.classList ?? []].some(
+      (name) => name.startsWith("Button_disabled__")
+    );
+  }
+  function repairRangedWayIdleRerollButtons(root = document) {
+    let repaired = 0;
+    for (const container of root.querySelectorAll?.(REROLL_OPTIONS_SELECTOR) ?? []) {
+      const buttons = [
+        ...container.querySelectorAll(RANGED_REROLL_BUTTON_SELECTOR)
+      ];
+      if (buttons.length !== 2) continue;
+      const expensive = buttons.filter(
+        (button2) => button2.dataset.moreExpensive === "true"
+      );
+      const preferred = buttons.filter(
+        (button2) => button2.dataset.moreExpensive === "false"
+      );
+      if (expensive.length !== 1 || preferred.length !== 1) continue;
+      if (!expensive[0].disabled && !hasNativeDisabledClass(expensive[0])) {
+        continue;
+      }
+      const button = preferred[0];
+      const cooldownState = reactCooldownState(button);
+      const disabledClass = hasNativeDisabledClass(button);
+      if (!button.disabled && !disabledClass && cooldownState?.isOnCooldown !== true) {
+        continue;
+      }
+      button.disabled = false;
+      for (const name of [...button.classList]) {
+        if (name.startsWith("Button_disabled__")) button.classList.remove(name);
+      }
+      if (cooldownState?.isOnCooldown === true) {
+        cooldownState.isOnCooldown = false;
+      }
+      repaired += 1;
+    }
+    return repaired;
+  }
   function taskRenderSignature(snapshots) {
     const settings2 = [
       runtime.config.isZH,
@@ -26917,6 +27011,8 @@ ${locks}` : ""}`;
     return [...settings2, ...rows2].join("");
   }
   function renderTasks({ forceSort = false, allowReusedPositional = true } = {}) {
+    repairRangedWayIdleRerollButtons();
+    if (document.querySelector(REROLL_OPTIONS_SELECTOR)) return true;
     let cards = [...document.querySelectorAll(TASK_SELECTOR)];
     if (!cards.length) {
       applyPendingMerge();
@@ -27091,6 +27187,7 @@ ${locks}` : ""}`;
           scope
         },
         (records) => {
+          repairRangedWayIdleRerollButtons();
           if (shouldRenderTaskMutations(records)) scheduleRender();
         }
       );
@@ -28377,7 +28474,8 @@ ${locks}` : ""}`;
           "盈亏摘要新增流动资产与非流动资产盈亏，库存总资产会在有昨日记录时显示今日盈亏；公会贡献表会把统计列统一排在试炼层数等原生列之后，横向滚动和闲置人数判断也已修复。",
           "制造面板在打开配装下拉、切换配装或延迟重建后会恢复制造链、计划、缺料、生产摘要和快捷输入等模块；即使游戏只移除其中一张卡片也会自动补回。设置中新增自定义快捷小时与次数，并修复逗号小数及不同千位分隔格式造成的耗时误读。",
           "购物清单较长时，修改数量、删除或打开商品会保持当前滚动位置；商品弹窗打开后可直接切换其他购物项，也可从购物清单或商品导航删除当前项并自动前往下一项。",
-          "中国服同时兼容有无 www 的访问地址，市场接口统一使用无 www 端点；关闭 MWITools 任务功能时不再提示 TaskManager 冲突，也可按脚本永久静默并在设置中恢复提醒。"
+          "中国服同时兼容有无 www 的访问地址，市场接口统一使用无 www 端点；关闭 MWITools 任务功能时不再提示 TaskManager 冲突，也可按脚本永久静默并在设置中恢复提醒。",
+          "左侧利润网入口现在会注明包含强化模拟，并移除重复的插件设置入口；任务图片会在多次刷新时保持稳定，也修复了与 Ranged Way Idle 同时使用时便宜刷新选项可能错误卡死的问题。"
         ]),
         en: Object.freeze([
           "Inventory valuations and opening estimates for dungeon and refinement chests now deduct both the chest key and the matching dungeon entry key. The opening panel shows the two costs separately, while ordinary chests without entry keys are unchanged.",
@@ -28386,7 +28484,8 @@ ${locks}` : ""}`;
           "The P/L summary now includes liquid and non-current asset profit, and Inventory shows today's P/L beside total assets when a prior-day record exists. Guild contribution statistics now stay after native columns such as Trial Level, while horizontal scrolling and idle-member detection have also been fixed.",
           "Manufacturing chains, plans, shortages, production summaries, targets, and quick inputs now recover after opening the loadout picker, switching loadouts, or delayed panel rebuilds, even when the game removes only one extension card. Settings add custom quick-hour and quick-count presets, and duration parsing now supports comma decimals and mixed thousands separators.",
           "Long shopping lists now keep their scroll position when quantities change, items are removed, or products are opened. While a product modal is open, another shopping item can be opened directly, and the current item can be removed from either the cart or product navigation before advancing automatically.",
-          "China servers now support both www and bare hostnames while using the bare-host market endpoint. TaskManager warnings are silent when MWITools task features are off, and individual conflicts can be muted permanently and restored from Settings."
+          "China servers now support both www and bare hostnames while using the bare-host market endpoint. TaskManager warnings are silent when MWITools task features are off, and individual conflicts can be muted permanently and restored from Settings.",
+          "The sidebar profit-site shortcut now notes that it includes an enhancement simulator, and the redundant script-settings shortcut has been removed. Task artwork stays stable through repeated rerolls, and cheaper reroll options no longer become incorrectly stuck when Ranged Way Idle is also enabled."
         ])
       })
     }),
@@ -31214,8 +31313,8 @@ ${locks}` : ""}`;
       url: "https://js.nainai.eu.org/"
     },
     {
-      zh: "利润网 Polokikiki",
-      en: "Profit site Polokikiki",
+      zh: "利润网 Polokikiki（含强化模拟）",
+      en: "Profit site Polokikiki (incl. enhancement simulator)",
       url: "https://polokikiki.github.io/Milkonomy/#/dashboard"
     },
     {
@@ -31272,17 +31371,6 @@ ${locks}` : ""}`;
         })
       );
     }
-    links.push(
-      createMinorNavigationLink(
-        runtime.config.isZH ? "插件设置" : "Script settings",
-        () => {
-          const array = document.querySelectorAll(
-            ".NavigationBar_navigationLink__3eAHA"
-          );
-          array[array.length - 1]?.click();
-        }
-      )
-    );
     const fragment = document.createDocumentFragment();
     links.forEach((link) => fragment.append(link));
     targetNode.insertBefore(fragment, targetNode.firstChild);

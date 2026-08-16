@@ -18,6 +18,7 @@ export const ANNOUNCEMENTS = Object.freeze([
         "制造面板在打开配装下拉、切换配装或延迟重建后会恢复制造链、计划、缺料、生产摘要和快捷输入等模块；即使游戏只移除其中一张卡片也会自动补回。设置中新增自定义快捷小时与次数，并修复逗号小数及不同千位分隔格式造成的耗时误读。",
         "购物清单较长时，修改数量、删除或打开商品会保持当前滚动位置；商品弹窗打开后可直接切换其他购物项，也可从购物清单或商品导航删除当前项并自动前往下一项。",
         "中国服同时兼容有无 www 的访问地址，市场接口统一使用无 www 端点；关闭 MWITools 任务功能时不再提示 TaskManager 冲突，也可按脚本永久静默并在设置中恢复提醒。",
+        "左侧利润网入口现在会注明包含强化模拟，并移除重复的插件设置入口；任务图片会在多次刷新时保持稳定，也修复了与 Ranged Way Idle 同时使用时便宜刷新选项可能错误卡死的问题。",
       ]),
       en: Object.freeze([
         "Inventory valuations and opening estimates for dungeon and refinement chests now deduct both the chest key and the matching dungeon entry key. The opening panel shows the two costs separately, while ordinary chests without entry keys are unchanged.",
@@ -27,6 +28,7 @@ export const ANNOUNCEMENTS = Object.freeze([
         "Manufacturing chains, plans, shortages, production summaries, targets, and quick inputs now recover after opening the loadout picker, switching loadouts, or delayed panel rebuilds, even when the game removes only one extension card. Settings add custom quick-hour and quick-count presets, and duration parsing now supports comma decimals and mixed thousands separators.",
         "Long shopping lists now keep their scroll position when quantities change, items are removed, or products are opened. While a product modal is open, another shopping item can be opened directly, and the current item can be removed from either the cart or product navigation before advancing automatically.",
         "China servers now support both www and bare hostnames while using the bare-host market endpoint. TaskManager warnings are silent when MWITools task features are off, and individual conflicts can be muted permanently and restored from Settings.",
+        "The sidebar profit-site shortcut now notes that it includes an enhancement simulator, and the redundant script-settings shortcut has been removed. Task artwork stays stable through repeated rerolls, and cheaper reroll options no longer become incorrectly stuck when Ranged Way Idle is also enabled.",
       ]),
     }),
   }),

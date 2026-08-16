@@ -271,8 +271,8 @@ let settingsMap = {
   ThirdPartyLinks: {
     id: "ThirdPartyLinks",
     desc: isZH
-      ? "左侧菜单栏显示：第三方工具网站链接、脚本设置链接"
-      : "Left sidebar: Links to 3rd-party websites, script settings.",
+      ? "左侧菜单栏显示：第三方工具网站链接"
+      : "Left sidebar: Links to 3rd-party websites.",
     isTrue: true,
   },
   actionQueue: {
@@ -1136,8 +1136,8 @@ const catalogRows = [
     "tools",
     "第三方工具入口",
     "External tool shortcuts",
-    "在左侧菜单提供模拟器、计算器和脚本设置入口。",
-    "Add sidebar shortcuts for simulators, calculators, and MWITools settings.",
+    "在左侧菜单提供模拟器、计算器和第三方数据入口。",
+    "Add sidebar shortcuts for simulators, calculators, and third-party data.",
   ],
   [
     "skillbook",

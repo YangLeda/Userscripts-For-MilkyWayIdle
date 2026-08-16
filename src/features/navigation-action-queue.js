@@ -11,8 +11,8 @@ export const THIRD_PARTY_LINKS = [
     url: "https://js.nainai.eu.org/",
   },
   {
-    zh: "利润网 Polokikiki",
-    en: "Profit site Polokikiki",
+    zh: "利润网 Polokikiki（含强化模拟）",
+    en: "Profit site Polokikiki (incl. enhancement simulator)",
     url: "https://polokikiki.github.io/Milkonomy/#/dashboard",
   },
   {
@@ -73,17 +73,6 @@ function add3rdPartyLinks() {
       }),
     );
   }
-  links.push(
-    createMinorNavigationLink(
-      runtime.config.isZH ? "插件设置" : "Script settings",
-      () => {
-        const array = document.querySelectorAll(
-          ".NavigationBar_navigationLink__3eAHA",
-        );
-        array[array.length - 1]?.click();
-      },
-    ),
-  );
   const fragment = document.createDocumentFragment();
   links.forEach((link) => fragment.append(link));
   targetNode.insertBefore(fragment, targetNode.firstChild);

@@ -21,6 +21,9 @@ import {
 const STYLE_ID = "mwitools-task-style";
 const TASK_SELECTOR =
   'div[class*="RandomTask_randomTask"]:not([data-mwitools-task-mirror="true"])';
+const REROLL_OPTIONS_SELECTOR = '[class*="RandomTask_rerollOptionsContainer"]';
+const RANGED_REROLL_BUTTON_SELECTOR =
+  ".RangedWayIdleTaskButton[data-more-expensive]";
 const OWNED_TASK_SELECTOR =
   '.mwi-task-insight,.mwi-task-toolbar,.mwi-task-profession-group,.mwi-task-combat-location,.mwi-task-combat-mode,.mwi-task-bg,.mwi-task-merged-note,.mwi-task-merge-toast,.mwi-task-train-planner,.mwi-task-new-badge,[data-mwitools-task-mirror="true"]';
 const MERGE_HANDLER = Symbol("mwitoolsTaskMergeHandler");
@@ -544,6 +547,42 @@ function artworkHrefs(artworks) {
     .filter(Boolean);
 }
 
+function createArtworkSvg(href) {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("width", "100%");
+  svg.setAttribute("height", "100%");
+  svg.setAttribute("aria-hidden", "true");
+  const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+  use.setAttribute("href", href);
+  svg.appendChild(use);
+  return svg;
+}
+
+function syncArtworkBackground(existing, hrefs) {
+  const background = existing ?? document.createElement("div");
+  if (!existing) background.className = "mwi-task-bg";
+  hrefs.forEach((href, index) => {
+    let svg = background.children[index];
+    if (svg?.namespaceURI !== "http://www.w3.org/2000/svg") {
+      const replacement = createArtworkSvg(href);
+      if (svg) svg.replaceWith(replacement);
+      else background.appendChild(replacement);
+      svg = replacement;
+    }
+    let use = svg.querySelector(":scope > use");
+    if (!use) {
+      use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+      svg.appendChild(use);
+    }
+    if (use.getAttribute("href") !== href) use.setAttribute("href", href);
+  });
+  while (background.children.length > hrefs.length) {
+    background.lastElementChild?.remove();
+  }
+  background.dataset.spriteHref = hrefs.join("\n");
+  return background;
+}
+
 function decorateCard(card, task, artworks = null) {
   card.querySelector(".mwi-task-insight")?.remove();
   if (!runtime.settings.get("taskIcons")) {
@@ -559,24 +598,13 @@ function decorateCard(card, task, artworks = null) {
     card.dataset.mwitoolsTaskIconSignature = "";
     return;
   }
-  card.dataset.mwitoolsTaskIconSignature = signature;
-  if (existing?.dataset.spriteHref === signature) return;
-  existing?.remove();
-  const background = document.createElement("div");
-  background.className = "mwi-task-bg";
-  background.dataset.spriteHref = signature;
-  for (const href of hrefs) {
-    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    svg.setAttribute("width", "100%");
-    svg.setAttribute("height", "100%");
-    svg.setAttribute("aria-hidden", "true");
-    const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
-    use.setAttribute("href", href);
-    svg.appendChild(use);
-    background.appendChild(svg);
+  if (card.dataset.mwitoolsTaskIconSignature !== signature) {
+    card.dataset.mwitoolsTaskIconSignature = signature;
   }
+  if (existing?.dataset.spriteHref === signature) return;
+  const background = syncArtworkBackground(existing, hrefs);
   card.style.position = "relative";
-  card.appendChild(background);
+  if (!existing) card.appendChild(background);
 }
 
 function taskIconMatches(card) {
@@ -1701,6 +1729,67 @@ export function shouldRenderTaskMutations(records, now = Date.now()) {
   });
 }
 
+function reactCooldownState(button) {
+  const key = Object.getOwnPropertyNames(button ?? {}).find(
+    (name) =>
+      name.startsWith("__reactFiber$") ||
+      name.startsWith("__reactInternalInstance$"),
+  );
+  let fiber = key ? button[key] : null;
+  for (let depth = 0; fiber && depth < 8; depth += 1) {
+    const state = fiber.stateNode?.state;
+    if (state && "isOnCooldown" in state) return state;
+    fiber = fiber.return;
+  }
+  return null;
+}
+
+function hasNativeDisabledClass(button) {
+  return [...(button?.classList ?? [])].some((name) =>
+    name.startsWith("Button_disabled__"),
+  );
+}
+
+export function repairRangedWayIdleRerollButtons(root = document) {
+  let repaired = 0;
+  for (const container of root.querySelectorAll?.(REROLL_OPTIONS_SELECTOR) ??
+    []) {
+    const buttons = [
+      ...container.querySelectorAll(RANGED_REROLL_BUTTON_SELECTOR),
+    ];
+    if (buttons.length !== 2) continue;
+    const expensive = buttons.filter(
+      (button) => button.dataset.moreExpensive === "true",
+    );
+    const preferred = buttons.filter(
+      (button) => button.dataset.moreExpensive === "false",
+    );
+    if (expensive.length !== 1 || preferred.length !== 1) continue;
+    if (!expensive[0].disabled && !hasNativeDisabledClass(expensive[0])) {
+      continue;
+    }
+    const button = preferred[0];
+    const cooldownState = reactCooldownState(button);
+    const disabledClass = hasNativeDisabledClass(button);
+    if (
+      !button.disabled &&
+      !disabledClass &&
+      cooldownState?.isOnCooldown !== true
+    ) {
+      continue;
+    }
+    button.disabled = false;
+    for (const name of [...button.classList]) {
+      if (name.startsWith("Button_disabled__")) button.classList.remove(name);
+    }
+    if (cooldownState?.isOnCooldown === true) {
+      cooldownState.isOnCooldown = false;
+    }
+    repaired += 1;
+  }
+  return repaired;
+}
+
 function taskRenderSignature(snapshots) {
   const settings = [
     runtime.config.isZH,
@@ -1725,6 +1814,8 @@ function taskRenderSignature(snapshots) {
 }
 
 function renderTasks({ forceSort = false, allowReusedPositional = true } = {}) {
+  repairRangedWayIdleRerollButtons();
+  if (document.querySelector(REROLL_OPTIONS_SELECTOR)) return true;
   let cards = [...document.querySelectorAll(TASK_SELECTOR)];
   if (!cards.length) {
     applyPendingMerge();
@@ -1923,6 +2014,7 @@ runtime.features.register({
         scope,
       },
       (records) => {
+        repairRangedWayIdleRerollButtons();
         if (shouldRenderTaskMutations(records)) scheduleRender();
       },
     );

@@ -421,7 +421,7 @@ test("announcement history preserves each release separately through 26.4.14", (
   assert.match(latest.title.zh, /26\.4\.14 更新公告/);
   assert.match(latest.title.en, /Version 26\.4\.14 update/);
   assert.equal(latest.body.zh.length, latest.body.en.length);
-  assert.equal(latest.body.zh.length, 7);
+  assert.equal(latest.body.zh.length, 8);
   assert.match(
     latest.body.zh.join("\n"),
     /地牢宝箱.*精炼宝箱.*库存估值.*开箱期望.*宝箱开启钥匙.*地牢门票钥匙.*分别展示.*普通无门票宝箱.*不受影响/,
@@ -592,6 +592,19 @@ test("announcement history preserves each release separately through 26.4.14", (
   assert.match(previous.body.zh.join("\n"), /有限时长 \+ ∞/);
   assert.match(previous.body.en.join("\n"), /MWI TaskManager/);
   assert.doesNotMatch(prior.body.zh.join("\n"), /小紫牛风格|自动开启铁牛/);
+});
+
+test("the current announcement covers task reroll and navigation compatibility", () => {
+  const current = ANNOUNCEMENTS.find(({ version }) => version === "26.4.14");
+  assert.match(
+    current.body.zh.join("\n"),
+    /利润网.*强化模拟.*插件设置.*任务图片.*Ranged Way Idle.*刷新选项/,
+  );
+  assert.match(
+    current.body.en.join("\n"),
+    /profit-site.*enhancement simulator.*script-settings.*Task artwork/i,
+  );
+  assert.match(current.body.en.join("\n"), /reroll options.*Ranged Way Idle/i);
 });
 
 test("the announcement history covers every player-facing update bilingually", () => {
