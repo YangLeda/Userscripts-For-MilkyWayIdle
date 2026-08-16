@@ -637,6 +637,14 @@ test("the current announcement covers task reroll and navigation compatibility",
     current.body.en.join("\n"),
     /0\.5-second grace period.*one second.*ordinary taps immediately.*highlight filters.*synchronized.*reroll confirmation/i,
   );
+  assert.match(
+    current.body.zh.join("\n"),
+    /只更新任务标题的文字节点.*图片.*自动同步.*不再需要点击返回/,
+  );
+  assert.match(
+    current.body.en.join("\n"),
+    /updates only the task title text.*without requiring Back navigation/i,
+  );
 });
 
 test("the announcement history covers every player-facing update bilingually", () => {

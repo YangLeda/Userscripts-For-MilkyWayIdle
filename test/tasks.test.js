@@ -43,6 +43,7 @@ await import("../src/core/state.js");
 await import("../src/core/action-projection.js");
 await import("../src/core/procurement.js");
 const {
+  TASK_MUTATION_OBSERVER_OPTIONS,
   dungeonLocationsForCard,
   readTaskFilterLocks,
   repairRangedWayIdleRerollButtons,
@@ -909,6 +910,79 @@ test("an open reroll payment choice pauses task artwork writes until it closes",
     /#new_output$/,
   );
   runtime.settings.settingsMap.taskIcons.isTrue = false;
+});
+
+test("a native title text update refreshes rerolled artwork without leaving the page", async () => {
+  assert.deepEqual(TASK_MUTATION_OBSERVER_OPTIONS, {
+    childList: true,
+    characterData: true,
+    subtree: true,
+  });
+  document.querySelector('[class*="TasksPanel_taskList"]')?.remove();
+  document.body.insertAdjacentHTML(
+    "afterbegin",
+    `<svg class="title-artwork-refresh-sprites" style="display:none">
+       <use href="/static/media/items_sprite.title-refresh.svg#seed"></use>
+       <use href="/static/media/actions_sprite.title-refresh.svg#seed"></use>
+     </svg>
+     <div class="TasksPanel_taskList__title-artwork-refresh">
+       ${card("制作 - 木板", "0 / 5")}
+     </div>`,
+  );
+  resetGameSpriteSources();
+  runtime.settings.settingsMap.taskNewBadge.isTrue = false;
+  runtime.settings.settingsMap.taskIcons.isTrue = true;
+  runtime.state.characterQuests = [
+    {
+      id: "title-artwork-old",
+      actionHrid: "/actions/crafting/lumber",
+      goalCount: 5,
+      currentCount: 0,
+    },
+  ];
+  assert.equal(runtime.api.renderTasks(), true);
+  const taskCard = document.querySelector(
+    ".TasksPanel_taskList__title-artwork-refresh " + TASK_SELECTOR,
+  );
+  assert.match(
+    taskCard.querySelector(".mwi-task-bg use").getAttribute("href"),
+    /#lumber$/,
+  );
+
+  let observedTitleChanges = 0;
+  const observer = new dom.window.MutationObserver((records) => {
+    const titleRecords = records.filter(
+      (record) => record.type === "characterData",
+    );
+    if (!titleRecords.length) return;
+    observedTitleChanges += titleRecords.length;
+    if (shouldRenderTaskMutations(titleRecords, Number.MAX_SAFE_INTEGER)) {
+      runtime.api.renderTasks({ allowReusedPositional: false });
+    }
+  });
+  observer.observe(document.body, TASK_MUTATION_OBSERVER_OPTIONS);
+  runtime.state.characterQuests = [
+    {
+      id: "title-artwork-new",
+      actionHrid: "/actions/milking/cow",
+      goalCount: 5,
+      currentCount: 0,
+    },
+  ];
+  taskCard.querySelector('[class*="RandomTask_name"]').firstChild.data =
+    "挤奶 - 奶牛";
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  observer.disconnect();
+
+  assert.equal(observedTitleChanges, 1);
+  assert.match(
+    taskCard.querySelector(".mwi-task-bg use").getAttribute("href"),
+    /#cow$/,
+    "changing only the native title text refreshes the task artwork",
+  );
+  runtime.settings.settingsMap.taskIcons.isTrue = false;
+  document.querySelector(".title-artwork-refresh-sprites")?.remove();
+  resetGameSpriteSources();
 });
 
 test("disabling task statistics keeps the manual sort control only", () => {

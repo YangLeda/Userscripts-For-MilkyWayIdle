@@ -28,6 +28,11 @@ const TASK_FILTER_LOCK_STORAGE_PREFIX = "MWITools_task_filter_locks_v1";
 const TASK_FILTER_LOCK_HOLD_MS = 1_000;
 const TASK_FILTER_LOCK_FEEDBACK_DELAY_MS = 500;
 const TASK_FILTER_LOCK_MOVE_TOLERANCE = 10;
+export const TASK_MUTATION_OBSERVER_OPTIONS = Object.freeze({
+  childList: true,
+  characterData: true,
+  subtree: true,
+});
 const OWNED_TASK_SELECTOR =
   '.mwi-task-insight,.mwi-task-toolbar,.mwi-task-profession-group,.mwi-task-combat-location,.mwi-task-combat-mode,.mwi-task-bg,.mwi-task-merged-note,.mwi-task-merge-toast,.mwi-task-train-planner,.mwi-task-new-badge,.mwi-task-reroll-lock,[data-mwitools-task-mirror="true"]';
 const MERGE_HANDLER = Symbol("mwitoolsTaskMergeHandler");
@@ -2553,7 +2558,7 @@ runtime.features.register({
       {
         name: "task-surface",
         target: document.body,
-        options: { childList: true, subtree: true },
+        options: TASK_MUTATION_OBSERVER_OPTIONS,
         scope,
       },
       (records) => {
