@@ -10,6 +10,7 @@
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
 // @match        https://www.milkywayidlecn.com/*
+// @match        https://milkywayidlecn.com/*
 // @match        https://amvoidguy.github.io/MWICombatSimulatorTest/*
 // @match        https://shykai.github.io/MWICombatSimulatorTest/dist/*
 // @match        https://mooneycalc.netlify.app/*
@@ -2116,6 +2117,24 @@
       ["largest", { zh: "最大", en: "Largest" }]
     ]
   };
+  settingsCatalog.productionQuickHours = Object.freeze({
+    id: "productionQuickHours",
+    group: "production",
+    hidden: true,
+    control: Object.freeze({
+      type: "text",
+      preference: "productionQuickHours"
+    })
+  });
+  settingsCatalog.productionQuickCounts = Object.freeze({
+    id: "productionQuickCounts",
+    group: "production",
+    hidden: true,
+    control: Object.freeze({
+      type: "text",
+      preference: "productionQuickCounts"
+    })
+  });
   var settingParents = {
     actionBarProfit: "totalActionTime",
     actionQueue: "totalActionTime",
@@ -2152,6 +2171,11 @@
   }
   var settingListeners = /* @__PURE__ */ new Map();
   var preferenceListeners = /* @__PURE__ */ new Map();
+  function normalizeTextPreference(value, fallback) {
+    if (typeof value !== "string" && typeof value !== "number") return fallback;
+    const normalized = String(value).trim().slice(0, 256);
+    return normalized || fallback;
+  }
   var preferenceDefinitions = Object.freeze({
     productionSummaryMode: Object.freeze({
       defaultValue: "collapsed",
@@ -2164,6 +2188,18 @@
     hoverFontScale: Object.freeze({
       defaultValue: "standard",
       values: Object.freeze(["standard", "large", "largest"])
+    }),
+    productionQuickHours: Object.freeze({
+      defaultValue: "0.5,1,2,3,4,5,6,10,12,24",
+      normalize(value) {
+        return normalizeTextPreference(value, this.defaultValue);
+      }
+    }),
+    productionQuickCounts: Object.freeze({
+      defaultValue: "10,100,300,500,1000,2000",
+      normalize(value) {
+        return normalizeTextPreference(value, this.defaultValue);
+      }
     })
   });
   var preferenceValues = Object.fromEntries(
@@ -2178,6 +2214,9 @@
   function normalizePreference(id, value) {
     const definition = preferenceDefinitions[id];
     if (!definition) return void 0;
+    if (typeof definition.normalize === "function") {
+      return definition.normalize(value);
+    }
     return definition.values.includes(value) ? value : definition.defaultValue;
   }
   function getPreference(id) {
@@ -2260,7 +2299,8 @@
       if (!preferenceDefinitions[id]) {
         throw new TypeError(`Unknown MWITools preference: ${id}`);
       }
-      if (!preferenceDefinitions[id].values.includes(value)) {
+      const definition = preferenceDefinitions[id];
+      if (definition.values && !definition.values.includes(value) || definition.normalize && typeof value !== "string") {
         throw new TypeError(`Invalid MWITools preference value for ${id}`);
       }
     }
@@ -3451,7 +3491,7 @@
       case "test":
         return "https://test.milkywayidle.com/game_data/marketplace.json";
       case "china":
-        return "https://www.milkywayidlecn.com/game_data/marketplace.json";
+        return "https://milkywayidlecn.com/game_data/marketplace.json";
       default:
         return "https://www.milkywayidle.com/game_data/marketplace.json";
     }
@@ -9925,12 +9965,21 @@
 
   // src/features/duplicate-script-warning.js
   var WARNING_ID = "mwitools-duplicate-script-warning";
+  var MUTED_DUPLICATES_KEY = "MWITools_muted_duplicate_scripts_v1";
+  var DUPLICATE_IDS = Object.freeze({
+    "MWI 市场伴侣 / MWI Market Mate": "market-mate",
+    "银河奶牛 DPS 统计 / Galaxy Cow DPS": "galaxy-cow-dps",
+    "Everyday Profit Plus Fixed": "everyday-profit-plus",
+    "MWI TaskManager": "mwi-task-manager"
+  });
+  var activeDuplicateWarningMonitor = null;
   var pageWindow = globalThis.unsafeWindow ?? globalThis.window ?? globalThis;
   var dpsWasPresentAtLoad = Boolean(pageWindow.__MWI_DPS);
   function detectDuplicateScripts(options = {}) {
     const target = options.pageWindow ?? pageWindow;
     const documentRef = options.documentRef ?? globalThis.document;
     const duplicates = [];
+    const taskInsightsEnabled = options.taskInsightsEnabled ?? runtime.settings.get?.("taskInsights") ?? true;
     if (target.MWIMM || documentRef?.getElementById("mwi-mm2-host")) {
       duplicates.push("MWI 市场伴侣 / MWI Market Mate");
     }
@@ -9942,17 +9991,38 @@
     )) {
       duplicates.push("Everyday Profit Plus Fixed");
     }
-    if (documentRef?.querySelector("#TaskSort") && documentRef?.querySelector(
+    if (taskInsightsEnabled && documentRef?.querySelector("#TaskSort") && documentRef?.querySelector(
       "#taskChekerInCoin,#ActionIcon,#BattleIcon,#DungeonIcon"
     )) {
       duplicates.push("MWI TaskManager");
     }
     return duplicates;
   }
+  function duplicateScriptId(name) {
+    return DUPLICATE_IDS[name] ?? String(name ?? "").trim().toLowerCase();
+  }
+  function readMutedDuplicateScriptIds(storage = globalThis.localStorage) {
+    try {
+      const value = JSON.parse(storage?.getItem(MUTED_DUPLICATES_KEY) || "[]");
+      return new Set(Array.isArray(value) ? value.map(String) : []);
+    } catch {
+      return /* @__PURE__ */ new Set();
+    }
+  }
+  function writeMutedDuplicateScriptIds(ids, storage = globalThis.localStorage) {
+    const value = [...new Set(ids ?? [])].map(String).filter(Boolean).sort();
+    storage?.setItem(MUTED_DUPLICATES_KEY, JSON.stringify(value));
+    return value;
+  }
+  function clearMutedDuplicateScriptIds(storage = globalThis.localStorage) {
+    storage?.removeItem(MUTED_DUPLICATES_KEY);
+    activeDuplicateWarningMonitor?.schedule();
+  }
   function showDuplicateWarning(duplicates, {
     documentRef = globalThis.document,
     isZH: isZH3 = runtime.config.isZH,
-    onDismiss = null
+    onDismiss = null,
+    onMute = null
   } = {}) {
     if (!duplicates.length || !documentRef?.body) return null;
     let warning = documentRef.getElementById(WARNING_ID);
@@ -9968,16 +10038,32 @@
       close.setAttribute("aria-label", isZH3 ? "关闭提醒" : "Close warning");
       close.style.cssText = "position:absolute;top:5px;right:7px;width:26px;height:26px;border:0;background:transparent;color:#bbb;font:20px/26px sans-serif;cursor:pointer";
       close.addEventListener("click", () => {
-        onDismiss?.();
+        warning._mwitoolsOnDismiss?.();
         warning.remove();
       });
-      warning.append(close, documentRef.createElement("div"));
+      const content2 = documentRef.createElement("div");
+      const message2 = documentRef.createElement("div");
+      const mute2 = documentRef.createElement("button");
+      mute2.type = "button";
+      mute2.dataset.mwitoolsDuplicateMute = "";
+      mute2.style.cssText = "margin-top:8px;border:1px solid rgba(245,158,11,.55);border-radius:5px;padding:4px 9px;background:rgba(245,158,11,.12);color:#ffd58a;font:inherit;cursor:pointer";
+      mute2.addEventListener("click", () => {
+        warning._mwitoolsOnMute?.();
+        warning.remove();
+      });
+      content2.append(message2, mute2);
+      warning.append(close, content2);
       documentRef.body.append(warning);
     }
+    warning._mwitoolsOnDismiss = onDismiss;
+    warning._mwitoolsOnMute = onMute;
     const content = warning.lastElementChild;
     const names = duplicates.join(isZH3 ? "、" : ", ");
     const message = isZH3 ? `检测到与新版 MWITools 功能重复的脚本：${names}。为避免重复监听、面板冲突和重复计算，建议在脚本管理器中停用或删除。` : `Scripts overlapping with the new MWITools were detected: ${names}. Disable or remove them in your userscript manager to avoid duplicate listeners, panels, and calculations.`;
-    if (content.textContent !== message) content.textContent = message;
+    const messageNode = content.firstElementChild;
+    if (messageNode.textContent !== message) messageNode.textContent = message;
+    const mute = content.querySelector("[data-mwitools-duplicate-mute]");
+    mute.textContent = isZH3 ? "不再提示这些脚本" : "Don't remind me again";
     return warning;
   }
   function duplicateSignature(duplicates) {
@@ -9993,6 +10079,9 @@
     const Observer = options.MutationObserverRef ?? globalThis.MutationObserver;
     const intervalMs = options.intervalMs ?? 1e4;
     const detected = /* @__PURE__ */ new Set();
+    const usesStoredMuted = !options.muted;
+    const muted = options.muted ?? readMutedDuplicateScriptIds(options.storage);
+    const isDuplicateEnabled = options.isDuplicateEnabled ?? ((name) => duplicateScriptId(name) !== "mwi-task-manager" || (runtime.settings.get?.("taskInsights") ?? true));
     let lastSignature = "";
     let dismissed = false;
     let pending = false;
@@ -10000,9 +10089,26 @@
     const scan2 = () => {
       pending = false;
       if (destroyed || dismissed) return;
-      for (const name of detect()) detected.add(name);
-      if (!detected.size) return;
-      const duplicates = [...detected].sort();
+      if (usesStoredMuted) {
+        muted.clear();
+        for (const id of readMutedDuplicateScriptIds(options.storage)) {
+          muted.add(id);
+        }
+      }
+      const current = detect();
+      if (!current.some((name) => duplicateScriptId(name) === "mwi-task-manager")) {
+        for (const name of detected) {
+          if (duplicateScriptId(name) === "mwi-task-manager")
+            detected.delete(name);
+        }
+      }
+      for (const name of current) detected.add(name);
+      const duplicates = [...detected].filter((name) => isDuplicateEnabled(name)).filter((name) => !muted.has(duplicateScriptId(name))).sort();
+      if (!duplicates.length) {
+        documentRef?.getElementById(WARNING_ID)?.remove();
+        lastSignature = "";
+        return;
+      }
       const signature = duplicateSignature(duplicates);
       if (signature === lastSignature) return;
       lastSignature = signature;
@@ -10011,6 +10117,11 @@
         isZH: options.isZH ?? runtime.config.isZH,
         onDismiss() {
           dismissed = true;
+        },
+        onMute() {
+          for (const name of duplicates) muted.add(duplicateScriptId(name));
+          writeMutedDuplicateScriptIds(muted, options.storage);
+          lastSignature = "";
         }
       });
     };
@@ -10051,8 +10162,21 @@
     id: "duplicateScriptWarning",
     initialize({ scope }) {
       const monitor = createDuplicateWarningMonitor();
-      scope.add(() => monitor.destroy());
+      activeDuplicateWarningMonitor = monitor;
+      scope.add(() => {
+        monitor.destroy();
+        if (activeDuplicateWarningMonitor === monitor) {
+          activeDuplicateWarningMonitor = null;
+        }
+      });
+      scope.add(
+        runtime.settings.onChange?.("taskInsights", () => monitor.schedule())
+      );
     }
+  });
+  Object.assign(runtime.api, {
+    clearMutedDuplicateScriptIds,
+    getMutedDuplicateScriptIds: () => [...readMutedDuplicateScriptIds()]
   });
 
   // src/features/mobile-viewport-fix.js
@@ -13120,6 +13244,8 @@ ${values.map((item) => item.date).join("\n")}`
       <div class="mwi-asset-summary">
         ${createCard(t3("当前总资产", "Current total assets"), "mwi-asset-current-total")}
         ${createCard(t3("总盈亏", "Total P/L"), "mwi-asset-total-change", "mwi-asset-compare-date")}
+        ${createCard(t3("流动资产盈亏", "Liquid-asset P/L"), "mwi-asset-liquid-change")}
+        ${createCard(t3("非流动资产盈亏", "Non-current-asset P/L"), "mwi-asset-fixed-change")}
         ${createCard(t3("盈亏比例", "P/L percentage"), "mwi-asset-total-percent")}
         ${createCard(t3("近 7 日平均", "7-day average"), "mwi-asset-seven-average")}
       </div>
@@ -13352,6 +13478,16 @@ ${preview}`
       setNumber("#mwi-asset-total-change", totalChange, {
         signed: true,
         className: valueClass(totalChange)
+      });
+      const liquidChange = Number.isFinite(current.liquid) && Number.isFinite(previous.liquid) ? current.liquid - previous.liquid : null;
+      const fixedChange = Number.isFinite(current.fixed) && Number.isFinite(previous.fixed) ? current.fixed - previous.fixed : null;
+      setNumber("#mwi-asset-liquid-change", liquidChange, {
+        signed: true,
+        className: valueClass(liquidChange)
+      });
+      setNumber("#mwi-asset-fixed-change", fixedChange, {
+        signed: true,
+        className: valueClass(fixedChange)
       });
       this.host.querySelector("#mwi-asset-compare-date").textContent = compareText;
       setNumber("#mwi-asset-total-percent", null, {
@@ -16751,6 +16887,10 @@ ${preview}`
       line-height: inherit;
       overflow-wrap: anywhere;
     }
+    .mwi-summary-today-profit { margin-left:.22rem; font-size:.82em; font-weight:650; white-space:nowrap; }
+    .mwi-summary-today-profit.is-positive { color:#5fce83; }
+    .mwi-summary-today-profit.is-negative { color:#ff7474; }
+    .mwi-summary-today-profit.is-neutral { color:var(--color-text-secondary,#aeb5c0); }
     .mwi-summary-chevron {
       width: .375rem;
       height: .375rem;
@@ -16946,6 +17086,21 @@ ${preview}`
   function numberHtml(value) {
     return `<span class="mwi-number" title="${runtime.api.formatExactNumber(value, 0)}">${runtime.api.numberFormatter(value)}</span>`;
   }
+  function inventoryTodayProfitHtml(values) {
+    const comparison = runtime.api.assetHistory?.getComparison?.();
+    const previous = comparison?.record?.values;
+    if (comparison?.gapDays !== 1) return "";
+    if (!Number.isFinite(values?.total) || !Number.isFinite(previous?.total)) {
+      return "";
+    }
+    const change = values.total - previous.total;
+    const sign = change > 0 ? "+" : change < 0 ? "−" : "";
+    const className = change > 0 ? "is-positive" : change < 0 ? "is-negative" : "is-neutral";
+    const formatted = runtime.api.numberFormatter(Math.abs(change));
+    const exact = runtime.api.formatExactNumber(change, 0);
+    const [open, close] = runtime.config.isZH ? ["（", "）"] : ["(", ")"];
+    return `<span class="mwi-summary-today-profit ${className}" title="${exact}">${open}${sign}${formatted}${close}</span>`;
+  }
   function scheduleNetworthRefresh() {
     addInventorySummaryStyles();
     if (!Array.isArray(runtime.state.initData_characterItems)) return;
@@ -17121,7 +17276,7 @@ ${preview}`
               <span class="mwi-summary-chevron" aria-hidden="true"></span>
               <span class="mwi-summary-heading">
                 <span class="mwi-summary-label">${runtime.config.isZH ? "总资产：" : "Total assets: "}</span>
-                <span class="mwi-summary-value">${numberHtml(values.total)}</span>
+                <span class="mwi-summary-value">${numberHtml(values.total)}${inventoryTodayProfitHtml(values)}</span>
               </span>
             </button>
             <div class="mwi-summary-details" id="netWorthDetails" style="display: none;" hidden>
@@ -17613,6 +17768,7 @@ ${preview}`
     addInventoryCategoryValues,
     getInventorySortUnitValue,
     getInventoryItemEnhancementLevel,
+    inventoryTodayProfitHtml,
     isSortableInventoryCategory,
     addInvSortButton,
     addGuildCreditConversionsSortButton
@@ -19416,21 +19572,10 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
   }
   var tooltipObserver = new MutationObserver(async function(mutations) {
     for (const mutation of mutations) {
-      for (const removed of mutation.removedNodes) {
-        if (removed?.nodeType === 1 && (removed.matches?.(".MuiTooltip-popper") || removed.querySelector?.(".MuiTooltip-popper"))) {
-          runtime.api.disconnectActionQueueObserver?.(removed);
-        }
-      }
       for (const added of mutation.addedNodes) {
         if (added?.nodeType === 1 && added.classList.contains("MuiTooltip-popper")) {
           if (added.querySelector("div.ItemTooltipText_name__2JAHA")) {
             await handleTooltipItem(added);
-          } else if (added.querySelector("div.QueuedActions_queuedActionsEditMenu__3OoQH")) {
-            runtime.api.handleActionQueueMenue(
-              added.querySelector(
-                "div.QueuedActions_queuedActionsEditMenu__3OoQH"
-              )
-            );
           } else if (runtime.settings.settingsMap.itemTooltip_profit.isTrue) {
             const actionHrid = resolveGatheringActionFromElement(added);
             if (actionHrid) {
@@ -20604,8 +20749,8 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
     "character_abilities_updated"
   ]);
   var STYLE_ID8 = "mwitools-action-dashboard-style";
-  var QUICK_HOURS = [0.5, 1, 2, 3, 4, 5, 6, 10, 12, 24];
-  var QUICK_COUNTS = [10, 100, 300, 500, 1e3, 2e3];
+  var DEFAULT_QUICK_HOURS = [0.5, 1, 2, 3, 4, 5, 6, 10, 12, 24];
+  var DEFAULT_QUICK_COUNTS = [10, 100, 300, 500, 1e3, 2e3];
   var ACTION_SURFACE_SELECTOR = 'div[class*="Header_actionName"],div[class*="SkillActionDetail_regularComponent"],div[class*="SkillActionDetail_skillActionDetail"]';
   var OWNED_ACTION_UI_SELECTOR = "#mwi-action-dashboard,#mwi-production-summary,.mwi-production-quick-inputs,.mwi-max-action-button,.mwi-production-duration-inline,.mwi-production-extensions";
   var PRODUCTION_MODULE_ORDER = Object.freeze({
@@ -20802,13 +20947,59 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
     const count = parseCompactNumber(match[1]);
     return Number.isSafeInteger(count) && count >= 0 ? count : null;
   }
+  function parseProductionDurationSeconds(value) {
+    const token = String(value ?? "").match(/[-+]?\d[\d\s\u00a0\u202f.,]*/)?.[0];
+    if (!token) return null;
+    let normalized = token.replace(/[\s\u00a0\u202f]/g, "");
+    const dot = normalized.lastIndexOf(".");
+    const comma = normalized.lastIndexOf(",");
+    const decimalIndex = Math.max(dot, comma);
+    if (decimalIndex >= 0) {
+      const whole = normalized.slice(0, decimalIndex).replace(/[.,]/g, "");
+      const fraction = normalized.slice(decimalIndex + 1).replace(/[.,]/g, "");
+      normalized = fraction ? `${whole}.${fraction}` : whole;
+    }
+    const number3 = Number(normalized);
+    return Number.isFinite(number3) && number3 > 0 ? number3 : null;
+  }
+  function parseProductionQuickPresets(value, { integer = false, fallback = [] } = {}) {
+    const result = [];
+    const seen = /* @__PURE__ */ new Set();
+    for (const token of String(value ?? "").split(/[,;\s]+/)) {
+      if (!token) continue;
+      const number3 = Number(token);
+      if (!Number.isFinite(number3) || number3 <= 0 || integer && !Number.isSafeInteger(number3)) {
+        continue;
+      }
+      const key = String(number3);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      result.push(number3);
+    }
+    return result.length ? result : [...fallback];
+  }
+  function productionQuickPresets() {
+    return {
+      hours: parseProductionQuickPresets(
+        runtime.settings.getPreference("productionQuickHours"),
+        { fallback: DEFAULT_QUICK_HOURS }
+      ),
+      counts: parseProductionQuickPresets(
+        runtime.settings.getPreference("productionQuickCounts"),
+        { integer: true, fallback: DEFAULT_QUICK_COUNTS }
+      )
+    };
+  }
   function getProductionPanelDuration(panel) {
     for (const value of panel?.querySelectorAll(
       'div[class*="SkillActionDetail_value"]'
     ) ?? []) {
-      const text = String(runtime.api.getOriTextFromElement?.(value) ?? "").trim().replaceAll(runtime.config.THOUSAND_SEPERATOR, "").replace(runtime.config.DECIMAL_SEPERATOR, ".");
-      const match = text.match(/^([\d.]+)\s*s$/i);
-      if (match && Number(match[1]) > 0) return Number(match[1]);
+      const text = String(
+        runtime.api.getOriTextFromElement?.(value) ?? ""
+      ).trim();
+      if (!/s\s*$/i.test(text)) continue;
+      const duration = parseProductionDurationSeconds(text);
+      if (duration) return duration;
     }
     return null;
   }
@@ -21027,6 +21218,17 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
       );
     });
   }
+  function shouldSettleActionUi(records) {
+    return records.some(
+      (record) => [...record.addedNodes ?? [], ...record.removedNodes ?? []].some(
+        (node) => node?.nodeType === 1 && (node.matches?.(
+          '.mwi-production-extensions,div[class*="SkillActionDetail_regularComponent"],div[class*="SkillActionDetail_skillActionDetail"]'
+        ) || node.querySelector?.(
+          '.mwi-production-extensions,div[class*="SkillActionDetail_regularComponent"],div[class*="SkillActionDetail_skillActionDetail"]'
+        ))
+      )
+    );
+  }
   function bindActionUiRenderer(scope, render, messages = []) {
     const scheduler = createFrameScheduler(render);
     const schedule = () => scheduler.schedule();
@@ -21038,7 +21240,13 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
         scope
       },
       (records) => {
-        if (shouldScheduleActionUi(records)) schedule();
+        if (!shouldScheduleActionUi(records)) return;
+        schedule();
+        if (shouldSettleActionUi(records)) {
+          scope.timeout(schedule, 80);
+          scope.timeout(schedule, 220);
+          scope.timeout(schedule, 450);
+        }
       }
     );
     const scheduleFromInput = (event) => {
@@ -21247,15 +21455,22 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
     if (!countGroup) return null;
     let host = panel.querySelector(".mwi-production-quick-inputs");
     const duration = getProductionPanelDuration(panel);
+    const presets = productionQuickPresets();
+    const presetSignature = `${presets.hours.join(",")}|${presets.counts.join(",")}`;
+    if (host && host.dataset.presetSignature !== presetSignature) {
+      host.remove();
+      host = null;
+    }
     if (!host) {
       host = document.createElement("div");
       host.className = "mwi-production-quick-inputs";
+      host.dataset.presetSignature = presetSignature;
       const hours = createProductionQuickRow({
         panel,
         input,
         id: "quickInputHourButtons",
         label: t8("时长", "Hours"),
-        values: QUICK_HOURS,
+        values: presets.hours,
         resolveCount: (hoursValue) => {
           const liveDuration = getProductionPanelDuration(panel);
           return getMinimumCountForDuration(
@@ -21270,7 +21485,7 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
         input,
         id: "quickInputCountButtons",
         label: t8("次数", "Count"),
-        values: QUICK_COUNTS,
+        values: presets.counts,
         resolveCount: (count) => count
       });
       host.append(hours, counts);
@@ -21612,6 +21827,18 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
         "actions_updated",
         ...PRODUCTION_PROFILE_MESSAGES
       ]);
+      scope.add(
+        runtime.settings.onPreferenceChange?.(
+          "productionQuickHours",
+          () => renderProductionQuickInputs()
+        )
+      );
+      scope.add(
+        runtime.settings.onPreferenceChange?.(
+          "productionQuickCounts",
+          () => renderProductionQuickInputs()
+        )
+      );
       scope.add(removeProductionQuickInputs);
     }
   });
@@ -21668,6 +21895,8 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
     renderActionDashboard,
     renderProductionPanel,
     getProductionPanelDuration,
+    parseProductionDurationSeconds,
+    parseProductionQuickPresets,
     getLiveActionTiming,
     resolveProductionAction: resolvePanelAction,
     resolveActiveProductionPanelContext,
@@ -23826,6 +24055,14 @@ ${locks}` : ""}`;
           const changed = [...record.addedNodes, ...record.removedNodes].filter(
             (node) => node?.nodeType === 1
           );
+          const replacedProductionMount = changed.some(
+            (node) => node.matches?.(
+              '.mwi-production-extensions,div[class*="SkillActionDetail_regularComponent"],div[class*="SkillActionDetail_skillActionDetail"]'
+            ) || node.querySelector?.(
+              '.mwi-production-extensions,div[class*="SkillActionDetail_regularComponent"],div[class*="SkillActionDetail_skillActionDetail"]'
+            )
+          );
+          if (replacedProductionMount) return true;
           if (target?.closest?.(OWNED_PROCUREMENT_SELECTOR) || changed.length && changed.every(
             (node) => node.matches?.(OWNED_PROCUREMENT_SELECTOR) || node.closest?.(OWNED_PROCUREMENT_SELECTOR)
           )) {
@@ -23836,7 +24073,12 @@ ${locks}` : ""}`;
             (node) => node.matches?.(PROCUREMENT_SURFACE_SELECTOR) || node.querySelector?.(PROCUREMENT_SURFACE_SELECTOR)
           );
         });
-        if (relevant) scheduleRender();
+        if (relevant) {
+          scheduleRender();
+          scope.timeout(scheduleRender, 80);
+          scope.timeout(scheduleRender, 220);
+          scope.timeout(scheduleRender, 450);
+        }
       });
       scope.observer(observer, document.body, {
         childList: true,
@@ -25386,6 +25628,25 @@ ${locks}` : ""}`;
     if (fightCandidates.length === 1) return fightCandidates[0];
     return normalizeMonsterHrid(actionHrid) || null;
   }
+  function taskMonsterHrid(task) {
+    const direct = normalizeMonsterHrid(
+      nestedValue(task, [
+        "monsterHrid",
+        "targetMonsterHrid",
+        "combatMonsterHrid"
+      ])
+    );
+    if (direct) return direct;
+    const detail = runtime.state.initData_actionDetailMap?.[String(taskActionHrid(task) ?? "")];
+    const monsters = [...fightMonsterHrids(detail?.combatZoneInfo?.fightInfo)];
+    return monsters.length === 1 ? monsters[0] : "";
+  }
+  function actionContainsMonster(actionHrid, monsterHrid) {
+    if (!monsterHrid) return false;
+    if (normalizeMonsterHrid(actionHrid) === monsterHrid) return true;
+    const detail = runtime.state.initData_actionDetailMap?.[actionHrid];
+    return fightMonsterHrids(detail?.combatZoneInfo?.fightInfo).has(monsterHrid);
+  }
   function taskArtworkForCard(card, task, context = {}) {
     const title = context.title ?? visibleTaskTitle(card);
     const profession = context.profession ?? professionForCard(card, task, title);
@@ -25741,13 +26002,7 @@ ${locks}` : ""}`;
       if (enteredNewTaskPage || !previousId) {
         if (freshIds.has(id)) pageNewTaskIds.add(id);
       } else if (changed) {
-        if (pendingResetSlots.has(slot)) {
-          if (pageClassifications.get(slot)?.state === "new") {
-            pageNewTaskIds.add(id);
-          }
-        } else if (freshIds.has(id)) {
-          pageNewTaskIds.add(id);
-        }
+        if (freshIds.has(id)) pageNewTaskIds.add(id);
         pendingResetSlots.delete(slot);
       } else if (freshIds.has(id)) {
         pageNewTaskIds.add(id);
@@ -26251,11 +26506,12 @@ ${locks}` : ""}`;
         const currentTask = liveTaskForCard(card, tasks);
         const actionHrid = taskActionHrid(currentTask);
         if (!actionHrid) return;
+        const monsterHrid = monsterHridForCard(card, currentTask);
         const matching = tasks.filter(
-          (task) => taskActionHrid(task) === actionHrid
+          (task) => monsterHrid ? taskMonsterHrid(task) === monsterHrid : taskActionHrid(task) === actionHrid
         );
         if (!matching.length) return;
-        runtime.state.pendingMergedTask = {
+        const pendingMergedTask = {
           actionHrid,
           count: matching.reduce(
             (sum, task) => sum + taskRequiredActionCount(task),
@@ -26263,6 +26519,13 @@ ${locks}` : ""}`;
           ),
           taskCount: matching.length
         };
+        if (monsterHrid) {
+          Object.defineProperty(pendingMergedTask, "monsterHrid", {
+            configurable: true,
+            value: monsterHrid
+          });
+        }
+        runtime.state.pendingMergedTask = pendingMergedTask;
       };
       card[MERGE_HANDLER] = handler;
       card.dataset.mwitoolsMergeWired = "true";
@@ -26303,17 +26566,29 @@ ${locks}` : ""}`;
   function applyPendingMerge() {
     const pending = runtime.state.pendingMergedTask;
     if (!pending) return;
-    const input = document.querySelector(
-      'div[class*="SkillActionDetail_maxActionCountInput"] input'
-    );
+    const input = [
+      ...document.querySelectorAll(
+        'div[class*="SkillActionDetail_maxActionCountInput"] input'
+      )
+    ].find((candidate) => {
+      const panel = candidate.closest('div[class*="SkillActionDetail_regularComponent"]') ?? candidate.closest('div[class*="Modal_modalContainer"]')?.querySelector('div[class*="SkillActionDetail_regularComponent"]') ?? candidate.parentElement;
+      const name = runtime.api.getOriTextFromElement?.(
+        panel?.querySelector('div[class*="SkillActionDetail_name"]')
+      );
+      const actionHrid = resolveLocalizedEntity("action", name) || runtime.api.getActionHridFromItemName?.(name);
+      return actionHrid === pending.actionHrid || actionContainsMonster(actionHrid, pending.monsterHrid);
+    });
     if (!input) return;
-    const panel = input.closest('div[class*="SkillActionDetail_regularComponent"]') ?? input.closest('div[class*="Modal_modalContainer"]')?.querySelector('div[class*="SkillActionDetail_regularComponent"]') ?? input.parentElement;
-    const name = runtime.api.getOriTextFromElement?.(
-      panel.querySelector('div[class*="SkillActionDetail_name"]')
-    );
-    const actionHrid = resolveLocalizedEntity("action", name) || runtime.api.getActionHridFromItemName?.(name);
-    if (actionHrid !== pending.actionHrid) return;
-    runtime.api.reactInputTriggerHack?.(input, pending.count);
+    if (runtime.api.reactInputTriggerHack) {
+      runtime.api.reactInputTriggerHack(input, pending.count);
+    } else {
+      input.value = String(pending.count);
+      input.dispatchEvent(
+        new (input.ownerDocument?.defaultView?.Event ?? Event)("input", {
+          bubbles: true
+        })
+      );
+    }
     document.querySelectorAll(".mwi-task-merged-note,.mwi-task-merge-toast").forEach((node) => node.remove());
     const toast = document.createElement("div");
     toast.className = "mwi-task-merge-toast";
@@ -26936,6 +27211,19 @@ ${locks}` : ""}`;
     }
     return state;
   }
+  function syncQuestSnapshot(state, previousIds, quests) {
+    const before = previousIds instanceof Set ? previousIds : new Set(previousIds);
+    const current = new Set((quests ?? []).map(questId).filter(Boolean));
+    for (const id of current) {
+      if (!before.has(id)) state.fresh.add(id);
+      state.known.add(id);
+    }
+    for (const id of [...state.fresh]) {
+      if (!current.has(id)) state.fresh.delete(id);
+    }
+    state.initialized = true;
+    return current;
+  }
   function addStyles11() {
     if (document.getElementById(STYLE_ID13)) return;
     const style = document.createElement("style");
@@ -26986,6 +27274,7 @@ ${locks}` : ""}`;
       const initial = runtime.state.characterQuests ?? [];
       initializeQuestState(state, initial);
       writeTaskNewState(storageKey, state);
+      let authoritativeIds = new Set(initial.map(questId).filter(Boolean));
       const render = () => {
         const quests = runtime.state.characterQuests ?? [];
         const activeIds = new Set(quests.map(questId).filter(Boolean));
@@ -27024,15 +27313,12 @@ ${locks}` : ""}`;
       const renderScheduler = createFrameScheduler(render);
       const schedule = () => renderScheduler.schedule();
       scope.add(
-        runtime.onMessage("quests_updated", (payload) => {
-          const updates = payload.endCharacterQuests ?? payload.characterQuests ?? [];
-          applyQuestUpdates(state, updates);
-          const liveIds = new Set(
-            (runtime.state.characterQuests ?? []).map(questId)
+        runtime.onMessage("quests_updated", () => {
+          authoritativeIds = syncQuestSnapshot(
+            state,
+            authoritativeIds,
+            runtime.state.characterQuests ?? []
           );
-          for (const id of [...state.fresh]) {
-            if (!liveIds.has(id)) state.fresh.delete(id);
-          }
           writeTaskNewState(storageKey, state);
           schedule();
         })
@@ -27826,11 +28112,19 @@ ${locks}` : ""}`;
       body: Object.freeze({
         zh: Object.freeze([
           "地牢宝箱与精炼宝箱的库存估值和开箱期望现在都会同时扣除宝箱开启钥匙与对应地牢门票钥匙；开箱面板会分别展示两项成本，普通无门票宝箱不受影响。",
-          "修复强化披风与其他背部装备时未比较贤者之镜方案的问题；包括精炼 +14 在内的强化成本现在会保留保护之镜作为普通保护材料，同时完整比较贤者之镜合成方案并选择总成本更低的路线。"
+          "修复强化披风与其他背部装备时未比较贤者之镜方案的问题；包括精炼 +14 在内的强化成本现在会保留保护之镜作为普通保护材料，同时完整比较贤者之镜合成方案并选择总成本更低的路线。",
+          "完整队列的耗时与完成时间不再依赖市场悬浮价格；队列重建、无限动作和缺少投影时会自动重试或显示明确原因。普通战斗任务会按目标怪物合并，任务“新”标记只跟随真正新增的任务。",
+          "盈亏摘要新增流动资产与非流动资产盈亏，库存总资产会在有昨日记录时显示今日盈亏；公会贡献表的列对齐、横向滚动和闲置人数判断也已修复。",
+          "制造面板在切换配装或延迟重建后会恢复制造链、计划、缺料和快捷输入等模块；设置中新增自定义快捷小时与次数，并修复逗号小数及不同千位分隔格式造成的耗时误读。",
+          "中国服同时兼容有无 www 的访问地址，市场接口统一使用无 www 端点；关闭 MWITools 任务功能时不再提示 TaskManager 冲突，也可按脚本永久静默并在设置中恢复提醒。"
         ]),
         en: Object.freeze([
           "Inventory valuations and opening estimates for dungeon and refinement chests now deduct both the chest key and the matching dungeon entry key. The opening panel shows the two costs separately, while ordinary chests without entry keys are unchanged.",
-          "Fixed Philosopher's Mirror plans being skipped for enhanced capes and other back equipment. Enhancement costs, including refined +14 items, now keep Mirrors of Protection for regular protection while comparing the full Philosopher's Mirror synthesis route and selecting the lower total cost."
+          "Fixed Philosopher's Mirror plans being skipped for enhanced capes and other back equipment. Enhancement costs, including refined +14 items, now keep Mirrors of Protection for regular protection while comparing the full Philosopher's Mirror synthesis route and selecting the lower total cost.",
+          "Full-queue duration and completion estimates no longer depend on hover prices. Queue rebuilds now retry, while infinite actions and missing projections show an explicit reason. Regular combat tasks merge by target monster, and New badges follow only genuinely added task IDs.",
+          "The P/L summary now includes liquid and non-current asset profit, and Inventory shows today's P/L beside total assets when a prior-day record exists. Guild contribution alignment, horizontal scrolling, and idle-member detection have also been fixed.",
+          "Manufacturing chains, plans, shortages, targets, and quick inputs now recover after loadout switches or delayed panel rebuilds. Settings add custom quick-hour and quick-count presets, and duration parsing now supports comma decimals and mixed thousands separators.",
+          "China servers now support both www and bare hostnames while using the bare-host market endpoint. TaskManager warnings are silent when MWITools task features are off, and individual conflicts can be muted permanently and restored from Settings."
         ])
       })
     }),
@@ -29288,21 +29582,50 @@ ${locks}` : ""}`;
     }
     return { found: false, value: void 0 };
   }
+  function findOwnFieldDeep(object, keys, maxDepth = 4) {
+    const pending = [{ value: object, depth: 0 }];
+    const visited = /* @__PURE__ */ new Set();
+    while (pending.length) {
+      const { value, depth } = pending.shift();
+      if (!value || typeof value !== "object" || visited.has(value) || depth > maxDepth) {
+        continue;
+      }
+      visited.add(value);
+      const own = findOwnField(value, keys);
+      if (own.found) return own;
+      for (const child of Object.values(value)) {
+        if (child && typeof child === "object") {
+          pending.push({ value: child, depth: depth + 1 });
+        }
+      }
+    }
+    return { found: false, value: void 0 };
+  }
   function isGuildMemberIdle(member) {
-    const hidden = findOwnField(member, [
+    const hidden = findOwnFieldDeep(member, [
       "hideOnlineStatus",
       "isOnlineHidden",
       "onlineStatusHidden"
-    ]).value;
-    const online = findOwnField(member, ["isOnline", "online"]).value;
-    if (Boolean(hidden) || online !== true) return false;
-    const action = findOwnField(member, [
+    ]);
+    const online = findOwnFieldDeep(member, ["isOnline", "online"]);
+    if (hidden.found && (hidden.value === true || hidden.value === 1 || /^(?:true|hidden)$/i.test(String(hidden.value ?? "").trim()))) {
+      return false;
+    }
+    if (online.found && (online.value === false || online.value === 0 || /^(?:false|offline)$/i.test(String(online.value ?? "").trim()))) {
+      return false;
+    }
+    let action = findOwnFieldDeep(member, [
       "actionType",
       "currentActionType",
       "currentActionHrid",
-      "actionHrid",
-      "currentAction"
+      "actionHrid"
     ]);
+    if (!action.found) {
+      const currentAction = findOwnFieldDeep(member, ["currentAction"]);
+      if (currentAction.found && (currentAction.value === null || currentAction.value === false)) {
+        action = currentAction;
+      }
+    }
     if (!action.found) return false;
     if (action.value === null || action.value === false) return true;
     if (typeof action.value === "string") {
@@ -29409,8 +29732,9 @@ ${locks}` : ""}`;
     .mwi-guild-trend polyline { fill:none; stroke:#ffa500; stroke-width:2; vector-effect:non-scaling-stroke; }
     .mwi-guild-idle { display:flex; flex-wrap:wrap; gap:5px; align-items:center; margin-top:8px; }
     .mwi-guild-idle span { padding:2px 7px; border-radius:999px; background:rgba(255,255,255,.07); font-size:.68rem; }
-    .mwi-guild-members-wide { width:100% !important; max-width:980px !important; }
-    .mwi-guild-members-wide .mwi-guild-member-table { width:100%; }
+    .mwi-guild-members-wide { width:100% !important; max-width:none !important; min-width:0 !important; }
+    .mwi-guild-member-table-wrap { width:100%; max-width:100%; overflow-x:auto; overscroll-behavior-x:contain; }
+    .mwi-guild-members-wide .mwi-guild-member-table { width:max-content !important; min-width:100% !important; table-layout:auto !important; }
     .mwi-guild-member-table > thead > tr > th { white-space:nowrap; word-break:keep-all; }
     .mwi-guild-member-table > tbody > tr > td:not(:first-child) { white-space:nowrap; word-break:keep-all; }
     .mwi-guild-member-table > thead > tr > th:nth-child(2),
@@ -29685,6 +30009,7 @@ ${locks}` : ""}`;
     table.classList.add(`mwi-guild-${kind}-table`);
     if (kind === "member") {
       table.closest('[class*="GuildPanel_membersTab__"]')?.classList.add("mwi-guild-members-wide");
+      table.parentElement?.classList.add("mwi-guild-member-table-wrap");
     }
     const header = table.tHead.rows[0];
     if (!header.querySelector(".mwi-guild-recent-head")) {
@@ -29940,6 +30265,9 @@ ${locks}` : ""}`;
           document.querySelectorAll(`table.mwi-guild-${kind}-table`).forEach((table) => {
             if (kind === "member") {
               table.closest(".mwi-guild-members-wide")?.classList.remove("mwi-guild-members-wide");
+              table.parentElement?.classList.remove(
+                "mwi-guild-member-table-wrap"
+              );
             }
             table.querySelectorAll(
               ".mwi-guild-rate-cell,.mwi-guild-recent-head,.mwi-guild-day-head,.mwi-guild-week-head"
@@ -30690,6 +31018,7 @@ ${locks}` : ""}`;
     targetNode.insertBefore(fragment, targetNode.firstChild);
   }
   var activeActionQueueObserver = null;
+  var ACTION_QUEUE_MENU_SELECTOR = "div.QueuedActions_queuedActionsEditMenu__3OoQH";
   function disconnectActionQueueObserver(root = null) {
     if (!activeActionQueueObserver) return false;
     if (root && activeActionQueueObserver.menu !== root && !root.contains?.(activeActionQueueObserver.menu)) {
@@ -30720,13 +31049,19 @@ ${locks}` : ""}`;
         disconnectActionQueueObserver(added);
         return;
       }
-      handleActionQueueMenueCalculateTime(added);
-      if (retry) {
-        active.retryId = setTimeout(() => {
-          if (activeActionQueueObserver === active && added.isConnected) {
-            handleActionQueueMenueCalculateTime(added);
-          }
-        }, 100);
+      const settled = handleActionQueueMenueCalculateTime(added);
+      if (retry && !settled && active.retryCount < 4) {
+        active.retryCount += 1;
+        active.retryId = setTimeout(
+          () => {
+            if (activeActionQueueObserver === active && added.isConnected) {
+              scheduleActionQueueRefresh(added, { retry: true });
+            }
+          },
+          [50, 100, 200, 350][active.retryCount - 1]
+        );
+      } else if (settled) {
+        active.retryCount = 0;
       }
     });
   }
@@ -30738,6 +31073,7 @@ ${locks}` : ""}`;
     const listDiv = added.querySelector(".QueuedActions_actions__2Lur6");
     if (!listDiv) return;
     if (activeActionQueueObserver?.menu === added) {
+      activeActionQueueObserver.retryCount = 0;
       scheduleActionQueueRefresh(added);
       return;
     }
@@ -30753,7 +31089,8 @@ ${locks}` : ""}`;
       menu: added,
       observer,
       frameId: null,
-      retryId: null
+      retryId: null,
+      retryCount: 0
     };
     observer.observe(listDiv, {
       characterData: false,
@@ -30777,14 +31114,20 @@ ${locks}` : ""}`;
       return false;
     }
     let finitePrefixSeconds = 0;
-    let reachedInfinite = false;
+    let blockedBy = "";
     const now = Date.now();
     for (const [index, actionObj] of actions.entries()) {
       const queuedRow = index > 0 ? actionDivList[index - 1] : null;
       const target = queuedRow?.querySelector("div");
       const current = target?.querySelector("div.script_actionTime");
-      if (reachedInfinite) {
-        current?.remove();
+      if (blockedBy) {
+        if (queuedRow) {
+          const output = current ?? document.createElement("div");
+          output.className = "script_actionTime";
+          output.style.color = runtime.config.SCRIPT_COLOR_MAIN;
+          output.textContent = blockedBy === "infinite" ? runtime.config.isZH ? "前序动作无限，无法预计" : "After an infinite action" : runtime.config.isZH ? "前序动作无法预计" : "After an unavailable estimate";
+          if (!current) target?.append(output);
+        }
         continue;
       }
       const actionHrid = String(actionObj.actionHrid ?? "");
@@ -30798,15 +31141,15 @@ ${locks}` : ""}`;
       const totalTimeSec = timing?.totalSeconds;
       const unavailable = !Number.isFinite(totalTimeSec);
       const boundary = isInfinite || unavailable;
-      if (boundary) reachedInfinite = true;
+      if (boundary) blockedBy = isInfinite ? "infinite" : "unavailable";
       else finitePrefixSeconds += totalTimeSec;
       if (queuedRow) {
         const output = current ?? document.createElement("div");
         output.className = "script_actionTime";
         output.style.color = runtime.config.SCRIPT_COLOR_MAIN;
-        output.textContent = formatRemainingTiming(
-          boundary ? Infinity : totalTimeSec,
-          boundary ? null : now + finitePrefixSeconds * 1e3,
+        output.textContent = isInfinite ? "∞" : unavailable ? runtime.config.isZH ? "无法预计" : "Unavailable" : formatRemainingTiming(
+          totalTimeSec,
+          now + finitePrefixSeconds * 1e3,
           { isZH: runtime.config.isZH, now }
         );
         if (!current) target?.append(output);
@@ -30818,7 +31161,8 @@ ${locks}` : ""}`;
     const total = currentTotal ?? document.createElement("div");
     total.id = "script_queueTotalTime";
     total.style.color = runtime.config.SCRIPT_COLOR_MAIN;
-    const totalText = reachedInfinite ? finitePrefixSeconds > 0 ? `${formatRemainingDuration(finitePrefixSeconds, runtime.config.isZH)} + ∞` : "∞" : formatRemainingTiming(
+    const blockedText = blockedBy === "infinite" ? "∞" : runtime.config.isZH ? "无法预计" : "Unavailable";
+    const totalText = blockedBy ? finitePrefixSeconds > 0 ? `${formatRemainingDuration(finitePrefixSeconds, runtime.config.isZH)} + ${blockedText}` : blockedText : formatRemainingTiming(
       finitePrefixSeconds,
       now + finitePrefixSeconds * 1e3,
       { isZH: runtime.config.isZH, now }
@@ -30826,6 +31170,36 @@ ${locks}` : ""}`;
     total.textContent = `${runtime.config.isZH ? "总时间：" : "Total time: "}${totalText}`;
     if (!currentTotal) added.insertAdjacentElement("afterend", total);
     return true;
+  }
+  function actionQueueMenuFromNode(node) {
+    if (node?.nodeType !== 1) return null;
+    if (node.matches?.(ACTION_QUEUE_MENU_SELECTOR)) return node;
+    return node.querySelector?.(ACTION_QUEUE_MENU_SELECTOR) ?? null;
+  }
+  function observeActionQueueMenus(scope) {
+    const attach = () => {
+      if (!document.body) return false;
+      const existing = document.querySelector(ACTION_QUEUE_MENU_SELECTOR);
+      if (existing) handleActionQueueMenue(existing);
+      const observer = new MutationObserver((records) => {
+        for (const record of records) {
+          for (const removed of record.removedNodes ?? []) {
+            if (activeActionQueueObserver?.menu && (removed === activeActionQueueObserver.menu || removed.contains?.(activeActionQueueObserver.menu))) {
+              disconnectActionQueueObserver();
+            }
+          }
+          for (const added of record.addedNodes ?? []) {
+            const menu = actionQueueMenuFromNode(added);
+            if (menu) handleActionQueueMenue(menu);
+          }
+        }
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
+      scope.add(() => observer.disconnect());
+      return true;
+    };
+    if (!attach())
+      scope.event(document, "DOMContentLoaded", attach, { once: true });
   }
   runtime.onMessage("actions_updated", () => {
     if (activeActionQueueObserver) {
@@ -30848,7 +31222,8 @@ ${locks}` : ""}`;
     getActiveActionQueueObserverCount: () => activeActionQueueObserver === null ? 0 : 1,
     getOriTextFromElement,
     handleActionQueueMenue,
-    handleActionQueueMenueCalculateTime
+    handleActionQueueMenueCalculateTime,
+    observeActionQueueMenus
   });
 
   // src/features/enhancement-planner.js
@@ -32277,6 +32652,8 @@ ${locks}` : ""}`;
     .mwi-setting-retry { margin-left:8px; border:0; border-radius:4px; padding:2px 6px; cursor:pointer; color:inherit; background:rgba(255,255,255,.1); }
     .mwi-setting-shortcut-row { display:flex; align-items:center; justify-content:flex-end; gap:8px; margin:5px 44px 1px 0; color:var(--color-text-secondary,#aaa); font-size:calc(.7rem * var(--mwi-ui-font-scale,1)); }
     .mwi-setting-shortcut { min-width:92px; border:1px solid rgba(255,255,255,.16); border-radius:5px; padding:4px 8px; cursor:pointer; color:inherit; background:rgba(255,255,255,.07); }
+    .mwi-setting-preset-input { width:min(310px,62vw); box-sizing:border-box; border:1px solid rgba(255,255,255,.16); border-radius:5px; padding:5px 8px; color:inherit; background:rgba(0,0,0,.2); font:inherit; }
+    .mwi-setting-preset-input:disabled { cursor:not-allowed; opacity:.5; }
     .mwi-setting-select { min-width:92px; border:1px solid rgba(255,255,255,.16); border-radius:5px; padding:4px 24px 4px 8px; color:inherit; background:var(--color-background-secondary,#292929); font:inherit; }
     .mwi-setting-primary-select { grid-column:4; grid-row:1; justify-self:end; }
     .mwi-setting-select:disabled { cursor:not-allowed; opacity:.5; }
@@ -32426,7 +32803,8 @@ ${locks}` : ""}`;
     const descendants = getSettingDescendants(definition.id);
     const card = document.createElement("article");
     let cancelShortcutCapture = null;
-    let auxiliaryControl = null;
+    const auxiliaryControls = [];
+    const preferenceCleanups = [];
     card.className = "mwi-setting-card";
     if (options.child) card.classList.add("mwi-setting-child");
     card.dataset.search = [
@@ -32470,7 +32848,9 @@ ${locks}` : ""}`;
         );
         status.appendChild(retry);
       }
-      if (auxiliaryControl) auxiliaryControl.disabled = !checkbox.checked;
+      for (const control of auxiliaryControls) {
+        control.disabled = !checkbox.checked;
+      }
     };
     setStatus();
     const titleLine = document.createElement("div");
@@ -32567,8 +32947,47 @@ ${locks}` : ""}`;
       });
       countRow.append(countLabel, countSelect);
       card.append(countRow);
-      auxiliaryControl = countSelect;
+      auxiliaryControls.push(countSelect);
     }
+    if (definition.id === "actionPanel_totalTime_quickInputs") {
+      const presets = [
+        [
+          "productionQuickHours",
+          runtime.config.isZH ? "快捷小时" : "Quick hours",
+          runtime.config.isZH ? "例如：0.5, 1, 2, 6" : "Example: 0.5, 1, 2, 6"
+        ],
+        [
+          "productionQuickCounts",
+          runtime.config.isZH ? "快捷次数" : "Quick counts",
+          runtime.config.isZH ? "例如：10, 100, 500" : "Example: 10, 100, 500"
+        ]
+      ];
+      for (const [preferenceId, labelText, placeholder] of presets) {
+        const presetRow = document.createElement("label");
+        presetRow.className = "mwi-setting-shortcut-row";
+        const presetLabel = document.createElement("span");
+        presetLabel.textContent = labelText;
+        const input = document.createElement("input");
+        input.type = "text";
+        input.className = "mwi-setting-preset-input";
+        input.placeholder = placeholder;
+        input.value = runtime.settings.getPreference(preferenceId);
+        input.setAttribute("aria-label", labelText);
+        input.addEventListener("change", async () => {
+          await runtime.settings.setPreference(preferenceId, input.value);
+          input.value = runtime.settings.getPreference(preferenceId);
+        });
+        preferenceCleanups.push(
+          runtime.settings.onPreferenceChange(preferenceId, (value) => {
+            if (document.activeElement !== input) input.value = value;
+          })
+        );
+        auxiliaryControls.push(input);
+        presetRow.append(presetLabel, input);
+        card.append(presetRow);
+      }
+    }
+    setStatus();
     for (const child of children) {
       card.append(createSettingCard(child, { child: true }));
     }
@@ -32593,9 +33012,39 @@ ${locks}` : ""}`;
     );
     card._mwitoolsCleanup = () => {
       cancelShortcutCapture?.();
+      preferenceCleanups.forEach((cleanup4) => cleanup4?.());
       stopStatusListener?.();
       stopSettingListener?.();
     };
+    return card;
+  }
+  function createDuplicateWarningSettingsCard() {
+    const card = document.createElement("article");
+    card.className = "mwi-performance-settings-card";
+    card.dataset.search = "冲突 提醒 不再提示 conflict warning restore reset";
+    const copy = document.createElement("div");
+    copy.className = "mwi-performance-settings-copy";
+    const title = document.createElement("div");
+    title.className = "mwi-performance-settings-title";
+    title.textContent = runtime.config.isZH ? "冲突脚本提醒" : "Conflicting-script warnings";
+    const summary = document.createElement("div");
+    summary.className = "mwi-performance-settings-summary";
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "mwi-performance-settings-open";
+    const update = () => {
+      const count = runtime.api.getMutedDuplicateScriptIds?.().length ?? 0;
+      summary.textContent = count ? runtime.config.isZH ? `已永久静默 ${count} 个脚本。` : `${count} script warning(s) muted.` : runtime.config.isZH ? "当前没有永久静默的冲突提醒。" : "No conflict warnings are currently muted.";
+      button.disabled = count === 0;
+      button.textContent = runtime.config.isZH ? "恢复提醒" : "Restore warnings";
+    };
+    button.addEventListener("click", () => {
+      runtime.api.clearMutedDuplicateScriptIds?.();
+      update();
+    });
+    update();
+    copy.append(title, summary);
+    card.append(copy, button);
     return card;
   }
   function performanceProfileLabel(state = runtime.api.performanceProfiles?.getState?.()) {
@@ -32703,7 +33152,12 @@ ${locks}` : ""}`;
       head.append(groupTitle, groupSummary);
       const grid = document.createElement("div");
       grid.className = "mwi-settings-grid";
-      if (groupId === "general") grid.append(createPerformanceSettingsCard());
+      if (groupId === "general") {
+        grid.append(
+          createPerformanceSettingsCard(),
+          createDuplicateWarningSettingsCard()
+        );
+      }
       for (const definition of definitions) {
         grid.appendChild(createSettingCard(definition));
       }
@@ -44088,6 +44542,9 @@ ${locks}` : ""}`;
     },
     actionQueue: {
       scope: "character",
+      initialize({ scope }) {
+        runtime.api.observeActionQueueMenus?.(scope);
+      },
       cleanup() {
         runtime.api.disconnectActionQueueObservers?.();
         removeAll(".script_actionTime,#script_queueTotalTime");

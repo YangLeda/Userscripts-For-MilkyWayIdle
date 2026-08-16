@@ -96,6 +96,9 @@ const adapters = {
   },
   actionQueue: {
     scope: "character",
+    initialize({ scope }) {
+      runtime.api.observeActionQueueMenus?.(scope);
+    },
     cleanup() {
       runtime.api.disconnectActionQueueObservers?.();
       removeAll(".script_actionTime,#script_queueTotalTime");

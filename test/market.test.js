@@ -73,7 +73,11 @@ test("market endpoints and refresh intervals follow the current server", () => {
   );
   assert.equal(
     runtime.api.getMarketApiUrl("www.milkywayidlecn.com"),
-    "https://www.milkywayidlecn.com/game_data/marketplace.json",
+    "https://milkywayidlecn.com/game_data/marketplace.json",
+  );
+  assert.equal(
+    runtime.api.getMarketApiUrl("milkywayidlecn.com"),
+    "https://milkywayidlecn.com/game_data/marketplace.json",
   );
   assert.equal(
     runtime.api.getMarketRefreshInterval("test.milkywayidle.com"),

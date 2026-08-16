@@ -2491,6 +2491,16 @@ runtime.features.register({
         const changed = [...record.addedNodes, ...record.removedNodes].filter(
           (node) => node?.nodeType === 1,
         );
+        const replacedProductionMount = changed.some(
+          (node) =>
+            node.matches?.(
+              '.mwi-production-extensions,div[class*="SkillActionDetail_regularComponent"],div[class*="SkillActionDetail_skillActionDetail"]',
+            ) ||
+            node.querySelector?.(
+              '.mwi-production-extensions,div[class*="SkillActionDetail_regularComponent"],div[class*="SkillActionDetail_skillActionDetail"]',
+            ),
+        );
+        if (replacedProductionMount) return true;
         if (
           target?.closest?.(OWNED_PROCUREMENT_SELECTOR) ||
           (changed.length &&
@@ -2509,7 +2519,12 @@ runtime.features.register({
             node.querySelector?.(PROCUREMENT_SURFACE_SELECTOR),
         );
       });
-      if (relevant) scheduleRender();
+      if (relevant) {
+        scheduleRender();
+        scope.timeout(scheduleRender, 80);
+        scope.timeout(scheduleRender, 220);
+        scope.timeout(scheduleRender, 450);
+      }
     });
     scope.observer(observer, document.body, {
       childList: true,

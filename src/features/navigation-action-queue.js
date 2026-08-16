@@ -90,6 +90,8 @@ function add3rdPartyLinks() {
 }
 
 let activeActionQueueObserver = null;
+const ACTION_QUEUE_MENU_SELECTOR =
+  "div.QueuedActions_queuedActionsEditMenu__3OoQH";
 
 function disconnectActionQueueObserver(root = null) {
   if (!activeActionQueueObserver) return false;
@@ -127,13 +129,19 @@ function scheduleActionQueueRefresh(added, { retry = true } = {}) {
       disconnectActionQueueObserver(added);
       return;
     }
-    handleActionQueueMenueCalculateTime(added);
-    if (retry) {
-      active.retryId = setTimeout(() => {
-        if (activeActionQueueObserver === active && added.isConnected) {
-          handleActionQueueMenueCalculateTime(added);
-        }
-      }, 100);
+    const settled = handleActionQueueMenueCalculateTime(added);
+    if (retry && !settled && active.retryCount < 4) {
+      active.retryCount += 1;
+      active.retryId = setTimeout(
+        () => {
+          if (activeActionQueueObserver === active && added.isConnected) {
+            scheduleActionQueueRefresh(added, { retry: true });
+          }
+        },
+        [50, 100, 200, 350][active.retryCount - 1],
+      );
+    } else if (settled) {
+      active.retryCount = 0;
     }
   });
 }
@@ -147,6 +155,7 @@ function handleActionQueueMenue(added) {
   const listDiv = added.querySelector(".QueuedActions_actions__2Lur6");
   if (!listDiv) return;
   if (activeActionQueueObserver?.menu === added) {
+    activeActionQueueObserver.retryCount = 0;
     scheduleActionQueueRefresh(added);
     return;
   }
@@ -163,6 +172,7 @@ function handleActionQueueMenue(added) {
     observer,
     frameId: null,
     retryId: null,
+    retryCount: 0,
   };
   observer.observe(listDiv, {
     characterData: false,
@@ -190,14 +200,27 @@ function handleActionQueueMenueCalculateTime(added) {
   }
 
   let finitePrefixSeconds = 0;
-  let reachedInfinite = false;
+  let blockedBy = "";
   const now = Date.now();
   for (const [index, actionObj] of actions.entries()) {
     const queuedRow = index > 0 ? actionDivList[index - 1] : null;
     const target = queuedRow?.querySelector("div");
     const current = target?.querySelector("div.script_actionTime");
-    if (reachedInfinite) {
-      current?.remove();
+    if (blockedBy) {
+      if (queuedRow) {
+        const output = current ?? document.createElement("div");
+        output.className = "script_actionTime";
+        output.style.color = runtime.config.SCRIPT_COLOR_MAIN;
+        output.textContent =
+          blockedBy === "infinite"
+            ? runtime.config.isZH
+              ? "前序动作无限，无法预计"
+              : "After an infinite action"
+            : runtime.config.isZH
+              ? "前序动作无法预计"
+              : "After an unavailable estimate";
+        if (!current) target?.append(output);
+      }
       continue;
     }
     const actionHrid = String(actionObj.actionHrid ?? "");
@@ -213,18 +236,24 @@ function handleActionQueueMenueCalculateTime(added) {
     const totalTimeSec = timing?.totalSeconds;
     const unavailable = !Number.isFinite(totalTimeSec);
     const boundary = isInfinite || unavailable;
-    if (boundary) reachedInfinite = true;
+    if (boundary) blockedBy = isInfinite ? "infinite" : "unavailable";
     else finitePrefixSeconds += totalTimeSec;
 
     if (queuedRow) {
       const output = current ?? document.createElement("div");
       output.className = "script_actionTime";
       output.style.color = runtime.config.SCRIPT_COLOR_MAIN;
-      output.textContent = formatRemainingTiming(
-        boundary ? Infinity : totalTimeSec,
-        boundary ? null : now + finitePrefixSeconds * 1000,
-        { isZH: runtime.config.isZH, now },
-      );
+      output.textContent = isInfinite
+        ? "∞"
+        : unavailable
+          ? runtime.config.isZH
+            ? "无法预计"
+            : "Unavailable"
+          : formatRemainingTiming(
+              totalTimeSec,
+              now + finitePrefixSeconds * 1000,
+              { isZH: runtime.config.isZH, now },
+            );
       if (!current) target?.append(output);
     }
   }
@@ -235,10 +264,16 @@ function handleActionQueueMenueCalculateTime(added) {
   const total = currentTotal ?? document.createElement("div");
   total.id = "script_queueTotalTime";
   total.style.color = runtime.config.SCRIPT_COLOR_MAIN;
-  const totalText = reachedInfinite
+  const blockedText =
+    blockedBy === "infinite"
+      ? "∞"
+      : runtime.config.isZH
+        ? "无法预计"
+        : "Unavailable";
+  const totalText = blockedBy
     ? finitePrefixSeconds > 0
-      ? `${formatRemainingDuration(finitePrefixSeconds, runtime.config.isZH)} + ∞`
-      : "∞"
+      ? `${formatRemainingDuration(finitePrefixSeconds, runtime.config.isZH)} + ${blockedText}`
+      : blockedText
     : formatRemainingTiming(
         finitePrefixSeconds,
         now + finitePrefixSeconds * 1000,
@@ -247,6 +282,42 @@ function handleActionQueueMenueCalculateTime(added) {
   total.textContent = `${runtime.config.isZH ? "总时间：" : "Total time: "}${totalText}`;
   if (!currentTotal) added.insertAdjacentElement("afterend", total);
   return true;
+}
+
+function actionQueueMenuFromNode(node) {
+  if (node?.nodeType !== 1) return null;
+  if (node.matches?.(ACTION_QUEUE_MENU_SELECTOR)) return node;
+  return node.querySelector?.(ACTION_QUEUE_MENU_SELECTOR) ?? null;
+}
+
+function observeActionQueueMenus(scope) {
+  const attach = () => {
+    if (!document.body) return false;
+    const existing = document.querySelector(ACTION_QUEUE_MENU_SELECTOR);
+    if (existing) handleActionQueueMenue(existing);
+    const observer = new MutationObserver((records) => {
+      for (const record of records) {
+        for (const removed of record.removedNodes ?? []) {
+          if (
+            activeActionQueueObserver?.menu &&
+            (removed === activeActionQueueObserver.menu ||
+              removed.contains?.(activeActionQueueObserver.menu))
+          ) {
+            disconnectActionQueueObserver();
+          }
+        }
+        for (const added of record.addedNodes ?? []) {
+          const menu = actionQueueMenuFromNode(added);
+          if (menu) handleActionQueueMenue(menu);
+        }
+      }
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+    scope.add(() => observer.disconnect());
+    return true;
+  };
+  if (!attach())
+    scope.event(document, "DOMContentLoaded", attach, { once: true });
 }
 
 runtime.onMessage("actions_updated", () => {
@@ -276,4 +347,5 @@ Object.assign(runtime.api, {
   getOriTextFromElement,
   handleActionQueueMenue,
   handleActionQueueMenueCalculateTime,
+  observeActionQueueMenus,
 });

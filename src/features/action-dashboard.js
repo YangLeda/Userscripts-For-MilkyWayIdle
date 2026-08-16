@@ -32,8 +32,8 @@ const PRODUCTION_PANEL_REBUILD_MESSAGES = new Set([
 ]);
 
 const STYLE_ID = "mwitools-action-dashboard-style";
-const QUICK_HOURS = [0.5, 1, 2, 3, 4, 5, 6, 10, 12, 24];
-const QUICK_COUNTS = [10, 100, 300, 500, 1_000, 2_000];
+export const DEFAULT_QUICK_HOURS = [0.5, 1, 2, 3, 4, 5, 6, 10, 12, 24];
+export const DEFAULT_QUICK_COUNTS = [10, 100, 300, 500, 1_000, 2_000];
 const ACTION_SURFACE_SELECTOR =
   'div[class*="Header_actionName"],div[class*="SkillActionDetail_regularComponent"],div[class*="SkillActionDetail_skillActionDetail"]';
 const OWNED_ACTION_UI_SELECTOR =
@@ -267,16 +267,69 @@ function getNativeEnhancementCount(host, action) {
   return Number.isSafeInteger(count) && count >= 0 ? count : null;
 }
 
+export function parseProductionDurationSeconds(value) {
+  const token = String(value ?? "").match(/[-+]?\d[\d\s\u00a0\u202f.,]*/)?.[0];
+  if (!token) return null;
+  let normalized = token.replace(/[\s\u00a0\u202f]/g, "");
+  const dot = normalized.lastIndexOf(".");
+  const comma = normalized.lastIndexOf(",");
+  const decimalIndex = Math.max(dot, comma);
+  if (decimalIndex >= 0) {
+    const whole = normalized.slice(0, decimalIndex).replace(/[.,]/g, "");
+    const fraction = normalized.slice(decimalIndex + 1).replace(/[.,]/g, "");
+    normalized = fraction ? `${whole}.${fraction}` : whole;
+  }
+  const number = Number(normalized);
+  return Number.isFinite(number) && number > 0 ? number : null;
+}
+
+export function parseProductionQuickPresets(
+  value,
+  { integer = false, fallback = [] } = {},
+) {
+  const result = [];
+  const seen = new Set();
+  for (const token of String(value ?? "").split(/[,;\s]+/)) {
+    if (!token) continue;
+    const number = Number(token);
+    if (
+      !Number.isFinite(number) ||
+      number <= 0 ||
+      (integer && !Number.isSafeInteger(number))
+    ) {
+      continue;
+    }
+    const key = String(number);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(number);
+  }
+  return result.length ? result : [...fallback];
+}
+
+function productionQuickPresets() {
+  return {
+    hours: parseProductionQuickPresets(
+      runtime.settings.getPreference("productionQuickHours"),
+      { fallback: DEFAULT_QUICK_HOURS },
+    ),
+    counts: parseProductionQuickPresets(
+      runtime.settings.getPreference("productionQuickCounts"),
+      { integer: true, fallback: DEFAULT_QUICK_COUNTS },
+    ),
+  };
+}
+
 function getProductionPanelDuration(panel) {
   for (const value of panel?.querySelectorAll(
     'div[class*="SkillActionDetail_value"]',
   ) ?? []) {
-    const text = String(runtime.api.getOriTextFromElement?.(value) ?? "")
-      .trim()
-      .replaceAll(runtime.config.THOUSAND_SEPERATOR, "")
-      .replace(runtime.config.DECIMAL_SEPERATOR, ".");
-    const match = text.match(/^([\d.]+)\s*s$/i);
-    if (match && Number(match[1]) > 0) return Number(match[1]);
+    const text = String(
+      runtime.api.getOriTextFromElement?.(value) ?? "",
+    ).trim();
+    if (!/s\s*$/i.test(text)) continue;
+    const duration = parseProductionDurationSeconds(text);
+    if (duration) return duration;
   }
   return null;
 }
@@ -545,6 +598,21 @@ function shouldScheduleActionUi(records) {
   });
 }
 
+function shouldSettleActionUi(records) {
+  return records.some((record) =>
+    [...(record.addedNodes ?? []), ...(record.removedNodes ?? [])].some(
+      (node) =>
+        node?.nodeType === 1 &&
+        (node.matches?.(
+          '.mwi-production-extensions,div[class*="SkillActionDetail_regularComponent"],div[class*="SkillActionDetail_skillActionDetail"]',
+        ) ||
+          node.querySelector?.(
+            '.mwi-production-extensions,div[class*="SkillActionDetail_regularComponent"],div[class*="SkillActionDetail_skillActionDetail"]',
+          )),
+    ),
+  );
+}
+
 function bindActionUiRenderer(scope, render, messages = []) {
   const scheduler = createFrameScheduler(render);
   const schedule = () => scheduler.schedule();
@@ -556,7 +624,13 @@ function bindActionUiRenderer(scope, render, messages = []) {
       scope,
     },
     (records) => {
-      if (shouldScheduleActionUi(records)) schedule();
+      if (!shouldScheduleActionUi(records)) return;
+      schedule();
+      if (shouldSettleActionUi(records)) {
+        scope.timeout(schedule, 80);
+        scope.timeout(schedule, 220);
+        scope.timeout(schedule, 450);
+      }
     },
   );
   const scheduleFromInput = (event) => {
@@ -814,15 +888,22 @@ function renderProductionQuickInputs() {
 
   let host = panel.querySelector(".mwi-production-quick-inputs");
   const duration = getProductionPanelDuration(panel);
+  const presets = productionQuickPresets();
+  const presetSignature = `${presets.hours.join(",")}|${presets.counts.join(",")}`;
+  if (host && host.dataset.presetSignature !== presetSignature) {
+    host.remove();
+    host = null;
+  }
   if (!host) {
     host = document.createElement("div");
     host.className = "mwi-production-quick-inputs";
+    host.dataset.presetSignature = presetSignature;
     const hours = createProductionQuickRow({
       panel,
       input,
       id: "quickInputHourButtons",
       label: t("时长", "Hours"),
-      values: QUICK_HOURS,
+      values: presets.hours,
       resolveCount: (hoursValue) => {
         const liveDuration = getProductionPanelDuration(panel);
         return getMinimumCountForDuration(
@@ -837,7 +918,7 @@ function renderProductionQuickInputs() {
       input,
       id: "quickInputCountButtons",
       label: t("次数", "Count"),
-      values: QUICK_COUNTS,
+      values: presets.counts,
       resolveCount: (count) => count,
     });
     host.append(hours, counts);
@@ -1252,6 +1333,16 @@ runtime.features.register({
       "actions_updated",
       ...PRODUCTION_PROFILE_MESSAGES,
     ]);
+    scope.add(
+      runtime.settings.onPreferenceChange?.("productionQuickHours", () =>
+        renderProductionQuickInputs(),
+      ),
+    );
+    scope.add(
+      runtime.settings.onPreferenceChange?.("productionQuickCounts", () =>
+        renderProductionQuickInputs(),
+      ),
+    );
     scope.add(removeProductionQuickInputs);
   },
 });
@@ -1313,6 +1404,8 @@ Object.assign(runtime.api, {
   renderActionDashboard,
   renderProductionPanel,
   getProductionPanelDuration,
+  parseProductionDurationSeconds,
+  parseProductionQuickPresets,
   getLiveActionTiming,
   resolveProductionAction: resolvePanelAction,
   resolveActiveProductionPanelContext,

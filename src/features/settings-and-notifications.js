@@ -313,6 +313,8 @@ function addSettingsStyles() {
     .mwi-setting-retry { margin-left:8px; border:0; border-radius:4px; padding:2px 6px; cursor:pointer; color:inherit; background:rgba(255,255,255,.1); }
     .mwi-setting-shortcut-row { display:flex; align-items:center; justify-content:flex-end; gap:8px; margin:5px 44px 1px 0; color:var(--color-text-secondary,#aaa); font-size:calc(.7rem * var(--mwi-ui-font-scale,1)); }
     .mwi-setting-shortcut { min-width:92px; border:1px solid rgba(255,255,255,.16); border-radius:5px; padding:4px 8px; cursor:pointer; color:inherit; background:rgba(255,255,255,.07); }
+    .mwi-setting-preset-input { width:min(310px,62vw); box-sizing:border-box; border:1px solid rgba(255,255,255,.16); border-radius:5px; padding:5px 8px; color:inherit; background:rgba(0,0,0,.2); font:inherit; }
+    .mwi-setting-preset-input:disabled { cursor:not-allowed; opacity:.5; }
     .mwi-setting-select { min-width:92px; border:1px solid rgba(255,255,255,.16); border-radius:5px; padding:4px 24px 4px 8px; color:inherit; background:var(--color-background-secondary,#292929); font:inherit; }
     .mwi-setting-primary-select { grid-column:4; grid-row:1; justify-self:end; }
     .mwi-setting-select:disabled { cursor:not-allowed; opacity:.5; }
@@ -485,7 +487,8 @@ function createSettingCard(definition, options = {}) {
   const descendants = getSettingDescendants(definition.id);
   const card = document.createElement("article");
   let cancelShortcutCapture = null;
-  let auxiliaryControl = null;
+  const auxiliaryControls = [];
+  const preferenceCleanups = [];
   card.className = "mwi-setting-card";
   if (options.child) card.classList.add("mwi-setting-child");
   card.dataset.search = [
@@ -534,7 +537,9 @@ function createSettingCard(definition, options = {}) {
       );
       status.appendChild(retry);
     }
-    if (auxiliaryControl) auxiliaryControl.disabled = !checkbox.checked;
+    for (const control of auxiliaryControls) {
+      control.disabled = !checkbox.checked;
+    }
   };
   setStatus();
   const titleLine = document.createElement("div");
@@ -638,8 +643,47 @@ function createSettingCard(definition, options = {}) {
     });
     countRow.append(countLabel, countSelect);
     card.append(countRow);
-    auxiliaryControl = countSelect;
+    auxiliaryControls.push(countSelect);
   }
+  if (definition.id === "actionPanel_totalTime_quickInputs") {
+    const presets = [
+      [
+        "productionQuickHours",
+        runtime.config.isZH ? "快捷小时" : "Quick hours",
+        runtime.config.isZH ? "例如：0.5, 1, 2, 6" : "Example: 0.5, 1, 2, 6",
+      ],
+      [
+        "productionQuickCounts",
+        runtime.config.isZH ? "快捷次数" : "Quick counts",
+        runtime.config.isZH ? "例如：10, 100, 500" : "Example: 10, 100, 500",
+      ],
+    ];
+    for (const [preferenceId, labelText, placeholder] of presets) {
+      const presetRow = document.createElement("label");
+      presetRow.className = "mwi-setting-shortcut-row";
+      const presetLabel = document.createElement("span");
+      presetLabel.textContent = labelText;
+      const input = document.createElement("input");
+      input.type = "text";
+      input.className = "mwi-setting-preset-input";
+      input.placeholder = placeholder;
+      input.value = runtime.settings.getPreference(preferenceId);
+      input.setAttribute("aria-label", labelText);
+      input.addEventListener("change", async () => {
+        await runtime.settings.setPreference(preferenceId, input.value);
+        input.value = runtime.settings.getPreference(preferenceId);
+      });
+      preferenceCleanups.push(
+        runtime.settings.onPreferenceChange(preferenceId, (value) => {
+          if (document.activeElement !== input) input.value = value;
+        }),
+      );
+      auxiliaryControls.push(input);
+      presetRow.append(presetLabel, input);
+      card.append(presetRow);
+    }
+  }
+  setStatus();
   for (const child of children) {
     card.append(createSettingCard(child, { child: true }));
   }
@@ -670,9 +714,48 @@ function createSettingCard(definition, options = {}) {
   );
   card._mwitoolsCleanup = () => {
     cancelShortcutCapture?.();
+    preferenceCleanups.forEach((cleanup) => cleanup?.());
     stopStatusListener?.();
     stopSettingListener?.();
   };
+  return card;
+}
+
+function createDuplicateWarningSettingsCard() {
+  const card = document.createElement("article");
+  card.className = "mwi-performance-settings-card";
+  card.dataset.search = "冲突 提醒 不再提示 conflict warning restore reset";
+  const copy = document.createElement("div");
+  copy.className = "mwi-performance-settings-copy";
+  const title = document.createElement("div");
+  title.className = "mwi-performance-settings-title";
+  title.textContent = runtime.config.isZH
+    ? "冲突脚本提醒"
+    : "Conflicting-script warnings";
+  const summary = document.createElement("div");
+  summary.className = "mwi-performance-settings-summary";
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "mwi-performance-settings-open";
+  const update = () => {
+    const count = runtime.api.getMutedDuplicateScriptIds?.().length ?? 0;
+    summary.textContent = count
+      ? runtime.config.isZH
+        ? `已永久静默 ${count} 个脚本。`
+        : `${count} script warning(s) muted.`
+      : runtime.config.isZH
+        ? "当前没有永久静默的冲突提醒。"
+        : "No conflict warnings are currently muted.";
+    button.disabled = count === 0;
+    button.textContent = runtime.config.isZH ? "恢复提醒" : "Restore warnings";
+  };
+  button.addEventListener("click", () => {
+    runtime.api.clearMutedDuplicateScriptIds?.();
+    update();
+  });
+  update();
+  copy.append(title, summary);
+  card.append(copy, button);
   return card;
 }
 
@@ -804,7 +887,12 @@ function renderSettings(root) {
     head.append(groupTitle, groupSummary);
     const grid = document.createElement("div");
     grid.className = "mwi-settings-grid";
-    if (groupId === "general") grid.append(createPerformanceSettingsCard());
+    if (groupId === "general") {
+      grid.append(
+        createPerformanceSettingsCard(),
+        createDuplicateWarningSettingsCard(),
+      );
+    }
     for (const definition of definitions) {
       grid.appendChild(createSettingCard(definition));
     }

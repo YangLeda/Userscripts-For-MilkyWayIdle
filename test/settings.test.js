@@ -436,6 +436,17 @@ test("card settings render every visible setting with nested children and search
     [...summaryMode.options].map((option) => option.value),
     ["collapsed", "expanded", "off"],
   );
+  const quickHours = root.querySelector('input[aria-label="快捷小时"]');
+  const quickCounts = root.querySelector('input[aria-label="快捷次数"]');
+  assert.equal(quickHours.value, "0.5,1,2,3,4,5,6,10,12,24");
+  assert.equal(quickCounts.value, "10,100,300,500,1000,2000");
+  quickHours.value = "0.25, 2, 8";
+  quickHours.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+  await new Promise((resolve) => setTimeout(resolve));
+  assert.equal(
+    runtime.settings.getPreference("productionQuickHours"),
+    "0.25, 2, 8",
+  );
   const fontScale = root.querySelector('select[aria-label="插件字号"]');
   assert.ok(fontScale);
   assert.deepEqual(

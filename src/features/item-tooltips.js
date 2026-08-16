@@ -250,15 +250,6 @@ function timeReadable(sec) {
 /* 物品 ToolTips */
 const tooltipObserver = new MutationObserver(async function (mutations) {
   for (const mutation of mutations) {
-    for (const removed of mutation.removedNodes) {
-      if (
-        removed?.nodeType === 1 &&
-        (removed.matches?.(".MuiTooltip-popper") ||
-          removed.querySelector?.(".MuiTooltip-popper"))
-      ) {
-        runtime.api.disconnectActionQueueObserver?.(removed);
-      }
-    }
     for (const added of mutation.addedNodes) {
       if (
         added?.nodeType === 1 &&
@@ -266,14 +257,6 @@ const tooltipObserver = new MutationObserver(async function (mutations) {
       ) {
         if (added.querySelector("div.ItemTooltipText_name__2JAHA")) {
           await handleTooltipItem(added);
-        } else if (
-          added.querySelector("div.QueuedActions_queuedActionsEditMenu__3OoQH")
-        ) {
-          runtime.api.handleActionQueueMenue(
-            added.querySelector(
-              "div.QueuedActions_queuedActionsEditMenu__3OoQH",
-            ),
-          );
         } else if (runtime.settings.settingsMap.itemTooltip_profit.isTrue) {
           const actionHrid = resolveGatheringActionFromElement(added);
           if (actionHrid) {

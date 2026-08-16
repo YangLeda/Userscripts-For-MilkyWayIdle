@@ -13,10 +13,18 @@ export const ANNOUNCEMENTS = Object.freeze([
       zh: Object.freeze([
         "地牢宝箱与精炼宝箱的库存估值和开箱期望现在都会同时扣除宝箱开启钥匙与对应地牢门票钥匙；开箱面板会分别展示两项成本，普通无门票宝箱不受影响。",
         "修复强化披风与其他背部装备时未比较贤者之镜方案的问题；包括精炼 +14 在内的强化成本现在会保留保护之镜作为普通保护材料，同时完整比较贤者之镜合成方案并选择总成本更低的路线。",
+        "完整队列的耗时与完成时间不再依赖市场悬浮价格；队列重建、无限动作和缺少投影时会自动重试或显示明确原因。普通战斗任务会按目标怪物合并，任务“新”标记只跟随真正新增的任务。",
+        "盈亏摘要新增流动资产与非流动资产盈亏，库存总资产会在有昨日记录时显示今日盈亏；公会贡献表的列对齐、横向滚动和闲置人数判断也已修复。",
+        "制造面板在切换配装或延迟重建后会恢复制造链、计划、缺料和快捷输入等模块；设置中新增自定义快捷小时与次数，并修复逗号小数及不同千位分隔格式造成的耗时误读。",
+        "中国服同时兼容有无 www 的访问地址，市场接口统一使用无 www 端点；关闭 MWITools 任务功能时不再提示 TaskManager 冲突，也可按脚本永久静默并在设置中恢复提醒。",
       ]),
       en: Object.freeze([
         "Inventory valuations and opening estimates for dungeon and refinement chests now deduct both the chest key and the matching dungeon entry key. The opening panel shows the two costs separately, while ordinary chests without entry keys are unchanged.",
         "Fixed Philosopher's Mirror plans being skipped for enhanced capes and other back equipment. Enhancement costs, including refined +14 items, now keep Mirrors of Protection for regular protection while comparing the full Philosopher's Mirror synthesis route and selecting the lower total cost.",
+        "Full-queue duration and completion estimates no longer depend on hover prices. Queue rebuilds now retry, while infinite actions and missing projections show an explicit reason. Regular combat tasks merge by target monster, and New badges follow only genuinely added task IDs.",
+        "The P/L summary now includes liquid and non-current asset profit, and Inventory shows today's P/L beside total assets when a prior-day record exists. Guild contribution alignment, horizontal scrolling, and idle-member detection have also been fixed.",
+        "Manufacturing chains, plans, shortages, targets, and quick inputs now recover after loadout switches or delayed panel rebuilds. Settings add custom quick-hour and quick-count presets, and duration parsing now supports comma decimals and mixed thousands separators.",
+        "China servers now support both www and bare hostnames while using the bare-host market endpoint. TaskManager warnings are silent when MWITools task features are off, and individual conflicts can be muted permanently and restored from Settings.",
       ]),
     }),
   }),

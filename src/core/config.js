@@ -1189,6 +1189,24 @@ settingsCatalog.hoverFontScale.control = {
     ["largest", { zh: "最大", en: "Largest" }],
   ],
 };
+settingsCatalog.productionQuickHours = Object.freeze({
+  id: "productionQuickHours",
+  group: "production",
+  hidden: true,
+  control: Object.freeze({
+    type: "text",
+    preference: "productionQuickHours",
+  }),
+});
+settingsCatalog.productionQuickCounts = Object.freeze({
+  id: "productionQuickCounts",
+  group: "production",
+  hidden: true,
+  control: Object.freeze({
+    type: "text",
+    preference: "productionQuickCounts",
+  }),
+});
 
 const settingParents = {
   actionBarProfit: "totalActionTime",
@@ -1228,6 +1246,12 @@ for (const [id, parent] of Object.entries(settingParents)) {
 
 const settingListeners = new Map();
 const preferenceListeners = new Map();
+function normalizeTextPreference(value, fallback) {
+  if (typeof value !== "string" && typeof value !== "number") return fallback;
+  const normalized = String(value).trim().slice(0, 256);
+  return normalized || fallback;
+}
+
 const preferenceDefinitions = Object.freeze({
   productionSummaryMode: Object.freeze({
     defaultValue: "collapsed",
@@ -1240,6 +1264,18 @@ const preferenceDefinitions = Object.freeze({
   hoverFontScale: Object.freeze({
     defaultValue: "standard",
     values: Object.freeze(["standard", "large", "largest"]),
+  }),
+  productionQuickHours: Object.freeze({
+    defaultValue: "0.5,1,2,3,4,5,6,10,12,24",
+    normalize(value) {
+      return normalizeTextPreference(value, this.defaultValue);
+    },
+  }),
+  productionQuickCounts: Object.freeze({
+    defaultValue: "10,100,300,500,1000,2000",
+    normalize(value) {
+      return normalizeTextPreference(value, this.defaultValue);
+    },
   }),
 });
 const preferenceValues = Object.fromEntries(
@@ -1256,6 +1292,9 @@ function getSetting(id) {
 function normalizePreference(id, value) {
   const definition = preferenceDefinitions[id];
   if (!definition) return undefined;
+  if (typeof definition.normalize === "function") {
+    return definition.normalize(value);
+  }
   return definition.values.includes(value) ? value : definition.defaultValue;
 }
 
@@ -1358,7 +1397,11 @@ async function applySettingsBatch(
     if (!preferenceDefinitions[id]) {
       throw new TypeError(`Unknown MWITools preference: ${id}`);
     }
-    if (!preferenceDefinitions[id].values.includes(value)) {
+    const definition = preferenceDefinitions[id];
+    if (
+      (definition.values && !definition.values.includes(value)) ||
+      (definition.normalize && typeof value !== "string")
+    ) {
       throw new TypeError(`Invalid MWITools preference value for ${id}`);
     }
   }

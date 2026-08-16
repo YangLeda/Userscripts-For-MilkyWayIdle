@@ -112,6 +112,10 @@ function addInventorySummaryStyles() {
       line-height: inherit;
       overflow-wrap: anywhere;
     }
+    .mwi-summary-today-profit { margin-left:.22rem; font-size:.82em; font-weight:650; white-space:nowrap; }
+    .mwi-summary-today-profit.is-positive { color:#5fce83; }
+    .mwi-summary-today-profit.is-negative { color:#ff7474; }
+    .mwi-summary-today-profit.is-neutral { color:var(--color-text-secondary,#aeb5c0); }
     .mwi-summary-chevron {
       width: .375rem;
       height: .375rem;
@@ -307,6 +311,23 @@ function addInventorySummaryStyles() {
 
 function numberHtml(value) {
   return `<span class="mwi-number" title="${runtime.api.formatExactNumber(value, 0)}">${runtime.api.numberFormatter(value)}</span>`;
+}
+
+function inventoryTodayProfitHtml(values) {
+  const comparison = runtime.api.assetHistory?.getComparison?.();
+  const previous = comparison?.record?.values;
+  if (comparison?.gapDays !== 1) return "";
+  if (!Number.isFinite(values?.total) || !Number.isFinite(previous?.total)) {
+    return "";
+  }
+  const change = values.total - previous.total;
+  const sign = change > 0 ? "+" : change < 0 ? "−" : "";
+  const className =
+    change > 0 ? "is-positive" : change < 0 ? "is-negative" : "is-neutral";
+  const formatted = runtime.api.numberFormatter(Math.abs(change));
+  const exact = runtime.api.formatExactNumber(change, 0);
+  const [open, close] = runtime.config.isZH ? ["（", "）"] : ["(", ")"];
+  return `<span class="mwi-summary-today-profit ${className}" title="${exact}">${open}${sign}${formatted}${close}</span>`;
 }
 
 function scheduleNetworthRefresh() {
@@ -529,7 +550,7 @@ async function calculateNetworth(options = {}) {
               <span class="mwi-summary-chevron" aria-hidden="true"></span>
               <span class="mwi-summary-heading">
                 <span class="mwi-summary-label">${runtime.config.isZH ? "总资产：" : "Total assets: "}</span>
-                <span class="mwi-summary-value">${numberHtml(values.total)}</span>
+                <span class="mwi-summary-value">${numberHtml(values.total)}${inventoryTodayProfitHtml(values)}</span>
               </span>
             </button>
             <div class="mwi-summary-details" id="netWorthDetails" style="display: none;" hidden>
@@ -1169,6 +1190,7 @@ Object.assign(runtime.api, {
   addInventoryCategoryValues,
   getInventorySortUnitValue,
   getInventoryItemEnhancementLevel,
+  inventoryTodayProfitHtml,
   isSortableInventoryCategory,
   addInvSortButton,
   addGuildCreditConversionsSortButton,

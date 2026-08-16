@@ -127,6 +127,41 @@ runtime.api.getFairValue = (itemHrid) => {
   return netSell > 0 ? netSell / 0.95 : 0;
 };
 
+test("production duration accepts either decimal separator and mixed grouping", () => {
+  assert.equal(runtime.api.parseProductionDurationSeconds("13.68s"), 13.68);
+  assert.equal(runtime.api.parseProductionDurationSeconds("13,68s"), 13.68);
+  assert.equal(
+    runtime.api.parseProductionDurationSeconds("1.234,56 s"),
+    1234.56,
+  );
+  assert.equal(
+    runtime.api.parseProductionDurationSeconds("1,234.56 s"),
+    1234.56,
+  );
+  assert.equal(
+    runtime.api.parseProductionDurationSeconds("1\u202f234,5s"),
+    1234.5,
+  );
+});
+
+test("production quick presets deduplicate valid values and fall back as a group", () => {
+  assert.deepEqual(
+    runtime.api.parseProductionQuickPresets("0.5, 1 2,2 bad"),
+    [0.5, 1, 2],
+  );
+  assert.deepEqual(
+    runtime.api.parseProductionQuickPresets("10, 20.5, 10 nope", {
+      integer: true,
+      fallback: [100],
+    }),
+    [10],
+  );
+  assert.deepEqual(
+    runtime.api.parseProductionQuickPresets("bad, -1", { fallback: [1, 2] }),
+    [1, 2],
+  );
+});
+
 test("Chinese crafting dialogs keep the market-value profit", () => {
   const nativeDrop = document.createElement("div");
   nativeDrop.className = "SkillActionDetail_dropTable__native";

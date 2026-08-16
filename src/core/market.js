@@ -31,7 +31,7 @@ function getMarketApiUrl(hostname = globalThis.location?.hostname ?? "") {
     case "test":
       return "https://test.milkywayidle.com/game_data/marketplace.json";
     case "china":
-      return "https://www.milkywayidlecn.com/game_data/marketplace.json";
+      return "https://milkywayidlecn.com/game_data/marketplace.json";
     default:
       return "https://www.milkywayidle.com/game_data/marketplace.json";
   }

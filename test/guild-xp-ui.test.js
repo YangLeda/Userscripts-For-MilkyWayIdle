@@ -282,6 +282,10 @@ test("guild XP columns draw relative bars and sort in both directions", async ()
       .querySelector(".GuildPanel_membersTab__test")
       .classList.contains("mwi-guild-members-wide"),
   );
+  assert.ok(
+    table.parentElement.classList.contains("mwi-guild-member-table-wrap"),
+  );
+  assert.equal(table.rows[0].cells.length, table.rows[1].cells.length);
   assert.deepEqual(
     [...table.querySelectorAll("thead th")].map((cell) =>
       cell.textContent.replace("↕", ""),
@@ -393,6 +397,11 @@ test("guild idle status requires an explicit empty activity type", async () => {
   runtime.state.guildCharacters = [
     { name: "Working", isOnline: true, actionType: "/action_types/crafting" },
     { name: "Idle", isOnline: true, actionType: "" },
+    { name: "Nested Idle", sharable: { actionType: "" } },
+    {
+      name: "Nested Working",
+      sharable: { actionType: "/action_types/combat" },
+    },
     { name: "Unknown", isOnline: true },
     {
       name: "Hidden",
@@ -407,10 +416,10 @@ test("guild idle status requires an explicit empty activity type", async () => {
   await runtime.api.renderGuildOverview();
 
   const idleRow = document.querySelector(".mwi-guild-idle");
-  assert.match(idleRow.textContent, /当前闲置 \(1\)/);
+  assert.match(idleRow.textContent, /当前闲置 \(2\)/);
   assert.deepEqual(
     [...idleRow.querySelectorAll("span")].map((node) => node.textContent),
-    ["Idle"],
+    ["Idle", "Nested Idle"],
   );
 });
 

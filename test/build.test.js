@@ -40,6 +40,7 @@ test("generated userscript has a single valid metadata block", () => {
     "// @match        https://www.milkywayidle.com/*",
     "// @match        https://test.milkywayidle.com/*",
     "// @match        https://www.milkywayidlecn.com/*",
+    "// @match        https://milkywayidlecn.com/*",
     "// @match        https://amvoidguy.github.io/MWICombatSimulatorTest/*",
     "// @match        https://shykai.github.io/MWICombatSimulatorTest/dist/*",
     "// @match        https://mooneycalc.netlify.app/*",

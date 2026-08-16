@@ -104,6 +104,21 @@ export function applyQuestUpdates(state, updates) {
   return state;
 }
 
+export function syncQuestSnapshot(state, previousIds, quests) {
+  const before =
+    previousIds instanceof Set ? previousIds : new Set(previousIds);
+  const current = new Set((quests ?? []).map(questId).filter(Boolean));
+  for (const id of current) {
+    if (!before.has(id)) state.fresh.add(id);
+    state.known.add(id);
+  }
+  for (const id of [...state.fresh]) {
+    if (!current.has(id)) state.fresh.delete(id);
+  }
+  state.initialized = true;
+  return current;
+}
+
 function addStyles() {
   if (document.getElementById(STYLE_ID)) return;
   const style = document.createElement("style");
@@ -171,6 +186,7 @@ runtime.features.register({
     // while the task page (or the whole game page) was closed.
     initializeQuestState(state, initial);
     writeTaskNewState(storageKey, state);
+    let authoritativeIds = new Set(initial.map(questId).filter(Boolean));
 
     const render = () => {
       const quests = runtime.state.characterQuests ?? [];
@@ -212,16 +228,12 @@ runtime.features.register({
     const schedule = () => renderScheduler.schedule();
 
     scope.add(
-      runtime.onMessage("quests_updated", (payload) => {
-        const updates =
-          payload.endCharacterQuests ?? payload.characterQuests ?? [];
-        applyQuestUpdates(state, updates);
-        const liveIds = new Set(
-          (runtime.state.characterQuests ?? []).map(questId),
+      runtime.onMessage("quests_updated", () => {
+        authoritativeIds = syncQuestSnapshot(
+          state,
+          authoritativeIds,
+          runtime.state.characterQuests ?? [],
         );
-        for (const id of [...state.fresh]) {
-          if (!liveIds.has(id)) state.fresh.delete(id);
-        }
         writeTaskNewState(storageKey, state);
         schedule();
       }),

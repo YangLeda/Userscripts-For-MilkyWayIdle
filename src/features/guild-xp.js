@@ -94,25 +94,73 @@ function findOwnField(object, keys) {
   return { found: false, value: undefined };
 }
 
+function findOwnFieldDeep(object, keys, maxDepth = 4) {
+  const pending = [{ value: object, depth: 0 }];
+  const visited = new Set();
+  while (pending.length) {
+    const { value, depth } = pending.shift();
+    if (
+      !value ||
+      typeof value !== "object" ||
+      visited.has(value) ||
+      depth > maxDepth
+    ) {
+      continue;
+    }
+    visited.add(value);
+    const own = findOwnField(value, keys);
+    if (own.found) return own;
+    for (const child of Object.values(value)) {
+      if (child && typeof child === "object") {
+        pending.push({ value: child, depth: depth + 1 });
+      }
+    }
+  }
+  return { found: false, value: undefined };
+}
+
 function isGuildMemberIdle(member) {
-  const hidden = findOwnField(member, [
+  const hidden = findOwnFieldDeep(member, [
     "hideOnlineStatus",
     "isOnlineHidden",
     "onlineStatusHidden",
-  ]).value;
-  const online = findOwnField(member, ["isOnline", "online"]).value;
-  if (Boolean(hidden) || online !== true) return false;
+  ]);
+  const online = findOwnFieldDeep(member, ["isOnline", "online"]);
+  if (
+    hidden.found &&
+    (hidden.value === true ||
+      hidden.value === 1 ||
+      /^(?:true|hidden)$/i.test(String(hidden.value ?? "").trim()))
+  ) {
+    return false;
+  }
+  if (
+    online.found &&
+    (online.value === false ||
+      online.value === 0 ||
+      /^(?:false|offline)$/i.test(String(online.value ?? "").trim()))
+  ) {
+    return false;
+  }
 
   // The current guild payload exposes the member's activity as `actionType`.
   // Missing activity data is unknown (for example, a private or older payload),
   // not proof that the member is idle.
-  const action = findOwnField(member, [
+  let action = findOwnFieldDeep(member, [
     "actionType",
     "currentActionType",
     "currentActionHrid",
     "actionHrid",
-    "currentAction",
   ]);
+  if (!action.found) {
+    const currentAction = findOwnFieldDeep(member, ["currentAction"]);
+    if (
+      currentAction.found &&
+      (currentAction.value === null || currentAction.value === false)
+    ) {
+      action = currentAction;
+    }
+  }
   if (!action.found) return false;
   if (action.value === null || action.value === false) return true;
   if (typeof action.value === "string") {
@@ -233,8 +281,9 @@ function addStyles() {
     .mwi-guild-trend polyline { fill:none; stroke:#ffa500; stroke-width:2; vector-effect:non-scaling-stroke; }
     .mwi-guild-idle { display:flex; flex-wrap:wrap; gap:5px; align-items:center; margin-top:8px; }
     .mwi-guild-idle span { padding:2px 7px; border-radius:999px; background:rgba(255,255,255,.07); font-size:.68rem; }
-    .mwi-guild-members-wide { width:100% !important; max-width:980px !important; }
-    .mwi-guild-members-wide .mwi-guild-member-table { width:100%; }
+    .mwi-guild-members-wide { width:100% !important; max-width:none !important; min-width:0 !important; }
+    .mwi-guild-member-table-wrap { width:100%; max-width:100%; overflow-x:auto; overscroll-behavior-x:contain; }
+    .mwi-guild-members-wide .mwi-guild-member-table { width:max-content !important; min-width:100% !important; table-layout:auto !important; }
     .mwi-guild-member-table > thead > tr > th { white-space:nowrap; word-break:keep-all; }
     .mwi-guild-member-table > tbody > tr > td:not(:first-child) { white-space:nowrap; word-break:keep-all; }
     .mwi-guild-member-table > thead > tr > th:nth-child(2),
@@ -570,6 +619,7 @@ function appendRateColumns(table, rows, kind, parentId = "") {
     table
       .closest('[class*="GuildPanel_membersTab__"]')
       ?.classList.add("mwi-guild-members-wide");
+    table.parentElement?.classList.add("mwi-guild-member-table-wrap");
   }
   const header = table.tHead.rows[0];
   if (!header.querySelector(".mwi-guild-recent-head")) {
@@ -853,6 +903,9 @@ for (const id of ["guildMemberXp", "guildLeaderboardXp", "guildIdleMembers"]) {
               table
                 .closest(".mwi-guild-members-wide")
                 ?.classList.remove("mwi-guild-members-wide");
+              table.parentElement?.classList.remove(
+                "mwi-guild-member-table-wrap",
+              );
             }
             table
               .querySelectorAll(

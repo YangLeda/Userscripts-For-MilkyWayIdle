@@ -1809,6 +1809,70 @@ test("matching planet boss tasks merge after converting each boss count", () => 
   runtime.state.initData_actionDetailMap = previousActionMap;
 });
 
+test("same-monster combat tasks merge across compatible combat actions", () => {
+  document.querySelector('[class*="TasksPanel_taskList"]')?.remove();
+  const previousActionMap = runtime.state.initData_actionDetailMap;
+  const previousResolver = runtime.api.getActionHridFromItemName;
+  runtime.state.initData_actionDetailMap = Object.fromEntries(
+    ["zone_a", "zone_b"].map((zone) => [
+      `/actions/combat/${zone}`,
+      {
+        hrid: `/actions/combat/${zone}`,
+        type: "/action_types/combat",
+        combatZoneInfo: {
+          isDungeon: false,
+          fightInfo: {
+            randomSpawns: [{ combatMonsterHrid: "/monsters/fly" }],
+          },
+        },
+      },
+    ]),
+  );
+  const list = document.createElement("div");
+  list.className = "TasksPanel_taskList__same-monster";
+  list.innerHTML = [
+    card("击败 - 苍蝇", "0 / 4"),
+    card("击败 - 苍蝇", "1 / 6"),
+  ].join("");
+  document.body.appendChild(list);
+  runtime.settings.settingsMap.taskMergeActions.isTrue = true;
+  runtime.state.characterQuests = [
+    {
+      id: "fly-a",
+      actionHrid: "/actions/combat/zone_a",
+      monsterHrid: "/monsters/fly",
+      goalCount: 4,
+      currentCount: 0,
+    },
+    {
+      id: "fly-b",
+      actionHrid: "/actions/combat/zone_b",
+      monsterHrid: "/monsters/fly",
+      goalCount: 6,
+      currentCount: 1,
+    },
+  ];
+  runtime.api.renderTasks();
+  list.querySelectorAll(TASK_SELECTOR)[0].querySelectorAll("button")[1].click();
+  assert.equal(runtime.state.pendingMergedTask.count, 9);
+  assert.equal(runtime.state.pendingMergedTask.taskCount, 2);
+
+  const panel = document.createElement("div");
+  panel.className = "SkillActionDetail_regularComponent__same-monster";
+  panel.innerHTML = `
+    <div class="SkillActionDetail_name__same-monster">Zone B</div>
+    <div class="SkillActionDetail_maxActionCountInput__same-monster"><input value="1"></div>`;
+  document.body.append(panel);
+  runtime.api.getActionHridFromItemName = () => "/actions/combat/zone_b";
+  runtime.api.renderTasks();
+  assert.equal(panel.querySelector("input").value, "9");
+  assert.equal(runtime.state.pendingMergedTask, null);
+
+  panel.remove();
+  runtime.api.getActionHridFromItemName = previousResolver;
+  runtime.state.initData_actionDetailMap = previousActionMap;
+});
+
 test("full task capacity still renders the task module beside its reward card", () => {
   document.querySelector('[class*="TasksPanel_taskList"]')?.remove();
   const quests = Array.from({ length: 30 }, (_, index) => ({

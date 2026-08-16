@@ -469,6 +469,30 @@ function monsterHridForCard(card, task, title = visibleTaskTitle(card)) {
   return normalizeMonsterHrid(actionHrid) || null;
 }
 
+function taskMonsterHrid(task) {
+  const direct = normalizeMonsterHrid(
+    nestedValue(task, [
+      "monsterHrid",
+      "targetMonsterHrid",
+      "combatMonsterHrid",
+    ]),
+  );
+  if (direct) return direct;
+  const detail =
+    runtime.state.initData_actionDetailMap?.[
+      String(taskActionHrid(task) ?? "")
+    ];
+  const monsters = [...fightMonsterHrids(detail?.combatZoneInfo?.fightInfo)];
+  return monsters.length === 1 ? monsters[0] : "";
+}
+
+function actionContainsMonster(actionHrid, monsterHrid) {
+  if (!monsterHrid) return false;
+  if (normalizeMonsterHrid(actionHrid) === monsterHrid) return true;
+  const detail = runtime.state.initData_actionDetailMap?.[actionHrid];
+  return fightMonsterHrids(detail?.combatZoneInfo?.fightInfo).has(monsterHrid);
+}
+
 export function taskArtworkForCard(card, task, context = {}) {
   const title = context.title ?? visibleTaskTitle(card);
   const profession = context.profession ?? professionForCard(card, task, title);
@@ -911,13 +935,7 @@ function syncPageNewTasks(cards, tasks, enteredNewTaskPage) {
     if (enteredNewTaskPage || !previousId) {
       if (freshIds.has(id)) pageNewTaskIds.add(id);
     } else if (changed) {
-      if (pendingResetSlots.has(slot)) {
-        if (pageClassifications.get(slot)?.state === "new") {
-          pageNewTaskIds.add(id);
-        }
-      } else if (freshIds.has(id)) {
-        pageNewTaskIds.add(id);
-      }
+      if (freshIds.has(id)) pageNewTaskIds.add(id);
       pendingResetSlots.delete(slot);
     } else if (freshIds.has(id)) {
       pageNewTaskIds.add(id);
@@ -1519,11 +1537,14 @@ function wireMergeButtons(cards) {
       const currentTask = liveTaskForCard(card, tasks);
       const actionHrid = taskActionHrid(currentTask);
       if (!actionHrid) return;
-      const matching = tasks.filter(
-        (task) => taskActionHrid(task) === actionHrid,
+      const monsterHrid = monsterHridForCard(card, currentTask);
+      const matching = tasks.filter((task) =>
+        monsterHrid
+          ? taskMonsterHrid(task) === monsterHrid
+          : taskActionHrid(task) === actionHrid,
       );
       if (!matching.length) return;
-      runtime.state.pendingMergedTask = {
+      const pendingMergedTask = {
         actionHrid,
         count: matching.reduce(
           (sum, task) => sum + taskRequiredActionCount(task),
@@ -1531,6 +1552,13 @@ function wireMergeButtons(cards) {
         ),
         taskCount: matching.length,
       };
+      if (monsterHrid) {
+        Object.defineProperty(pendingMergedTask, "monsterHrid", {
+          configurable: true,
+          value: monsterHrid,
+        });
+      }
+      runtime.state.pendingMergedTask = pendingMergedTask;
     };
     card[MERGE_HANDLER] = handler;
     card.dataset.mwitoolsMergeWired = "true";
@@ -1574,24 +1602,39 @@ function wireResetButtons(cards) {
 function applyPendingMerge() {
   const pending = runtime.state.pendingMergedTask;
   if (!pending) return;
-  const input = document.querySelector(
-    'div[class*="SkillActionDetail_maxActionCountInput"] input',
-  );
+  const input = [
+    ...document.querySelectorAll(
+      'div[class*="SkillActionDetail_maxActionCountInput"] input',
+    ),
+  ].find((candidate) => {
+    const panel =
+      candidate.closest('div[class*="SkillActionDetail_regularComponent"]') ??
+      candidate
+        .closest('div[class*="Modal_modalContainer"]')
+        ?.querySelector('div[class*="SkillActionDetail_regularComponent"]') ??
+      candidate.parentElement;
+    const name = runtime.api.getOriTextFromElement?.(
+      panel?.querySelector('div[class*="SkillActionDetail_name"]'),
+    );
+    const actionHrid =
+      resolveLocalizedEntity("action", name) ||
+      runtime.api.getActionHridFromItemName?.(name);
+    return (
+      actionHrid === pending.actionHrid ||
+      actionContainsMonster(actionHrid, pending.monsterHrid)
+    );
+  });
   if (!input) return;
-  const panel =
-    input.closest('div[class*="SkillActionDetail_regularComponent"]') ??
-    input
-      .closest('div[class*="Modal_modalContainer"]')
-      ?.querySelector('div[class*="SkillActionDetail_regularComponent"]') ??
-    input.parentElement;
-  const name = runtime.api.getOriTextFromElement?.(
-    panel.querySelector('div[class*="SkillActionDetail_name"]'),
-  );
-  const actionHrid =
-    resolveLocalizedEntity("action", name) ||
-    runtime.api.getActionHridFromItemName?.(name);
-  if (actionHrid !== pending.actionHrid) return;
-  runtime.api.reactInputTriggerHack?.(input, pending.count);
+  if (runtime.api.reactInputTriggerHack) {
+    runtime.api.reactInputTriggerHack(input, pending.count);
+  } else {
+    input.value = String(pending.count);
+    input.dispatchEvent(
+      new (input.ownerDocument?.defaultView?.Event ?? Event)("input", {
+        bubbles: true,
+      }),
+    );
+  }
   document
     .querySelectorAll(".mwi-task-merged-note,.mwi-task-merge-toast")
     .forEach((node) => node.remove());

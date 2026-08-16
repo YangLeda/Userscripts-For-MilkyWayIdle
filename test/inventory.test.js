@@ -79,6 +79,30 @@ runtime.api.getSelfBuildScores = async () => ({
   equipmentHidden: false,
 });
 
+test("inventory total assets expose signed today P/L only with a prior record", () => {
+  const originalHistory = runtime.api.assetHistory;
+  runtime.api.assetHistory = {
+    getComparison: () => ({
+      gapDays: 1,
+      record: { values: { total: 8_000 } },
+    }),
+  };
+  assert.match(
+    runtime.api.inventoryTodayProfitHtml({ total: 10_000 }),
+    /is-positive[^>]*>（\+2K）/,
+  );
+  runtime.api.assetHistory = {
+    getComparison: () => ({
+      gapDays: 2,
+      record: { values: { total: 7_000 } },
+    }),
+  };
+  assert.equal(runtime.api.inventoryTodayProfitHtml({ total: 10_000 }), "");
+  runtime.api.assetHistory = { getComparison: () => null };
+  assert.equal(runtime.api.inventoryTodayProfitHtml({ total: 10_000 }), "");
+  runtime.api.assetHistory = originalHistory;
+});
+
 test("inventory sorting uses derived values when an item has no order-book price", () => {
   const originalGetAssetValue = runtime.api.getAssetValue;
   const originalGetFairValue = runtime.api.getFairValue;

@@ -14,6 +14,7 @@ globalThis.localStorage = dom.window.localStorage;
 const {
   createDuplicateWarningMonitor,
   detectDuplicateScripts,
+  readMutedDuplicateScriptIds,
   showDuplicateWarning,
 } = await import("../src/features/duplicate-script-warning.js");
 
@@ -105,8 +106,49 @@ test("detects TaskManager only from its dedicated marker combination", () => {
     }).join(" "),
     /MWI TaskManager/,
   );
+  assert.doesNotMatch(
+    detectDuplicateScripts({
+      pageWindow: {},
+      documentRef: document,
+      dpsWasPresent: false,
+      taskInsightsEnabled: false,
+    }).join(" "),
+    /TaskManager/,
+  );
   taskSort.remove();
   actionIcon.remove();
+});
+
+test("per-script mute persists and suppresses later warnings", () => {
+  localStorage.removeItem("MWITools_muted_duplicate_scripts_v1");
+  let renderOptions;
+  class FakeObserver {
+    observe() {}
+    disconnect() {}
+  }
+  const monitor = createDuplicateWarningMonitor({
+    documentRef: document,
+    detect: () => ["MWI TaskManager"],
+    render: (_duplicates, options) => {
+      renderOptions = options;
+    },
+    storage: localStorage,
+    setIntervalRef: () => undefined,
+    MutationObserverRef: FakeObserver,
+  });
+  renderOptions.onMute();
+  assert.deepEqual(
+    [...readMutedDuplicateScriptIds(localStorage)],
+    ["mwi-task-manager"],
+  );
+  renderOptions = null;
+  monitor.scan();
+  assert.equal(renderOptions, null);
+  localStorage.removeItem("MWITools_muted_duplicate_scripts_v1");
+  monitor.scan();
+  assert.ok(renderOptions);
+  monitor.destroy();
+  localStorage.removeItem("MWITools_muted_duplicate_scripts_v1");
 });
 
 test("duplicate monitor coalesces mutations and ignores its own warning", () => {
