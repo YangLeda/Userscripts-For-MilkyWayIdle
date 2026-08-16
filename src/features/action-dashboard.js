@@ -657,9 +657,10 @@ function bindActionUiRenderer(scope, render, messages = []) {
 function isHiddenActionElement(element) {
   for (let current = element; current; current = current.parentElement) {
     const className = String(current.className ?? "");
+    // MUI Select/Popover temporarily aria-hides the underlying modal while its
+    // portal is open. That changes the accessibility tree, not visual display.
     if (
       current.hidden ||
-      current.getAttribute?.("aria-hidden") === "true" ||
       current.style?.display === "none" ||
       current.style?.visibility === "hidden" ||
       (/MainPanel_/.test(className) && /hidden/i.test(className))

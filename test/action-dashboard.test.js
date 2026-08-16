@@ -464,6 +464,37 @@ test("replacing a loadout panel restores one stable set of production modules", 
   runtime.api.renderProductionPanel();
 });
 
+test("opening a loadout dropdown restores production modules behind MUI aria hiding", () => {
+  const panel = document.querySelector(
+    'div[class*="SkillActionDetail_regularComponent"]',
+  );
+  const modal = panel.closest('[class*="Modal_modalContainer"]');
+  runtime.api.renderProductionQuickInputs();
+  runtime.api.renderProductionPanel();
+  assert.equal(panel.querySelectorAll("#mwi-production-summary").length, 1);
+
+  modal.setAttribute("aria-hidden", "true");
+  panel.querySelector(":scope > .mwi-production-extensions").remove();
+  const dropdown = document.createElement("div");
+  dropdown.setAttribute("role", "listbox");
+  dropdown.textContent = "Loadout";
+  document.body.append(dropdown);
+
+  runtime.api.renderProductionQuickInputs();
+  runtime.api.renderProductionPanel();
+
+  assert.equal(runtime.api.resolveActiveProductionPanelContext().panel, panel);
+  assert.equal(panel.querySelectorAll(".mwi-production-extensions").length, 1);
+  assert.equal(
+    panel.querySelectorAll(".mwi-production-quick-inputs").length,
+    1,
+  );
+  assert.equal(panel.querySelectorAll("#mwi-production-summary").length, 1);
+
+  dropdown.remove();
+  modal.removeAttribute("aria-hidden");
+});
+
 test("production durations over one day use whole days, hours, and minutes", () => {
   const input = document.querySelector(
     'div[class*="SkillActionDetail_maxActionCountInput"] input',

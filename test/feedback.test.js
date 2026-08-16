@@ -440,7 +440,7 @@ test("announcement history preserves each release separately through 26.4.14", (
   );
   assert.match(
     latest.body.zh.join("\n"),
-    /切换配装.*制造链.*快捷小时.*逗号小数/,
+    /打开配装下拉.*切换配装.*制造链.*生产摘要.*快捷小时.*逗号小数/,
   );
   assert.match(
     latest.body.zh.join("\n"),
