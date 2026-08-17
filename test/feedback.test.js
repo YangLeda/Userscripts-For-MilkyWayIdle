@@ -421,7 +421,7 @@ test("announcement history preserves each release separately through 26.4.14", (
   assert.match(latest.title.zh, /26\.4\.14 更新公告/);
   assert.match(latest.title.en, /Version 26\.4\.14 update/);
   assert.equal(latest.body.zh.length, latest.body.en.length);
-  assert.equal(latest.body.zh.length, 11);
+  assert.equal(latest.body.zh.length, 12);
   assert.match(
     latest.body.zh.join("\n"),
     /战斗与生活着装评分.*全部战斗神龛和生活神龛.*对方公开的神龛等级.*缺少公会数据.*不影响其余评分/,
@@ -437,6 +437,14 @@ test("announcement history preserves each release separately through 26.4.14", (
   assert.match(
     latest.body.en.join("\n"),
     /26\.4\.14.*important update.*top update prompt.*long-press.*rerolled-card retention.*artwork synchronization/i,
+  );
+  assert.match(
+    latest.body.zh.join("\n"),
+    /共享页面观察配置不一致.*无法启动.*任务火车规划.*新任务标记.*任务自动返回.*任务筛选.*同时正常启用/,
+  );
+  assert.match(
+    latest.body.en.join("\n"),
+    /shared page-observer settings.*did not match.*Task train planning.*New badges.*automatic task return.*task filters.*enabled together/i,
   );
   assert.match(
     latest.body.zh.join("\n"),
