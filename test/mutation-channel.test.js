@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { subscribeMutationChannel } from "../src/core/mutation-channel.js";
+import {
+  subscribeMutationChannel,
+  subscribeTaskSurfaceMutations,
+  TASK_SURFACE_MUTATION_OPTIONS,
+} from "../src/core/mutation-channel.js";
 import { runtime } from "../src/core/runtime.js";
 
 class FakeMutationObserver {
@@ -72,6 +76,32 @@ test("named mutation channels share one observer until the last scope exits", ()
 
   secondScope.cleanup();
   secondScope.cleanup();
+  assert.equal(FakeMutationObserver.instances[0].disconnectCalls, 1);
+});
+
+test("task features share one character-data-aware surface observer", () => {
+  const target = {};
+  const scopes = Array.from({ length: 4 }, () => runtime.createCleanupScope());
+  const calls = [];
+
+  scopes.forEach((scope, index) => {
+    subscribeTaskSurfaceMutations({ scope, target }, (records) => {
+      calls.push({ index, records });
+    });
+  });
+
+  assert.equal(FakeMutationObserver.instances.length, 1);
+  assert.deepEqual(FakeMutationObserver.instances[0].observeCalls, [
+    { target, options: TASK_SURFACE_MUTATION_OPTIONS },
+  ]);
+  const records = [{ type: "characterData" }];
+  FakeMutationObserver.instances[0].emit(records);
+  assert.deepEqual(
+    calls,
+    scopes.map((_, index) => ({ index, records })),
+  );
+
+  scopes.forEach((scope) => scope.cleanup());
   assert.equal(FakeMutationObserver.instances[0].disconnectCalls, 1);
 });
 

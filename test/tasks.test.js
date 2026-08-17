@@ -39,11 +39,12 @@ await import("../src/core/game-data.js");
 const { registerGameLocaleResources } =
   await import("../src/core/game-localization.js");
 const { resetGameSpriteSources } = await import("../src/core/game-assets.js");
+const { TASK_SURFACE_MUTATION_OPTIONS } =
+  await import("../src/core/mutation-channel.js");
 await import("../src/core/state.js");
 await import("../src/core/action-projection.js");
 await import("../src/core/procurement.js");
 const {
-  TASK_MUTATION_OBSERVER_OPTIONS,
   dungeonLocationsForCard,
   readTaskFilterLocks,
   repairRangedWayIdleRerollButtons,
@@ -923,7 +924,7 @@ test("an open reroll pauses artwork only until a payment choice is confirmed", (
 });
 
 test("a native title text update refreshes rerolled artwork without leaving the page", async () => {
-  assert.deepEqual(TASK_MUTATION_OBSERVER_OPTIONS, {
+  assert.deepEqual(TASK_SURFACE_MUTATION_OPTIONS, {
     childList: true,
     characterData: true,
     subtree: true,
@@ -970,7 +971,7 @@ test("a native title text update refreshes rerolled artwork without leaving the 
       runtime.api.renderTasks({ allowReusedPositional: false });
     }
   });
-  observer.observe(document.body, TASK_MUTATION_OBSERVER_OPTIONS);
+  observer.observe(document.body, TASK_SURFACE_MUTATION_OPTIONS);
   runtime.state.characterQuests = [
     {
       id: "title-artwork-new",

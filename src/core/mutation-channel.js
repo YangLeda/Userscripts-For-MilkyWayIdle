@@ -2,6 +2,12 @@ import { runtime } from "./runtime.js";
 
 const channels = new Map();
 
+export const TASK_SURFACE_MUTATION_OPTIONS = Object.freeze({
+  childList: true,
+  characterData: true,
+  subtree: true,
+});
+
 const OPTION_KEYS = [
   "attributes",
   "attributeOldValue",
@@ -99,4 +105,19 @@ export function subscribeMutationChannel(
   };
   scope?.add?.(unsubscribe);
   return unsubscribe;
+}
+
+export function subscribeTaskSurfaceMutations(
+  { scope, target = globalThis.document?.body } = {},
+  callback,
+) {
+  return subscribeMutationChannel(
+    {
+      name: "task-surface",
+      target,
+      options: TASK_SURFACE_MUTATION_OPTIONS,
+      scope,
+    },
+    callback,
+  );
 }

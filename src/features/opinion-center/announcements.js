@@ -2,6 +2,23 @@ const STORAGE_KEY = "MWITools_opinion_center_seen_announcements_v1";
 
 export const ANNOUNCEMENTS = Object.freeze([
   Object.freeze({
+    id: "26.4.15",
+    version: "26.4.15",
+    publishedAt: "2026-08-17",
+    title: Object.freeze({
+      zh: "26.4.15 更新公告",
+      en: "Version 26.4.15 update",
+    }),
+    body: Object.freeze({
+      zh: Object.freeze([
+        "修复部分玩家的任务模块因共享页面观察配置不一致而无法启动的问题；任务火车规划、新任务标记、任务自动返回与任务筛选现在可同时正常启用。",
+      ]),
+      en: Object.freeze([
+        "Fixed task modules failing to start for some players because shared page-observer settings did not match. Task train planning, New badges, automatic task return, and task filters can now be enabled together normally.",
+      ]),
+    }),
+  }),
+  Object.freeze({
     id: "26.4.14",
     version: "26.4.14",
     publishedAt: "2026-08-16",

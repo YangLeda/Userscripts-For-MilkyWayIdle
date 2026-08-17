@@ -4,7 +4,7 @@ import {
   resolveTaskCards,
   taskCardTaskId,
 } from "../core/task-card-resolution.js";
-import { subscribeMutationChannel } from "../core/mutation-channel.js";
+import { subscribeTaskSurfaceMutations } from "../core/mutation-channel.js";
 
 const TASK_SELECTOR =
   '[class*="RandomTask_randomTask"]:not([data-mwitools-task-mirror="true"])';
@@ -322,15 +322,7 @@ runtime.features.register({
       },
       true,
     );
-    subscribeMutationChannel(
-      {
-        name: "task-surface",
-        target: document.body,
-        options: { childList: true, subtree: true },
-        scope,
-      },
-      observeAction,
-    );
+    subscribeTaskSurfaceMutations({ scope }, observeAction);
     scope.add(clearPending);
   },
 });

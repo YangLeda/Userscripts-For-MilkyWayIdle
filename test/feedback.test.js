@@ -394,18 +394,20 @@ test("the shared Ctrl tooltip announcement is red, bold, and underlined", () => 
   scope.cleanup();
 });
 
-test("announcement history preserves each release separately through 26.4.14", () => {
-  const latest = ANNOUNCEMENTS[0];
-  const newest = ANNOUNCEMENTS[1];
-  const current = ANNOUNCEMENTS[2];
-  const previous = ANNOUNCEMENTS[3];
-  const prior = ANNOUNCEMENTS[4];
-  const older = ANNOUNCEMENTS[5];
-  const oldest = ANNOUNCEMENTS[6];
-  const earliest = ANNOUNCEMENTS[7];
+test("announcement history preserves each release separately through 26.4.15", () => {
+  const release15 = ANNOUNCEMENTS[0];
+  const latest = ANNOUNCEMENTS[1];
+  const newest = ANNOUNCEMENTS[2];
+  const current = ANNOUNCEMENTS[3];
+  const previous = ANNOUNCEMENTS[4];
+  const prior = ANNOUNCEMENTS[5];
+  const older = ANNOUNCEMENTS[6];
+  const oldest = ANNOUNCEMENTS[7];
+  const earliest = ANNOUNCEMENTS[8];
   assert.deepEqual(
     ANNOUNCEMENTS.map(({ version }) => version),
     [
+      "26.4.15",
       "26.4.14",
       "26.4.13",
       "26.4.12",
@@ -415,6 +417,20 @@ test("announcement history preserves each release separately through 26.4.14", (
       "26.4.7",
       "26.4.6",
     ],
+  );
+  assert.equal(release15.version, "26.4.15");
+  assert.equal(release15.publishedAt, "2026-08-17");
+  assert.match(release15.title.zh, /26\.4\.15 更新公告/);
+  assert.match(release15.title.en, /Version 26\.4\.15 update/);
+  assert.equal(release15.body.zh.length, release15.body.en.length);
+  assert.equal(release15.body.zh.length, 1);
+  assert.match(
+    release15.body.zh.join("\n"),
+    /共享页面观察配置不一致.*无法启动.*任务火车规划.*新任务标记.*任务自动返回.*任务筛选.*同时正常启用/,
+  );
+  assert.match(
+    release15.body.en.join("\n"),
+    /shared page-observer settings.*did not match.*Task train planning.*New badges.*automatic task return.*task filters.*enabled together/i,
   );
   assert.equal(latest.version, "26.4.14");
   assert.equal(latest.publishedAt, "2026-08-16");

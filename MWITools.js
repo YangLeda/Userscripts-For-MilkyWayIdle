@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWITools
 // @namespace    http://tampermonkey.net/
-// @version      26.4.14
+// @version      26.4.15
 // @updateURL    https://update.greasyfork.org/scripts/494467/MWITools.meta.js
 // @downloadURL  https://update.greasyfork.org/scripts/494467/MWITools.user.js
 // @description  Tools for MilkyWayIdle. Includes a feedback center, action projections, market insights, asset history, DPS/HPS statistics, inventory tools, tasks, and guild utilities.
@@ -11819,6 +11819,11 @@
 
   // src/core/mutation-channel.js
   var channels = /* @__PURE__ */ new Map();
+  var TASK_SURFACE_MUTATION_OPTIONS = Object.freeze({
+    childList: true,
+    characterData: true,
+    subtree: true
+  });
   var OPTION_KEYS = [
     "attributes",
     "attributeOldValue",
@@ -11899,6 +11904,17 @@
     };
     scope?.add?.(unsubscribe);
     return unsubscribe;
+  }
+  function subscribeTaskSurfaceMutations({ scope, target = globalThis.document?.body } = {}, callback) {
+    return subscribeMutationChannel(
+      {
+        name: "task-surface",
+        target,
+        options: TASK_SURFACE_MUTATION_OPTIONS,
+        scope
+      },
+      callback
+    );
   }
 
   // src/features/asset-history/20-chart.js
@@ -25618,11 +25634,6 @@ ${locks}` : ""}`;
   var TASK_FILTER_LOCK_HOLD_MS = 1e3;
   var TASK_FILTER_LOCK_FEEDBACK_DELAY_MS = 500;
   var TASK_FILTER_LOCK_MOVE_TOLERANCE = 10;
-  var TASK_MUTATION_OBSERVER_OPTIONS = Object.freeze({
-    childList: true,
-    characterData: true,
-    subtree: true
-  });
   var OWNED_TASK_SELECTOR = '.mwi-task-insight,.mwi-task-toolbar,.mwi-task-profession-group,.mwi-task-combat-location,.mwi-task-combat-mode,.mwi-task-bg,.mwi-task-merged-note,.mwi-task-merge-toast,.mwi-task-train-planner,.mwi-task-new-badge,.mwi-task-reroll-lock,[data-mwitools-task-mirror="true"]';
   var MERGE_HANDLER = /* @__PURE__ */ Symbol("mwitoolsTaskMergeHandler");
   var REROLL_LOCK_HANDLER = /* @__PURE__ */ Symbol("mwitoolsTaskRerollLockHandler");
@@ -27713,19 +27724,11 @@ ${locks}` : ""}`;
         lastTaskRenderSignature = "";
         scheduleRender();
       });
-      subscribeMutationChannel(
-        {
-          name: "task-surface",
-          target: document.body,
-          options: TASK_MUTATION_OBSERVER_OPTIONS,
-          scope
-        },
-        (records) => {
-          syncTaskRerollLocks();
-          repairRangedWayIdleRerollButtons();
-          if (shouldRenderTaskMutations(records)) scheduleRender();
-        }
-      );
+      subscribeTaskSurfaceMutations({ scope }, (records) => {
+        syncTaskRerollLocks();
+        repairRangedWayIdleRerollButtons();
+        if (shouldRenderTaskMutations(records)) scheduleRender();
+      });
       scope.add(
         runtime.onMessage("quests_updated", () => {
           nativeResetChoiceUntil = 0;
@@ -28005,17 +28008,9 @@ ${locks}` : ""}`;
       renderScheduler = createFrameScheduler(render);
       const schedule = () => renderScheduler.schedule();
       render();
-      subscribeMutationChannel(
-        {
-          name: "task-surface",
-          target: document.body,
-          options: { childList: true, subtree: true },
-          scope
-        },
-        (records) => {
-          if (shouldRenderTaskTrainMutations(records)) schedule();
-        }
-      );
+      subscribeTaskSurfaceMutations({ scope }, (records) => {
+        if (shouldRenderTaskTrainMutations(records)) schedule();
+      });
       scope.add(runtime.onMessage("quests_updated", schedule));
       scope.add(() => {
         renderScheduler.cancel();
@@ -28215,17 +28210,9 @@ ${locks}` : ""}`;
           schedule();
         })
       );
-      subscribeMutationChannel(
-        {
-          name: "task-surface",
-          target: document.body,
-          options: { childList: true, subtree: true },
-          scope
-        },
-        (records) => {
-          if (shouldRenderTaskNewMutations(records)) schedule();
-        }
-      );
+      subscribeTaskSurfaceMutations({ scope }, (records) => {
+        if (shouldRenderTaskNewMutations(records)) schedule();
+      });
       render();
       scope.add(() => {
         renderScheduler.cancel();
@@ -28518,15 +28505,7 @@ ${locks}` : ""}`;
         },
         true
       );
-      subscribeMutationChannel(
-        {
-          name: "task-surface",
-          target: document.body,
-          options: { childList: true, subtree: true },
-          scope
-        },
-        observeAction
-      );
+      subscribeTaskSurfaceMutations({ scope }, observeAction);
       scope.add(clearPending);
     }
   });
@@ -28993,6 +28972,23 @@ ${locks}` : ""}`;
   // src/features/opinion-center/announcements.js
   var STORAGE_KEY = "MWITools_opinion_center_seen_announcements_v1";
   var ANNOUNCEMENTS = Object.freeze([
+    Object.freeze({
+      id: "26.4.15",
+      version: "26.4.15",
+      publishedAt: "2026-08-17",
+      title: Object.freeze({
+        zh: "26.4.15 更新公告",
+        en: "Version 26.4.15 update"
+      }),
+      body: Object.freeze({
+        zh: Object.freeze([
+          "修复部分玩家的任务模块因共享页面观察配置不一致而无法启动的问题；任务火车规划、新任务标记、任务自动返回与任务筛选现在可同时正常启用。"
+        ]),
+        en: Object.freeze([
+          "Fixed task modules failing to start for some players because shared page-observer settings did not match. Task train planning, New badges, automatic task return, and task filters can now be enabled together normally."
+        ])
+      })
+    }),
     Object.freeze({
       id: "26.4.14",
       version: "26.4.14",
@@ -35645,7 +35641,7 @@ ${locks}` : ""}`;
     return value?.[runtime.config.isZH ? "zh" : "en"] ?? value?.en ?? "";
   }
   function currentVersion() {
-    return String(globalThis.GM_info?.script?.version ?? "26.4.14");
+    return String(globalThis.GM_info?.script?.version ?? "26.4.15");
   }
   function isTestBuild() {
     const info = globalThis.GM_info?.script;
