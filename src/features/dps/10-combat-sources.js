@@ -651,7 +651,7 @@ const ClassDebug = (() => {
         })),
       }));
       return [
-        `=== MWI DPS Meter | Class Diagnostics | ${VERSION} ===`,
+        `=== MWI DPS Tracker | Class Diagnostics | ${VERSION} ===`,
         `Generated at: ${new Date().toLocaleString()}`,
         "Note: icons represent each class's signature weapon. The data below contains only class-identification fields.",
         `Recorded events: ${events.length}`,
@@ -660,7 +660,7 @@ const ClassDebug = (() => {
       ].join("\n");
     }
     const lines = [
-      `=== 银河奶牛DPS统计｜职业调试报告｜${VERSION} ===`,
+      `=== MWI DPS Tracker｜职业调试报告｜${VERSION} ===`,
       "生成时间：" + new Date().toLocaleString(),
       "说明：图标为职业代表武器；以下内容仅包含职业识别字段。",
       "记录事件数：" + events.length,
@@ -1230,7 +1230,7 @@ const ClassProbe = (() => {
     save();
     bus.dispatchEvent(new Event("change"));
     console.info(
-      "[KikiMeter] 全量入站消息采集已开始；点击“结束采集”才会停止。",
+      "[MWI DPS Tracker] 全量入站消息采集已开始；点击“结束采集”才会停止。",
     );
     return status();
   }
@@ -1249,7 +1249,7 @@ const ClassProbe = (() => {
     save();
     bus.dispatchEvent(new Event("change"));
     console.info(
-      "[KikiMeter] 全量入站消息采集已结束，共 " +
+      "[MWI DPS Tracker] 全量入站消息采集已结束，共 " +
         state.fullMessages.length +
         " 条消息。",
     );
@@ -1294,7 +1294,7 @@ const ClassProbe = (() => {
           "Full message bodies are kept only in this page's memory. Download them before refreshing or closing the page.";
       }
       return [
-        `=== MWI DPS Meter | Manual Full Incoming-Message Probe | ${VERSION} ===`,
+        `=== MWI DPS Tracker | Manual Full Incoming-Message Probe | ${VERSION} ===`,
         `Generated at: ${new Date().toLocaleString()}`,
         `Capture started: ${state.startedAt || "Not started"}`,
         `Capture ended: ${state.endedAt || (active ? "In progress" : "None")}`,
@@ -1310,7 +1310,7 @@ const ClassProbe = (() => {
       ].join("\n");
     }
     const lines = [
-      `=== 银河奶牛DPS统计｜手动全量入站消息探针｜${VERSION} ===`,
+      `=== MWI DPS Tracker｜手动全量入站消息探针｜${VERSION} ===`,
       "生成时间：" + new Date().toLocaleString(),
       "采样开始：" + (state.startedAt || "未开始"),
       "采样结束：" + (state.endedAt || (active ? "进行中" : "无")),
@@ -1457,11 +1457,13 @@ const ClassProbe = (() => {
   }
   function download() {
     if (!state.startedAt) {
-      console.warn("[KikiMeter] 尚未开始全量消息采集，已取消空报告下载。");
+      console.warn(
+        "[MWI DPS Tracker] 尚未开始全量消息采集，已取消空报告下载。",
+      );
       return null;
     }
     if (active) {
-      console.warn("[KikiMeter] 请先点击“结束采集”，再下载全量 MSG。");
+      console.warn("[MWI DPS Tracker] 请先点击“结束采集”，再下载全量 MSG。");
       return null;
     }
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");

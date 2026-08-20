@@ -12,6 +12,7 @@ const CENTER_ID = "mwitools-asset-center-modal";
 const STYLE_ID = "mwitools-asset-history-style";
 
 export const ASSET_SHARE_TEMPLATE_COUNT = 12;
+export const ASSET_COMPONENT_SHARE_TEMPLATE_COUNT = 12;
 
 const ROWS = [
   ["total", "总计", "Total"],
@@ -201,6 +202,208 @@ export function buildAssetShareMessage(
   return templates[normalizedIndex]();
 }
 
+function componentSharePeriod(gapDays) {
+  const days = Math.max(1, Math.trunc(Number(gapDays) || 1));
+  if (runtime.config.isZH) return `相比 ${days} 天前`;
+  return `vs ${days} day${days === 1 ? "" : "s"} ago`;
+}
+
+export function buildAssetComponentShareMessage(
+  { key, current, change, percent, gapDays = 1 },
+  templateIndex = Math.floor(
+    Math.random() * ASSET_COMPONENT_SHARE_TEMPLATE_COUNT,
+  ),
+) {
+  if (
+    !ASSET_COMPONENT_KEYS.includes(key) ||
+    !Number.isFinite(current) ||
+    !Number.isFinite(change)
+  ) {
+    return "";
+  }
+  const row = ROWS.find(([candidate]) => candidate === key);
+  if (!row) return "";
+  const component = runtime.config.isZH ? row[1] : row[2];
+  const period = componentSharePeriod(gapDays);
+  const currentText = formatNumber(current);
+  const amount = formatNumber(Math.abs(change));
+  const percentText = Number.isFinite(percent)
+    ? `${Math.abs(percent).toFixed(2)}%`
+    : runtime.config.isZH
+      ? "由 0 起步（无可比百分比）"
+      : "up from zero (no comparable percentage)";
+  const zhProfitTemplates = [
+    () =>
+      `📈 今日${component}结算：${period}上涨 ${amount}（${percentText}），当前 ${currentText}。`,
+    () =>
+      `${component}今日收官：当前 ${currentText}，${period}多了 ${amount}，涨幅 ${percentText}。`,
+    () =>
+      `晒一下${component}战绩：${period}增长 ${amount} / ${percentText}，现值 ${currentText}。`,
+    () =>
+      `牛棚分项财报｜${component}：当前 ${currentText}，${period}盈利 ${amount}（${percentText}）。`,
+    () =>
+      `今日${component}成绩单：现有 ${currentText}，${period}增加 ${amount}，提升 ${percentText}。`,
+    () =>
+      `${component}进度向上：${period}赚到 ${amount}，涨了 ${percentText}，目前 ${currentText}。`,
+    () =>
+      `MWITools ${component}盘点：当前 ${currentText}；${period} +${amount}（+${percentText}）。`,
+    () =>
+      `小小炫耀${component}：${period}进账 ${amount}，增长 ${percentText}，总计 ${currentText}。`,
+    () =>
+      `${component}账本飘绿：现值 ${currentText}，${period}上涨 ${amount}，比例 ${percentText}。`,
+    () =>
+      `🚀 ${component}里程碑：当前 ${currentText}，${period}净增 ${amount}（${percentText}）。`,
+    () =>
+      `今日分项播报：${component} ${currentText}，${period}收获 ${amount}，涨幅 ${percentText}。`,
+    () =>
+      `挤奶之余看了眼${component}：当前 ${currentText}，${period}多出 ${amount}（${percentText}）。`,
+  ];
+  const zhLossTemplates = [
+    () =>
+      `📉 今日${component}结算：${period}下跌 ${amount}（${percentText}），当前 ${currentText}。`,
+    () =>
+      `${component}今日收官：当前 ${currentText}，${period}少了 ${amount}，跌幅 ${percentText}。`,
+    () =>
+      `汇报${component}战况：${period}回撤 ${amount} / ${percentText}，现值 ${currentText}。`,
+    () =>
+      `牛棚分项财报｜${component}：当前 ${currentText}，${period}亏损 ${amount}（${percentText}）。`,
+    () =>
+      `今日${component}成绩单：现有 ${currentText}，${period}减少 ${amount}，下降 ${percentText}。`,
+    () =>
+      `${component}进度回落：${period}损失 ${amount}，跌了 ${percentText}，目前 ${currentText}。`,
+    () =>
+      `MWITools ${component}盘点：当前 ${currentText}；${period} −${amount}（−${percentText}）。`,
+    () =>
+      `这次晒晒${component}回撤：${period}少了 ${amount}，下降 ${percentText}，总计 ${currentText}。`,
+    () =>
+      `${component}账本飘红：现值 ${currentText}，${period}下跌 ${amount}，比例 ${percentText}。`,
+    () =>
+      `🩹 ${component}暂时回调：当前 ${currentText}，${period}净减 ${amount}（${percentText}）。`,
+    () =>
+      `今日分项播报：${component} ${currentText}，${period}损失 ${amount}，跌幅 ${percentText}。`,
+    () =>
+      `挤奶之余看了眼${component}：当前 ${currentText}，${period}少了 ${amount}（${percentText}）。`,
+  ];
+  const zhNeutralTemplates = [
+    () =>
+      `➖ 今日${component}结算：${period}持平，变化 0（0.00%），当前 ${currentText}。`,
+    () =>
+      `${component}今日收官：当前 ${currentText}，${period}没有变化，比例 0.00%。`,
+    () =>
+      `晒一下${component}战绩：${period}不增不减，现值 ${currentText}，变化 0 / 0.00%。`,
+    () =>
+      `牛棚分项财报｜${component}：当前 ${currentText}，${period}盈亏 0（0.00%）。`,
+    () =>
+      `今日${component}成绩单：现有 ${currentText}，${period}变化 0，涨跌 0.00%。`,
+    () =>
+      `${component}进度原地踏步：${period}变化 0，比例 0.00%，目前 ${currentText}。`,
+    () =>
+      `MWITools ${component}盘点：当前 ${currentText}；${period} ±0（0.00%）。`,
+    () =>
+      `低调晒晒${component}：${period}收支相抵，变化 0.00%，总计 ${currentText}。`,
+    () =>
+      `${component}账本很平静：现值 ${currentText}，${period}变化 0，比例 0.00%。`,
+    () =>
+      `📊 ${component}保持稳定：当前 ${currentText}，${period}净变化 0（0.00%）。`,
+    () =>
+      `今日分项播报：${component} ${currentText}，${period}盈亏 0，变化 0.00%。`,
+    () =>
+      `挤奶之余看了眼${component}：当前 ${currentText}，${period}一分没变（0.00%）。`,
+  ];
+  const enProfitTemplates = [
+    () =>
+      `📈 Today's ${component} close: ${period}, up ${amount} (${percentText}) to ${currentText}.`,
+    () =>
+      `${component} finished at ${currentText}: ${period}, it gained ${amount}, up ${percentText}.`,
+    () =>
+      `${component} flex: ${period}, +${amount} / +${percentText}; current value ${currentText}.`,
+    () =>
+      `Cowshed component report — ${component}: ${currentText}, ${period}, profit ${amount} (${percentText}).`,
+    () =>
+      `Today's ${component} scorecard: ${currentText}; ${period}, +${amount}, a ${percentText} rise.`,
+    () =>
+      `${component} moved up: ${period}, I gained ${amount} (${percentText}); now ${currentText}.`,
+    () =>
+      `MWITools ${component} check: ${currentText}; ${period}, +${amount} (+${percentText}).`,
+    () =>
+      `Tiny ${component} flex: ${period}, +${amount}, up ${percentText}, total ${currentText}.`,
+    () =>
+      `${component} ledger is green: ${currentText}; ${period}, up ${amount} (${percentText}).`,
+    () =>
+      `🚀 ${component} milestone: ${currentText}; ${period}, net gain ${amount} (${percentText}).`,
+    () =>
+      `Component update: ${component} is ${currentText}; ${period}, +${amount}, up ${percentText}.`,
+    () =>
+      `Checked ${component} between milkings: ${currentText}; ${period}, +${amount} (${percentText}).`,
+  ];
+  const enLossTemplates = [
+    () =>
+      `📉 Today's ${component} close: ${period}, down ${amount} (${percentText}) to ${currentText}.`,
+    () =>
+      `${component} finished at ${currentText}: ${period}, it lost ${amount}, down ${percentText}.`,
+    () =>
+      `${component} update: ${period}, -${amount} / -${percentText}; current value ${currentText}.`,
+    () =>
+      `Cowshed component report — ${component}: ${currentText}, ${period}, loss ${amount} (${percentText}).`,
+    () =>
+      `Today's ${component} scorecard: ${currentText}; ${period}, -${amount}, a ${percentText} drop.`,
+    () =>
+      `${component} pulled back: ${period}, I lost ${amount} (${percentText}); now ${currentText}.`,
+    () =>
+      `MWITools ${component} check: ${currentText}; ${period}, -${amount} (-${percentText}).`,
+    () =>
+      `A candid ${component} flex: ${period}, -${amount}, down ${percentText}, total ${currentText}.`,
+    () =>
+      `${component} ledger is red: ${currentText}; ${period}, down ${amount} (${percentText}).`,
+    () =>
+      `🩹 ${component} setback: ${currentText}; ${period}, net loss ${amount} (${percentText}).`,
+    () =>
+      `Component update: ${component} is ${currentText}; ${period}, -${amount}, down ${percentText}.`,
+    () =>
+      `Checked ${component} between milkings: ${currentText}; ${period}, -${amount} (${percentText}).`,
+  ];
+  const enNeutralTemplates = [
+    () =>
+      `➖ Today's ${component} close: ${period}, flat by 0 (0.00%) at ${currentText}.`,
+    () =>
+      `${component} finished at ${currentText}: ${period}, no change, 0.00%.`,
+    () =>
+      `${component} flex: ${period}, neither up nor down; current ${currentText}, change 0 / 0.00%.`,
+    () =>
+      `Cowshed component report — ${component}: ${currentText}, ${period}, P/L 0 (0.00%).`,
+    () =>
+      `Today's ${component} scorecard: ${currentText}; ${period}, change 0, or 0.00%.`,
+    () =>
+      `${component} held steady: ${period}, change 0 (0.00%); now ${currentText}.`,
+    () => `MWITools ${component} check: ${currentText}; ${period}, ±0 (0.00%).`,
+    () =>
+      `A low-key ${component} flex: ${period}, break-even at ${currentText}, change 0.00%.`,
+    () =>
+      `${component} ledger stayed quiet: ${currentText}; ${period}, change 0 (0.00%).`,
+    () =>
+      `📊 ${component} stayed stable: ${currentText}; ${period}, net change 0 (0.00%).`,
+    () =>
+      `Component update: ${component} is ${currentText}; ${period}, P/L 0, change 0.00%.`,
+    () =>
+      `Checked ${component} between milkings: ${currentText}; ${period}, unchanged (0.00%).`,
+  ];
+  const templates = runtime.config.isZH
+    ? change > 0
+      ? zhProfitTemplates
+      : change < 0
+        ? zhLossTemplates
+        : zhNeutralTemplates
+    : change > 0
+      ? enProfitTemplates
+      : change < 0
+        ? enLossTemplates
+        : enNeutralTemplates;
+  const normalizedIndex =
+    (((Number(templateIndex) || 0) % templates.length) + templates.length) %
+    templates.length;
+  return templates[normalizedIndex]();
+}
+
 export function pasteAssetShareToChat(message, root = document) {
   const inputs = [
     ...root.querySelectorAll(
@@ -257,6 +460,10 @@ function addStyles() {
     .mwi-asset-history-table th:last-child { width:38%; }
     .mwi-asset-table tr:last-child td { border-bottom:0; }
     .mwi-asset-table tr[data-key="total"] { font-weight:700; background:rgba(255,255,255,.035); }
+    .mwi-asset-component-share { max-width:100%; border:0; border-bottom:1px dashed currentColor; background:transparent; color:#7ddcff; padding:0; cursor:pointer; font:inherit; text-align:left; text-overflow:ellipsis; white-space:nowrap; overflow:hidden; }
+    .mwi-asset-component-share:hover { color:#b6ecff; }
+    .mwi-asset-component-share:focus-visible { outline:2px solid #00c6ff; outline-offset:2px; }
+    .mwi-asset-component-share:disabled { border-bottom-color:transparent; color:inherit; cursor:default; opacity:1; }
     .mwi-asset-chart-controls { display:flex; flex-wrap:wrap; gap:6px; padding:9px 10px 0; }
     .mwi-asset-chart-controls button,.mwi-asset-action { border:1px solid rgba(255,255,255,.13); border-radius:5px; background:rgba(255,255,255,.07); color:inherit; padding:5px 9px; cursor:pointer; font:inherit; }
     .mwi-asset-chart-controls button:hover,.mwi-asset-action:hover { background:#3f4655; transform:translateY(-1px); }
@@ -498,6 +705,13 @@ class AssetHistoryPanel {
     this.host
       .querySelector("#mwi-asset-share-chat")
       .addEventListener("click", () => this.shareToChat());
+    this.host
+      .querySelector("#mwi-asset-breakdown")
+      .addEventListener("click", (event) => {
+        const button = event.target.closest("[data-component-share]");
+        if (!button || button.disabled) return;
+        this.shareComponentToChat(button.dataset.componentShare);
+      });
     this.host.querySelectorAll("[data-mode]").forEach((button) => {
       button.addEventListener("click", () => {
         this.mode = button.dataset.mode;
@@ -596,15 +810,33 @@ class AssetHistoryPanel {
   }
 
   shareToChat() {
-    const status = this.host.querySelector(".mwi-asset-share-status");
     const message = buildAssetShareMessage(this.shareStats ?? {});
     if (!message) {
-      status.textContent = t(
+      this.host.querySelector(".mwi-asset-share-status").textContent = t(
         "暂无可对比的盈亏数据",
         "No comparable P/L data yet",
       );
       return;
     }
+    this.pasteShareMessage(message);
+  }
+
+  shareComponentToChat(key) {
+    const message = buildAssetComponentShareMessage(
+      this.componentShareStats?.get(key) ?? {},
+    );
+    if (!message) {
+      this.host.querySelector(".mwi-asset-share-status").textContent = t(
+        "该分项暂无可对比数据",
+        "No comparable data for this component",
+      );
+      return;
+    }
+    this.pasteShareMessage(message);
+  }
+
+  pasteShareMessage(message) {
+    const status = this.host.querySelector(".mwi-asset-share-status");
     const input = pasteAssetShareToChat(message);
     status.dataset.pasted = String(Boolean(input));
     status.textContent = input
@@ -654,7 +886,17 @@ class AssetHistoryPanel {
       );
       return;
     }
-    this.store.updateDay(dialog.dataset.dayKey, values, this.scopeKey);
+    try {
+      this.store.updateDay(dialog.dataset.dayKey, values, this.scopeKey);
+    } catch {
+      globalThis.alert?.(
+        t(
+          "资产记录保存失败，请检查浏览器存储空间后重试。",
+          "Could not save the asset record. Check browser storage and try again.",
+        ),
+      );
+      return;
+    }
     this.closeEditor();
     this.update(this.snapshot);
   }
@@ -762,6 +1004,7 @@ class AssetHistoryPanel {
         : t("变化", "Change");
 
     const body = this.host.querySelector("#mwi-asset-breakdown");
+    this.componentShareStats = new Map();
     body.replaceChildren(
       ...ROWS.map(([key, zh, en]) => {
         const row = document.createElement("tr");
@@ -772,7 +1015,33 @@ class AssetHistoryPanel {
           Number.isFinite(currentValue) && Number.isFinite(previousValue)
             ? currentValue - previousValue
             : null;
-        row.innerHTML = `<td>${t(zh, en)}</td><td title="${Number.isFinite(currentValue) ? runtime.api.formatExactNumber(currentValue, 0) : ""}">${formatNumber(currentValue)}</td><td class="${valueClass(change)}" title="${Number.isFinite(change) ? runtime.api.formatExactNumber(change, 0) : ""}">${formatNumber(change, true)}</td><td class="${valueClass(change)}">${formatPercent(currentValue, previousValue)}</td>`;
+        const percent =
+          Number.isFinite(change) && Number.isFinite(previousValue)
+            ? previousValue !== 0
+              ? (change / previousValue) * 100
+              : change === 0
+                ? 0
+                : null
+            : null;
+        const canShare =
+          key !== "total" &&
+          Boolean(comparison) &&
+          Number.isFinite(currentValue) &&
+          Number.isFinite(change);
+        if (canShare) {
+          this.componentShareStats.set(key, {
+            key,
+            current: currentValue,
+            change,
+            percent,
+            gapDays: comparison.gapDays,
+          });
+        }
+        const label =
+          key === "total"
+            ? t(zh, en)
+            : `<button type="button" class="mwi-asset-component-share" data-component-share="${key}" title="${t(`点击炫耀${zh}变化`, `Click to flex ${en} changes`)}"${canShare ? "" : " disabled"}>${t(zh, en)}</button>`;
+        row.innerHTML = `<td>${label}</td><td title="${Number.isFinite(currentValue) ? runtime.api.formatExactNumber(currentValue, 0) : ""}">${formatNumber(currentValue)}</td><td class="${valueClass(change)}" title="${Number.isFinite(change) ? runtime.api.formatExactNumber(change, 0) : ""}">${formatNumber(change, true)}</td><td class="${valueClass(change)}">${formatPercent(currentValue, previousValue)}</td>`;
         return row;
       }),
     );

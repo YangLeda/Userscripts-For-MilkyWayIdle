@@ -9,6 +9,7 @@ import { createFrameScheduler } from "../core/frame-scheduler.js";
 import { subscribeMutationChannel } from "../core/mutation-channel.js";
 import { formatRemainingTiming } from "../core/time-format.js";
 import { getGameSpriteHref } from "../core/game-assets.js";
+import { orderCharacterActions } from "../core/message-state.js";
 
 const PRODUCTION_PROFILE_MESSAGES = Object.freeze([
   "init_character_data",
@@ -277,16 +278,7 @@ function getNativeEnhancementCount(host, action) {
 export function parseProductionDurationSeconds(value) {
   const token = String(value ?? "").match(/[-+]?\d[\d\s\u00a0\u202f.,]*/)?.[0];
   if (!token) return null;
-  let normalized = token.replace(/[\s\u00a0\u202f]/g, "");
-  const dot = normalized.lastIndexOf(".");
-  const comma = normalized.lastIndexOf(",");
-  const decimalIndex = Math.max(dot, comma);
-  if (decimalIndex >= 0) {
-    const whole = normalized.slice(0, decimalIndex).replace(/[.,]/g, "");
-    const fraction = normalized.slice(decimalIndex + 1).replace(/[.,]/g, "");
-    normalized = fraction ? `${whole}.${fraction}` : whole;
-  }
-  const number = Number(normalized);
+  const number = runtime.api.parseGameNumber(token);
   return Number.isFinite(number) && number > 0 ? number : null;
 }
 
@@ -451,9 +443,7 @@ function actionDashboardLayout(host, lastNativeChild) {
 function renderActionDashboard() {
   addStyles();
   const host = document.querySelector('div[class*="Header_actionName"]');
-  const actions = [...(runtime.state.currentActionsHridList ?? [])].sort(
-    (left, right) => Number(left?.ordinal ?? 0) - Number(right?.ordinal ?? 0),
-  );
+  const actions = orderCharacterActions(runtime.state.currentActionsHridList);
   const current = actions[0];
   if (!host || !current) {
     clearActionDashboard();

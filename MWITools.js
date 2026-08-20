@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWITools
 // @namespace    http://tampermonkey.net/
-// @version      26.4.15
+// @version      26.4.16
 // @updateURL    https://update.greasyfork.org/scripts/494467/MWITools.meta.js
 // @downloadURL  https://update.greasyfork.org/scripts/494467/MWITools.user.js
 // @description  Tools for MilkyWayIdle. Includes a feedback center, action projections, market insights, asset history, DPS/HPS statistics, inventory tools, tasks, and guild utilities.
@@ -23,9 +23,14 @@
 // @grant        GM_setValue
 // @grant        GM_info
 // @grant        unsafeWindow
+// @connect      www.milkywayidle.com
+// @connect      test.milkywayidle.com
+// @connect      www.milkywayidlecn.com
+// @connect      test.milkywayidlecn.com
 // @connect      raw.githubusercontent.com
 // @connect      feedback.43.167.210.211.sslip.io
 // @connect      mwi-guild.43.167.210.211.sslip.io
+// @connect      q7.nainai.eu.org
 // @require      https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.3.3/chart.umd.min.js#sha256-AaB6aVBgu9b1y80d/HEgMq4AnFJ7K/Y+9tzK1/MrvF4=
 // @require      https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-zoom/2.0.1/chartjs-plugin-zoom.min.js#sha256-UDxwmAK+KFxnav4Dab9fcgZtCwwjkpGIwxWPNcAyepw=
 // @require      https://cdnjs.cloudflare.com/ajax/libs/hammer.js/2.0.8/hammer.min.js#sha256-eVNjHw5UeU0jUqPPpZHAkU1z4U+QFBBY488WvueTm88=
@@ -1163,6 +1168,11 @@
       desc: isZH ? "总资产计入公会与地下城代币" : "Include guild and dungeon tokens in total assets.",
       isTrue: true
     },
+    includeTaskTokensInAssets: {
+      id: "includeTaskTokensInAssets",
+      desc: isZH ? "总资产计入任务代币" : "Include task tokens in total assets.",
+      isTrue: false
+    },
     valueBackEquipmentWithProtectionMirror: {
       id: "valueBackEquipmentWithProtectionMirror",
       desc: isZH ? "普通未强化背部装备按保护之镜价值估值" : "Value ordinary unenhanced back equipment using Mirrors of Protection.",
@@ -1726,6 +1736,14 @@
       "Include guild & dungeon tokens",
       "开启后，公会代币以及奇幻、阴森、秘法、海盗代币计入不可交易代币和总资产；默认开启。",
       "Include Guild, Chimerical, Sinister, Enchanted, and Pirate Tokens under non-tradable tokens and total assets. On by default."
+    ],
+    [
+      "includeTaskTokensInAssets",
+      "inventory",
+      "任务代币计入总资产",
+      "Include task tokens in assets",
+      "开启后，任务代币按任务商店兑换价值计入总资产和物品价值排序；默认关闭。",
+      "Include task tokens at their task-shop redemption value in total assets and inventory value sorting. Off by default."
     ],
     [
       "valueBackEquipmentWithProtectionMirror",
@@ -3489,6 +3507,7 @@
   var MARKET_MAX_PRICE = 1e12;
   var TEST_MARKET_REFRESH_MS = 10 * 60 * 1e3;
   var PRODUCTION_MARKET_REFRESH_MS = 6 * 60 * 60 * 1e3;
+  var MARKET_FALLBACK_URL = "https://q7.nainai.eu.org/game_data/marketplace.json";
   var assetValuationMarketSnapshot = null;
   var assetValuationMarketDirty = false;
   var decodedLocalMarketBackup;
@@ -3640,19 +3659,66 @@
     const normalized = Math.round(numericPrice / increment) * increment;
     return Math.min(Math.max(normalized, minimum), maximum);
   }
-  function parseCompactNumber(value) {
-    if (typeof value === "number") return value;
-    const thousandSeparator = runtime.config.THOUSAND_SEPERATOR ?? ",";
-    const decimalSeparator = runtime.config.DECIMAL_SEPERATOR || ".";
-    let normalized = String(value ?? "").trim().toLowerCase();
-    if (thousandSeparator) {
-      normalized = normalized.replaceAll(thousandSeparator, "");
+  function normalizeGameNumberToken(token) {
+    let normalized = String(token ?? "").replaceAll(/[\s\u00a0\u202f]/g, "");
+    if (!/^[+-]?(?:\d[\d.,]*|[.,]\d+)$/.test(normalized)) return null;
+    const sign = normalized.startsWith("-") ? "-" : normalized.startsWith("+") ? "+" : "";
+    if (sign) normalized = normalized.slice(1);
+    const dotCount = (normalized.match(/\./g) ?? []).length;
+    const commaCount = (normalized.match(/,/g) ?? []).length;
+    let decimalIndex = -1;
+    if (dotCount && commaCount) {
+      decimalIndex = Math.max(
+        normalized.lastIndexOf("."),
+        normalized.lastIndexOf(",")
+      );
+    } else if (dotCount || commaCount) {
+      const separator = dotCount ? "." : ",";
+      const parts = normalized.split(separator);
+      if (parts.length === 2 && parts[0] === "") {
+        decimalIndex = 0;
+      } else if (parts.length > 2) {
+        const looksGrouped = parts[0].length >= 1 && parts[0].length <= 3 && parts.slice(1).every((part) => part.length === 3);
+        if (!looksGrouped) decimalIndex = normalized.lastIndexOf(separator);
+      } else {
+        const fractionLength = parts[1]?.length ?? 0;
+        if (fractionLength > 0 && fractionLength <= 2) {
+          decimalIndex = normalized.lastIndexOf(separator);
+        } else if (fractionLength > 0 && separator === runtime.config.DECIMAL_SEPERATOR && separator !== runtime.config.THOUSAND_SEPERATOR) {
+          decimalIndex = normalized.lastIndexOf(separator);
+        }
+      }
     }
-    normalized = normalized.replaceAll(/[\s\u00a0\u202f]/g, "").replace(decimalSeparator, ".");
-    const match = normalized.match(/^([+-]?(?:\d+\.?\d*|\.\d+))\s*([kmbt])?$/i);
+    if (decimalIndex >= 0) {
+      const whole = normalized.slice(0, decimalIndex).replaceAll(/[.,]/g, "");
+      const fraction = normalized.slice(decimalIndex + 1).replaceAll(/[.,]/g, "");
+      if (!fraction) return null;
+      normalized = `${whole || "0"}.${fraction}`;
+    } else {
+      normalized = normalized.replaceAll(/[.,]/g, "");
+    }
+    return `${sign}${normalized}`;
+  }
+  function parseGameNumber(value, { allowCompactSuffix = false } = {}) {
+    if (typeof value === "number") return value;
+    const source = String(value ?? "").trim().toLowerCase();
+    const suffixPattern = allowCompactSuffix ? "([kmbt])?" : "";
+    const match = source.match(
+      new RegExp(
+        `^([+-]?(?:\\d[\\d\\s\\u00a0\\u202f.,]*|[.,]\\d+))\\s*${suffixPattern}$`,
+        "i"
+      )
+    );
     if (!match) return Number.NaN;
+    const normalized = normalizeGameNumberToken(match[1]);
+    if (!normalized) return Number.NaN;
+    const number3 = Number(normalized);
+    if (!Number.isFinite(number3)) return Number.NaN;
     const multipliers = { k: 1e3, m: 1e6, b: 1e9, t: 1e12 };
-    return Number(match[1]) * (multipliers[match[2]] ?? 1);
+    return number3 * (multipliers[match[2]] ?? 1);
+  }
+  function parseCompactNumber(value) {
+    return parseGameNumber(value, { allowCompactSuffix: true });
   }
   function getNumberLocale() {
     return runtime.config.NUMBER_LOCALE || "en-US";
@@ -3811,7 +3877,7 @@
       runtime.config.isZH ? `[MWITools] ${reasonZh}；将优先使用可用的市场缓存。` : `[MWITools] ${reasonEn}; using cached market data when available.`
     );
   }
-  function requestMarketJson() {
+  function requestMarketJson(url = getMarketApiUrl()) {
     const sendRequest = typeof GM !== "undefined" && typeof GM.xmlHttpRequest === "function" ? GM.xmlHttpRequest : typeof GM_xmlhttpRequest === "function" ? GM_xmlhttpRequest : null;
     if (!sendRequest) return Promise.resolve(null);
     return new Promise((resolve) => {
@@ -3825,7 +3891,7 @@
       };
       watchdog = setTimeout(() => finish(null), 5500);
       const options = {
-        url: getMarketApiUrl(),
+        url,
         method: "GET",
         timeout: 5e3,
         onload: finish,
@@ -3854,28 +3920,39 @@
     if (hasMarketValueSource()) return true;
     return Boolean(await fetchMarketJSON());
   }
-  async function fetchMarketJSON(forceFetch = false) {
+  async function fetchMarketJSON(forceFetch = false, hostname = globalThis.location?.hostname ?? "") {
     const cacheTimestamp = Number(
       localStorage.getItem("MWITools_marketAPI_timestamp")
     );
     const cachedJson = localStorage.getItem("MWITools_marketAPI_json");
-    if (!forceFetch && cachedJson && cacheTimestamp && Date.now() - cacheTimestamp < getMarketRefreshInterval()) {
+    if (!forceFetch && cachedJson && cacheTimestamp && Date.now() - cacheTimestamp < getMarketRefreshInterval(hostname)) {
       return validateMarketJsonFetch(cachedJson, false);
     }
-    const response = await requestMarketJson();
+    const response = await requestMarketJson(getMarketApiUrl(hostname));
     const jsonObj = validateMarketJsonFetch(
-      response?.status === 200 ? response.responseText : null,
+      response?.status >= 200 && response?.status < 300 ? response.responseText : null,
       true
     );
     if (jsonObj) {
       return jsonObj;
     }
-    setMarketFetchFailure("市场 API 请求失败", "Market API request failed");
+    if (getMarketEnvironment(hostname) !== "test") {
+      const fallbackResponse = await requestMarketJson(MARKET_FALLBACK_URL);
+      const fallbackJson = validateMarketJsonFetch(
+        fallbackResponse?.status >= 200 && fallbackResponse?.status < 300 ? fallbackResponse.responseText : null,
+        true
+      );
+      if (fallbackJson) return fallbackJson;
+    }
+    setMarketFetchFailure(
+      "市场主接口和备用接口请求失败",
+      "Primary and fallback market API requests failed"
+    );
     if (cachedJson) {
       const cached = validateMarketJsonFetch(cachedJson, false);
       if (cached) return cached;
     }
-    if (getMarketEnvironment() === "test") return null;
+    if (getMarketEnvironment(hostname) === "test") return null;
     return validateMarketJsonFetch(getLocalMarketBackup(), false);
   }
   function applyMarketItemValues(payload) {
@@ -3937,6 +4014,7 @@
     getMarketEnvironment,
     getMarketApiUrl,
     getMarketRefreshInterval,
+    getMarketFallbackUrl: () => MARKET_FALLBACK_URL,
     getAskPrice,
     getBidPrice,
     getFairValue,
@@ -3952,6 +4030,7 @@
     getNetSellPriceAtAsk,
     getMarketPriceIncrement,
     normalizeMarketPrice,
+    parseGameNumber,
     parseCompactNumber,
     numberFormatter,
     formatExactNumber,
@@ -3961,6 +4040,7 @@
     parseStoredMarketItemValues,
     loadMarketItemValuesFromStorage,
     validateMarketJsonFetch,
+    requestMarketJson,
     fetchMarketJSON,
     hasMarketValueSource,
     ensureMarketValueSource,
@@ -4455,10 +4535,10 @@
   }
   function getActionCount(action) {
     if (action?.hasMaxCount === false) return Infinity;
-    const target = Number(
-      action?.targetCount ?? action?.maxCount ?? action?.count ?? action?.actionCount
-    );
-    if (!Number.isFinite(target) || target < 0) return Infinity;
+    const rawTarget = action?.targetCount ?? action?.maxCount ?? action?.count ?? action?.actionCount;
+    const target = Number(rawTarget);
+    if (rawTarget === null || rawTarget === void 0) return Infinity;
+    if (!Number.isFinite(target) || target <= 0) return Infinity;
     const current = Number(action?.currentCount ?? action?.completedCount ?? 0);
     return Math.max(0, target - (Number.isFinite(current) ? current : 0));
   }
@@ -7959,6 +8039,12 @@
   function shouldIncludeGuildDungeonTokensInAssets() {
     return settingEnabled("includeGuildDungeonTokensInAssets");
   }
+  function shouldIncludeTaskTokensInAssets() {
+    return settingEnabled("includeTaskTokensInAssets");
+  }
+  function shouldExcludeItemFromAssets(itemHrid) {
+    return itemHrid === "/items/task_token" && !shouldIncludeTaskTokensInAssets();
+  }
   function isOptionalTokenAsset(itemHrid) {
     return OPTIONAL_TOKEN_ASSET_HRIDS.has(itemHrid);
   }
@@ -9155,7 +9241,9 @@
     isOptionalTokenAsset,
     invalidateAssetValueCache,
     shouldIncludeCowbellsInAssets,
-    shouldIncludeGuildDungeonTokensInAssets
+    shouldIncludeGuildDungeonTokensInAssets,
+    shouldIncludeTaskTokensInAssets,
+    shouldExcludeItemFromAssets
   });
   function refreshConfiguredAssetValues() {
     invalidateAssetValueCache();
@@ -9170,6 +9258,10 @@
   );
   runtime.settings.onChange?.(
     "includeGuildDungeonTokensInAssets",
+    refreshConfiguredAssetValues
+  );
+  runtime.settings.onChange?.(
+    "includeTaskTokensInAssets",
     refreshConfiguredAssetValues
   );
   runtime.settings.onChange?.(
@@ -9413,6 +9505,15 @@
     ]);
     if (rows2.length) runtime.state.guildLeaderboard = rows2;
   }
+  function orderCharacterActions(actions) {
+    return (Array.isArray(actions) ? actions : []).map((action, index) => ({ action, index })).sort((left, right) => {
+      const leftOrdinal = left.action?.ordinal === null || left.action?.ordinal === void 0 ? Number.NaN : Number(left.action.ordinal);
+      const rightOrdinal = right.action?.ordinal === null || right.action?.ordinal === void 0 ? Number.NaN : Number(right.action.ordinal);
+      const leftOrder = Number.isFinite(leftOrdinal) ? leftOrdinal : Number.NEGATIVE_INFINITY;
+      const rightOrder = Number.isFinite(rightOrdinal) ? rightOrdinal : Number.NEGATIVE_INFINITY;
+      return leftOrder - rightOrder || left.index - right.index;
+    }).map(({ action }) => action);
+  }
   function normalizeActionList(actions) {
     const keyed = /* @__PURE__ */ new Map();
     const idless = [];
@@ -9430,13 +9531,9 @@
         index: previous?.index ?? index
       });
     }
-    return [...keyed.values(), ...idless].sort((left, right) => {
-      const leftOrdinal = Number(left.action?.ordinal);
-      const rightOrdinal = Number(right.action?.ordinal);
-      const leftOrder = Number.isFinite(leftOrdinal) ? leftOrdinal : Number.MAX_SAFE_INTEGER;
-      const rightOrder = Number.isFinite(rightOrdinal) ? rightOrdinal : Number.MAX_SAFE_INTEGER;
-      return leftOrder - rightOrder || left.index - right.index;
-    }).map(({ action }) => action);
+    return orderCharacterActions(
+      [...keyed.values(), ...idless].sort((left, right) => left.index - right.index).map(({ action }) => action)
+    );
   }
   function applyActionsUpdated(payload) {
     const updates = payload.endCharacterActions;
@@ -9590,7 +9687,8 @@
     applyGuildCharacters,
     applyLeaderboard,
     applyActionTypeBuffs,
-    applySkillsUpdated
+    applySkillsUpdated,
+    orderCharacterActions
   });
 
   // src/core/messages.js
@@ -10438,6 +10536,7 @@
     let inventoryAsk = 0;
     let inventoryBid = 0;
     for (const item of runtime.state.initData_characterItems) {
+      if (runtime.api.shouldExcludeItemFromAssets?.(item.itemHrid)) continue;
       if (item.itemHrid === "/items/cowbell" && !runtime.api.shouldIncludeCowbellsInAssets()) {
         continue;
       }
@@ -10570,6 +10669,7 @@
     lightBg: "ep_light_bg"
   };
   var ASSET_HISTORY_SCHEMA_VERSION = 2;
+  var NO_HISTORY_CHANGE = /* @__PURE__ */ Symbol("no-history-change");
   var DEFAULT_ASSET_HISTORY_PREFERENCES = Object.freeze({
     language: null,
     themeMode: "dark",
@@ -10790,12 +10890,65 @@
   var AssetHistoryStore = class {
     constructor(storage = globalThis.localStorage) {
       this.storage = storage;
+      this.listeners = /* @__PURE__ */ new Set();
       const loaded = safeParse(storage?.getItem(ASSET_HISTORY_STORAGE_KEY), null);
       this.data = migrateStoredData(loaded);
       if (loaded && loaded.version !== ASSET_HISTORY_SCHEMA_VERSION) this.save();
     }
     save() {
-      this.storage?.setItem(ASSET_HISTORY_STORAGE_KEY, JSON.stringify(this.data));
+      if (!this.storage) return false;
+      const serialized = JSON.stringify(this.data);
+      this.storage.setItem(ASSET_HISTORY_STORAGE_KEY, serialized);
+      if (this.storage.getItem(ASSET_HISTORY_STORAGE_KEY) !== serialized) {
+        throw new Error(
+          runtime.config.isZH ? "资产历史写入校验失败。" : "Asset history storage verification failed."
+        );
+      }
+      return true;
+    }
+    subscribe(listener) {
+      if (typeof listener !== "function") return () => {
+      };
+      this.listeners.add(listener);
+      return () => this.listeners.delete(listener);
+    }
+    emit(change) {
+      for (const listener of this.listeners) {
+        try {
+          listener(change);
+        } catch (error) {
+          console.error(
+            runtime.config.isZH ? "[MWITools] 资产历史监听器执行失败。" : "[MWITools] Asset history listener failed.",
+            error
+          );
+        }
+      }
+    }
+    reloadFromStorage({ notify = true } = {}) {
+      const raw = this.storage?.getItem(ASSET_HISTORY_STORAGE_KEY);
+      const loaded = safeParse(raw, null);
+      if (!loaded) return false;
+      const next = migrateStoredData(loaded);
+      if (JSON.stringify(next) === JSON.stringify(this.data)) return false;
+      this.data = next;
+      if (notify) this.emit({ reason: "storage" });
+      return true;
+    }
+    commit(change, mutate) {
+      const persistedRaw = this.storage?.getItem(ASSET_HISTORY_STORAGE_KEY);
+      const persisted = safeParse(persistedRaw, null);
+      const fallback = this.data;
+      if (persisted) this.data = migrateStoredData(persisted);
+      try {
+        const result = mutate();
+        if (result === NO_HISTORY_CHANGE) return false;
+        this.save();
+        this.emit(change);
+        return result;
+      } catch (error) {
+        this.data = persistedRaw ? migrateStoredData(safeParse(persistedRaw, null)) : fallback;
+        throw error;
+      }
     }
     scopeKey(characterId = runtime.state.currentCharacterId) {
       const server = runtime.api.getMarketEnvironment?.() ?? "production";
@@ -10917,15 +11070,17 @@
       const values = normalizeAssetValues(snapshot.values);
       if (!Number.isFinite(values.total)) return false;
       const dayKey = getUtc8DayKey(new Date(snapshot.recordedAt));
-      const role = this.getRole(scopeKey);
-      role.server = snapshot.server;
-      role.characterId = snapshot.characterId;
-      role.days[dayKey] = {
-        recordedAt: snapshot.recordedAt,
-        values
-      };
-      this.save();
-      return dayKey;
+      return this.commit({ reason: "record", scopeKey, dayKey }, () => {
+        const role = this.getRole(scopeKey);
+        if (role.days[dayKey]?.edited === true) return NO_HISTORY_CHANGE;
+        role.server = snapshot.server;
+        role.characterId = snapshot.characterId;
+        role.days[dayKey] = {
+          recordedAt: snapshot.recordedAt,
+          values
+        };
+        return dayKey;
+      });
     }
     comparison(dayKey = getUtc8DayKey(), scopeKey = this.scopeKey()) {
       const entries = this.list(scopeKey).filter(([date2]) => date2 < dayKey);
@@ -10957,13 +11112,14 @@
       if (!ASSET_COMPONENT_KEYS.every((key) => Number.isFinite(values[key]))) {
         throw new TypeError("Every asset component needs a finite value");
       }
-      this.getRole(scopeKey).days[dayKey] = {
-        recordedAt: (/* @__PURE__ */ new Date()).toISOString(),
-        values,
-        edited: true
-      };
-      this.save();
-      return values;
+      return this.commit({ reason: "update", scopeKey, dayKey }, () => {
+        this.getRole(scopeKey).days[dayKey] = {
+          recordedAt: (/* @__PURE__ */ new Date()).toISOString(),
+          values,
+          edited: true
+        };
+        return values;
+      });
     }
     insertDay(dayKey, componentValues, scopeKey = this.scopeKey()) {
       if (!isValidDayKey(dayKey)) {
@@ -10977,36 +11133,39 @@
           "Every inserted asset component needs a non-negative finite value"
         );
       }
-      const role = this.getRole(scopeKey);
-      if (Object.hasOwn(role.days, dayKey)) {
-        throw new RangeError(`Asset history already contains ${dayKey}`);
-      }
-      role.days[dayKey] = {
-        recordedAt: (/* @__PURE__ */ new Date(`${dayKey}T15:59:59.999Z`)).toISOString(),
-        values,
-        inserted: true,
-        edited: true
-      };
-      this.save();
-      return values;
+      return this.commit({ reason: "insert", scopeKey, dayKey }, () => {
+        const role = this.getRole(scopeKey);
+        if (Object.hasOwn(role.days, dayKey)) {
+          throw new RangeError(`Asset history already contains ${dayKey}`);
+        }
+        role.days[dayKey] = {
+          recordedAt: (/* @__PURE__ */ new Date(`${dayKey}T15:59:59.999Z`)).toISOString(),
+          values,
+          inserted: true,
+          edited: true
+        };
+        return values;
+      });
     }
     deleteDay(dayKey, scopeKey = this.scopeKey()) {
-      const days = this.getRole(scopeKey).days;
-      if (!Object.hasOwn(days, dayKey)) return false;
-      delete days[dayKey];
-      this.save();
-      return true;
+      return this.commit({ reason: "delete", scopeKey, dayKey }, () => {
+        const days = this.getRole(scopeKey).days;
+        if (!Object.hasOwn(days, dayKey)) return NO_HISTORY_CHANGE;
+        delete days[dayKey];
+        return true;
+      });
     }
     cleanupInvalid(scopeKey = this.scopeKey()) {
-      let removed = 0;
-      for (const [dayKey, record] of this.list(scopeKey)) {
-        if (!Number.isFinite(record?.values?.total)) {
-          delete this.getRole(scopeKey).days[dayKey];
-          removed += 1;
+      return this.commit({ reason: "cleanup", scopeKey }, () => {
+        let removed = 0;
+        for (const [dayKey, record] of this.list(scopeKey)) {
+          if (!Number.isFinite(record?.values?.total)) {
+            delete this.getRole(scopeKey).days[dayKey];
+            removed += 1;
+          }
         }
-      }
-      if (removed) this.save();
-      return removed;
+        return removed || NO_HISTORY_CHANGE;
+      });
     }
     detectAnomalies(scopeKey = this.scopeKey()) {
       const entries = this.list(scopeKey).filter(
@@ -12859,16 +13018,28 @@ ${values.map((item) => item.date).join("\n")}`
         }
         try {
           this.store.insertDay(dayKey, values, this.scopeKey);
-        } catch {
+        } catch (error) {
           return globalThis.alert?.(
-            this.t(
+            error instanceof RangeError || error instanceof TypeError ? this.t(
               "无法插入：日期已存在或数据无效。",
               "Could not insert: the date already exists or the data is invalid."
+            ) : this.t(
+              "资产记录保存失败，请检查浏览器存储空间后重试。",
+              "Could not save the asset record. Check browser storage and try again."
             )
           );
         }
       } else {
-        this.store.updateDay(dialog.dataset.date, values, this.scopeKey);
+        try {
+          this.store.updateDay(dialog.dataset.date, values, this.scopeKey);
+        } catch {
+          return globalThis.alert?.(
+            this.t(
+              "资产记录保存失败，请检查浏览器存储空间后重试。",
+              "Could not save the asset record. Check browser storage and try again."
+            )
+          );
+        }
       }
       dialog.close();
       this.changed();
@@ -13004,6 +13175,7 @@ ${values.map((item) => item.date).join("\n")}`
   var CENTER_ID = "mwitools-asset-center-modal";
   var STYLE_ID3 = "mwitools-asset-history-style";
   var ASSET_SHARE_TEMPLATE_COUNT = 12;
+  var ASSET_COMPONENT_SHARE_TEMPLATE_COUNT = 12;
   var ROWS = [
     ["total", "总计", "Total"],
     ["equipment", "装备", "Equipment"],
@@ -13133,6 +13305,112 @@ ${values.map((item) => item.date).join("\n")}`
     const normalizedIndex = ((Number(templateIndex) || 0) % templates.length + templates.length) % templates.length;
     return templates[normalizedIndex]();
   }
+  function componentSharePeriod(gapDays) {
+    const days = Math.max(1, Math.trunc(Number(gapDays) || 1));
+    if (runtime.config.isZH) return `相比 ${days} 天前`;
+    return `vs ${days} day${days === 1 ? "" : "s"} ago`;
+  }
+  function buildAssetComponentShareMessage({ key, current, change, percent, gapDays = 1 }, templateIndex = Math.floor(
+    Math.random() * ASSET_COMPONENT_SHARE_TEMPLATE_COUNT
+  )) {
+    if (!ASSET_COMPONENT_KEYS.includes(key) || !Number.isFinite(current) || !Number.isFinite(change)) {
+      return "";
+    }
+    const row = ROWS.find(([candidate]) => candidate === key);
+    if (!row) return "";
+    const component = runtime.config.isZH ? row[1] : row[2];
+    const period = componentSharePeriod(gapDays);
+    const currentText = formatNumber(current);
+    const amount = formatNumber(Math.abs(change));
+    const percentText = Number.isFinite(percent) ? `${Math.abs(percent).toFixed(2)}%` : runtime.config.isZH ? "由 0 起步（无可比百分比）" : "up from zero (no comparable percentage)";
+    const zhProfitTemplates = [
+      () => `📈 今日${component}结算：${period}上涨 ${amount}（${percentText}），当前 ${currentText}。`,
+      () => `${component}今日收官：当前 ${currentText}，${period}多了 ${amount}，涨幅 ${percentText}。`,
+      () => `晒一下${component}战绩：${period}增长 ${amount} / ${percentText}，现值 ${currentText}。`,
+      () => `牛棚分项财报｜${component}：当前 ${currentText}，${period}盈利 ${amount}（${percentText}）。`,
+      () => `今日${component}成绩单：现有 ${currentText}，${period}增加 ${amount}，提升 ${percentText}。`,
+      () => `${component}进度向上：${period}赚到 ${amount}，涨了 ${percentText}，目前 ${currentText}。`,
+      () => `MWITools ${component}盘点：当前 ${currentText}；${period} +${amount}（+${percentText}）。`,
+      () => `小小炫耀${component}：${period}进账 ${amount}，增长 ${percentText}，总计 ${currentText}。`,
+      () => `${component}账本飘绿：现值 ${currentText}，${period}上涨 ${amount}，比例 ${percentText}。`,
+      () => `🚀 ${component}里程碑：当前 ${currentText}，${period}净增 ${amount}（${percentText}）。`,
+      () => `今日分项播报：${component} ${currentText}，${period}收获 ${amount}，涨幅 ${percentText}。`,
+      () => `挤奶之余看了眼${component}：当前 ${currentText}，${period}多出 ${amount}（${percentText}）。`
+    ];
+    const zhLossTemplates = [
+      () => `📉 今日${component}结算：${period}下跌 ${amount}（${percentText}），当前 ${currentText}。`,
+      () => `${component}今日收官：当前 ${currentText}，${period}少了 ${amount}，跌幅 ${percentText}。`,
+      () => `汇报${component}战况：${period}回撤 ${amount} / ${percentText}，现值 ${currentText}。`,
+      () => `牛棚分项财报｜${component}：当前 ${currentText}，${period}亏损 ${amount}（${percentText}）。`,
+      () => `今日${component}成绩单：现有 ${currentText}，${period}减少 ${amount}，下降 ${percentText}。`,
+      () => `${component}进度回落：${period}损失 ${amount}，跌了 ${percentText}，目前 ${currentText}。`,
+      () => `MWITools ${component}盘点：当前 ${currentText}；${period} −${amount}（−${percentText}）。`,
+      () => `这次晒晒${component}回撤：${period}少了 ${amount}，下降 ${percentText}，总计 ${currentText}。`,
+      () => `${component}账本飘红：现值 ${currentText}，${period}下跌 ${amount}，比例 ${percentText}。`,
+      () => `🩹 ${component}暂时回调：当前 ${currentText}，${period}净减 ${amount}（${percentText}）。`,
+      () => `今日分项播报：${component} ${currentText}，${period}损失 ${amount}，跌幅 ${percentText}。`,
+      () => `挤奶之余看了眼${component}：当前 ${currentText}，${period}少了 ${amount}（${percentText}）。`
+    ];
+    const zhNeutralTemplates = [
+      () => `➖ 今日${component}结算：${period}持平，变化 0（0.00%），当前 ${currentText}。`,
+      () => `${component}今日收官：当前 ${currentText}，${period}没有变化，比例 0.00%。`,
+      () => `晒一下${component}战绩：${period}不增不减，现值 ${currentText}，变化 0 / 0.00%。`,
+      () => `牛棚分项财报｜${component}：当前 ${currentText}，${period}盈亏 0（0.00%）。`,
+      () => `今日${component}成绩单：现有 ${currentText}，${period}变化 0，涨跌 0.00%。`,
+      () => `${component}进度原地踏步：${period}变化 0，比例 0.00%，目前 ${currentText}。`,
+      () => `MWITools ${component}盘点：当前 ${currentText}；${period} ±0（0.00%）。`,
+      () => `低调晒晒${component}：${period}收支相抵，变化 0.00%，总计 ${currentText}。`,
+      () => `${component}账本很平静：现值 ${currentText}，${period}变化 0，比例 0.00%。`,
+      () => `📊 ${component}保持稳定：当前 ${currentText}，${period}净变化 0（0.00%）。`,
+      () => `今日分项播报：${component} ${currentText}，${period}盈亏 0，变化 0.00%。`,
+      () => `挤奶之余看了眼${component}：当前 ${currentText}，${period}一分没变（0.00%）。`
+    ];
+    const enProfitTemplates = [
+      () => `📈 Today's ${component} close: ${period}, up ${amount} (${percentText}) to ${currentText}.`,
+      () => `${component} finished at ${currentText}: ${period}, it gained ${amount}, up ${percentText}.`,
+      () => `${component} flex: ${period}, +${amount} / +${percentText}; current value ${currentText}.`,
+      () => `Cowshed component report — ${component}: ${currentText}, ${period}, profit ${amount} (${percentText}).`,
+      () => `Today's ${component} scorecard: ${currentText}; ${period}, +${amount}, a ${percentText} rise.`,
+      () => `${component} moved up: ${period}, I gained ${amount} (${percentText}); now ${currentText}.`,
+      () => `MWITools ${component} check: ${currentText}; ${period}, +${amount} (+${percentText}).`,
+      () => `Tiny ${component} flex: ${period}, +${amount}, up ${percentText}, total ${currentText}.`,
+      () => `${component} ledger is green: ${currentText}; ${period}, up ${amount} (${percentText}).`,
+      () => `🚀 ${component} milestone: ${currentText}; ${period}, net gain ${amount} (${percentText}).`,
+      () => `Component update: ${component} is ${currentText}; ${period}, +${amount}, up ${percentText}.`,
+      () => `Checked ${component} between milkings: ${currentText}; ${period}, +${amount} (${percentText}).`
+    ];
+    const enLossTemplates = [
+      () => `📉 Today's ${component} close: ${period}, down ${amount} (${percentText}) to ${currentText}.`,
+      () => `${component} finished at ${currentText}: ${period}, it lost ${amount}, down ${percentText}.`,
+      () => `${component} update: ${period}, -${amount} / -${percentText}; current value ${currentText}.`,
+      () => `Cowshed component report — ${component}: ${currentText}, ${period}, loss ${amount} (${percentText}).`,
+      () => `Today's ${component} scorecard: ${currentText}; ${period}, -${amount}, a ${percentText} drop.`,
+      () => `${component} pulled back: ${period}, I lost ${amount} (${percentText}); now ${currentText}.`,
+      () => `MWITools ${component} check: ${currentText}; ${period}, -${amount} (-${percentText}).`,
+      () => `A candid ${component} flex: ${period}, -${amount}, down ${percentText}, total ${currentText}.`,
+      () => `${component} ledger is red: ${currentText}; ${period}, down ${amount} (${percentText}).`,
+      () => `🩹 ${component} setback: ${currentText}; ${period}, net loss ${amount} (${percentText}).`,
+      () => `Component update: ${component} is ${currentText}; ${period}, -${amount}, down ${percentText}.`,
+      () => `Checked ${component} between milkings: ${currentText}; ${period}, -${amount} (${percentText}).`
+    ];
+    const enNeutralTemplates = [
+      () => `➖ Today's ${component} close: ${period}, flat by 0 (0.00%) at ${currentText}.`,
+      () => `${component} finished at ${currentText}: ${period}, no change, 0.00%.`,
+      () => `${component} flex: ${period}, neither up nor down; current ${currentText}, change 0 / 0.00%.`,
+      () => `Cowshed component report — ${component}: ${currentText}, ${period}, P/L 0 (0.00%).`,
+      () => `Today's ${component} scorecard: ${currentText}; ${period}, change 0, or 0.00%.`,
+      () => `${component} held steady: ${period}, change 0 (0.00%); now ${currentText}.`,
+      () => `MWITools ${component} check: ${currentText}; ${period}, ±0 (0.00%).`,
+      () => `A low-key ${component} flex: ${period}, break-even at ${currentText}, change 0.00%.`,
+      () => `${component} ledger stayed quiet: ${currentText}; ${period}, change 0 (0.00%).`,
+      () => `📊 ${component} stayed stable: ${currentText}; ${period}, net change 0 (0.00%).`,
+      () => `Component update: ${component} is ${currentText}; ${period}, P/L 0, change 0.00%.`,
+      () => `Checked ${component} between milkings: ${currentText}; ${period}, unchanged (0.00%).`
+    ];
+    const templates = runtime.config.isZH ? change > 0 ? zhProfitTemplates : change < 0 ? zhLossTemplates : zhNeutralTemplates : change > 0 ? enProfitTemplates : change < 0 ? enLossTemplates : enNeutralTemplates;
+    const normalizedIndex = ((Number(templateIndex) || 0) % templates.length + templates.length) % templates.length;
+    return templates[normalizedIndex]();
+  }
   function pasteAssetShareToChat(message, root = document) {
     const inputs = [
       ...root.querySelectorAll(
@@ -13186,6 +13464,10 @@ ${values.map((item) => item.date).join("\n")}`
     .mwi-asset-history-table th:last-child { width:38%; }
     .mwi-asset-table tr:last-child td { border-bottom:0; }
     .mwi-asset-table tr[data-key="total"] { font-weight:700; background:rgba(255,255,255,.035); }
+    .mwi-asset-component-share { max-width:100%; border:0; border-bottom:1px dashed currentColor; background:transparent; color:#7ddcff; padding:0; cursor:pointer; font:inherit; text-align:left; text-overflow:ellipsis; white-space:nowrap; overflow:hidden; }
+    .mwi-asset-component-share:hover { color:#b6ecff; }
+    .mwi-asset-component-share:focus-visible { outline:2px solid #00c6ff; outline-offset:2px; }
+    .mwi-asset-component-share:disabled { border-bottom-color:transparent; color:inherit; cursor:default; opacity:1; }
     .mwi-asset-chart-controls { display:flex; flex-wrap:wrap; gap:6px; padding:9px 10px 0; }
     .mwi-asset-chart-controls button,.mwi-asset-action { border:1px solid rgba(255,255,255,.13); border-radius:5px; background:rgba(255,255,255,.07); color:inherit; padding:5px 9px; cursor:pointer; font:inherit; }
     .mwi-asset-chart-controls button:hover,.mwi-asset-action:hover { background:#3f4655; transform:translateY(-1px); }
@@ -13393,6 +13675,11 @@ ${values.map((item) => item.date).join("\n")}`
     bind() {
       this.host.querySelector("#mwi-asset-open-center").addEventListener("click", () => this.center?.open());
       this.host.querySelector("#mwi-asset-share-chat").addEventListener("click", () => this.shareToChat());
+      this.host.querySelector("#mwi-asset-breakdown").addEventListener("click", (event) => {
+        const button = event.target.closest("[data-component-share]");
+        if (!button || button.disabled) return;
+        this.shareComponentToChat(button.dataset.componentShare);
+      });
       this.host.querySelectorAll("[data-mode]").forEach((button) => {
         button.addEventListener("click", () => {
           this.mode = button.dataset.mode;
@@ -13474,15 +13761,31 @@ ${preview}`
       this.host.querySelector("[data-edit-save]").addEventListener("click", () => this.saveEditor());
     }
     shareToChat() {
-      const status = this.host.querySelector(".mwi-asset-share-status");
       const message = buildAssetShareMessage(this.shareStats ?? {});
       if (!message) {
-        status.textContent = t3(
+        this.host.querySelector(".mwi-asset-share-status").textContent = t3(
           "暂无可对比的盈亏数据",
           "No comparable P/L data yet"
         );
         return;
       }
+      this.pasteShareMessage(message);
+    }
+    shareComponentToChat(key) {
+      const message = buildAssetComponentShareMessage(
+        this.componentShareStats?.get(key) ?? {}
+      );
+      if (!message) {
+        this.host.querySelector(".mwi-asset-share-status").textContent = t3(
+          "该分项暂无可对比数据",
+          "No comparable data for this component"
+        );
+        return;
+      }
+      this.pasteShareMessage(message);
+    }
+    pasteShareMessage(message) {
+      const status = this.host.querySelector(".mwi-asset-share-status");
       const input = pasteAssetShareToChat(message);
       status.dataset.pasted = String(Boolean(input));
       status.textContent = input ? t3("已放入聊天框，按回车发送", "Pasted into chat; press Enter to send") : t3(
@@ -13525,7 +13828,17 @@ ${preview}`
         );
         return;
       }
-      this.store.updateDay(dialog.dataset.dayKey, values, this.scopeKey);
+      try {
+        this.store.updateDay(dialog.dataset.dayKey, values, this.scopeKey);
+      } catch {
+        globalThis.alert?.(
+          t3(
+            "资产记录保存失败，请检查浏览器存储空间后重试。",
+            "Could not save the asset record. Check browser storage and try again."
+          )
+        );
+        return;
+      }
       this.closeEditor();
       this.update(this.snapshot);
     }
@@ -13599,6 +13912,7 @@ ${preview}`
       });
       this.host.querySelector("#mwi-asset-change-heading").textContent = comparison ? t3(`变化（较 ${comparison.date}）`, `Change (vs ${comparison.date})`) : t3("变化", "Change");
       const body = this.host.querySelector("#mwi-asset-breakdown");
+      this.componentShareStats = /* @__PURE__ */ new Map();
       body.replaceChildren(
         ...ROWS.map(([key, zh, en]) => {
           const row = document.createElement("tr");
@@ -13606,7 +13920,19 @@ ${preview}`
           const currentValue = current[key];
           const previousValue = previous[key];
           const change = Number.isFinite(currentValue) && Number.isFinite(previousValue) ? currentValue - previousValue : null;
-          row.innerHTML = `<td>${t3(zh, en)}</td><td title="${Number.isFinite(currentValue) ? runtime.api.formatExactNumber(currentValue, 0) : ""}">${formatNumber(currentValue)}</td><td class="${valueClass(change)}" title="${Number.isFinite(change) ? runtime.api.formatExactNumber(change, 0) : ""}">${formatNumber(change, true)}</td><td class="${valueClass(change)}">${formatPercent(currentValue, previousValue)}</td>`;
+          const percent = Number.isFinite(change) && Number.isFinite(previousValue) ? previousValue !== 0 ? change / previousValue * 100 : change === 0 ? 0 : null : null;
+          const canShare = key !== "total" && Boolean(comparison) && Number.isFinite(currentValue) && Number.isFinite(change);
+          if (canShare) {
+            this.componentShareStats.set(key, {
+              key,
+              current: currentValue,
+              change,
+              percent,
+              gapDays: comparison.gapDays
+            });
+          }
+          const label = key === "total" ? t3(zh, en) : `<button type="button" class="mwi-asset-component-share" data-component-share="${key}" title="${t3(`点击炫耀${zh}变化`, `Click to flex ${en} changes`)}"${canShare ? "" : " disabled"}>${t3(zh, en)}</button>`;
+          row.innerHTML = `<td>${label}</td><td title="${Number.isFinite(currentValue) ? runtime.api.formatExactNumber(currentValue, 0) : ""}">${formatNumber(currentValue)}</td><td class="${valueClass(change)}" title="${Number.isFinite(change) ? runtime.api.formatExactNumber(change, 0) : ""}">${formatNumber(change, true)}</td><td class="${valueClass(change)}">${formatPercent(currentValue, previousValue)}</td>`;
           return row;
         })
       );
@@ -13972,6 +14298,9 @@ ${preview}`
     deleteDay(dayKey, scopeKey = currentScopeKey()) {
       return assetHistoryStore.deleteDay(dayKey, scopeKey);
     },
+    subscribe(listener) {
+      return assetHistoryStore.subscribe(listener);
+    },
     cleanup(scopeKey = currentScopeKey()) {
       return assetHistoryStore.cleanupInvalid(scopeKey);
     },
@@ -14063,6 +14392,12 @@ ${preview}`
         ui.update(snapshot);
       };
       scope.add(onAssetSnapshot(consume));
+      scope.event(globalThis.window, "storage", (event) => {
+        if (event.key === assetHistoryApi.storageKey) {
+          assetHistoryStore.reloadFromStorage();
+          ui.update(getLatestAssetSnapshot());
+        }
+      });
       const latest = getLatestAssetSnapshot();
       if (latest) consume(latest);
       void refreshAssetSnapshot();
@@ -15525,9 +15860,11 @@ ${preview}`
   });
 
   // src/features/leaderboard-overlay.js
-  var OVERLAY_VERSION = "1.3.0";
+  var OVERLAY_VERSION = "1.4.0";
   var LEADERBOARD_API_URL = "https://mwi-guild.43.167.210.211.sslip.io/api/v1/leaderboards";
-  var LEADERBOARD_CACHE_KEY = "MWITools_leaderboard_overlay_cache_v2";
+  var LEADERBOARD_CACHE_KEY = "MWITools_leaderboard_overlay_cache_v3";
+  var LEGACY_LEADERBOARD_CACHE_KEY = "MWITools_leaderboard_overlay_cache_v2";
+  var LEADERBOARD_TYPES = ["standard", "ironcow"];
   var LEADERBOARD_REFRESH_INTERVAL = 15 * 60 * 1e3;
   var STYLE_ID5 = "mwi-leaderboard-overlay-style";
   var BADGE_CONTAINER_ATTRIBUTE = "data-mwi-leaderboard-badges";
@@ -15596,6 +15933,10 @@ ${preview}`
   }
   function normalizedName2(value) {
     return String(value || "").normalize("NFKC").trim().toLocaleLowerCase();
+  }
+  function normalizedLeaderboardType(value) {
+    const type = String(value || "standard").toLowerCase();
+    return type === "ironcow" || type === "legacy_ironcow" ? "ironcow" : type === "standard" ? "standard" : "";
   }
   function badgeTier(rank) {
     const value = Number(rank);
@@ -15714,7 +16055,7 @@ ${preview}`
     const categoryLabels = Object.fromEntries(categoryEntries);
     const iconBaseUrl = String(options.iconBaseUrl || "").replace(/\/+$/, "");
     const state = {
-      categories: {},
+      leaderboards: { standard: {}, ironcow: {} },
       nameIndex: /* @__PURE__ */ new Map(),
       currentLeaderboard: null,
       refreshPending: false,
@@ -15726,20 +16067,23 @@ ${preview}`
     ensureStyles(documentRef);
     function rebuildNameIndex() {
       const index = /* @__PURE__ */ new Map();
-      for (const category of categoryOrder) {
-        const snapshot = state.categories?.[category];
-        for (const row of Array.isArray(snapshot?.rows) ? snapshot.rows : []) {
-          const name = normalizedName2(row.characterName || row.name);
-          const rank = Number(row.rank);
-          const tier = badgeTier(rank);
-          if (!name || !tier) continue;
-          if (!index.has(name)) index.set(name, []);
-          index.get(name).push({
-            category,
-            label: categoryLabels[category],
-            rank,
-            tier
-          });
+      for (const leaderboardType of LEADERBOARD_TYPES) {
+        for (const category of categoryOrder) {
+          const snapshot = state.leaderboards?.[leaderboardType]?.[category];
+          for (const row of Array.isArray(snapshot?.rows) ? snapshot.rows : []) {
+            const name = normalizedName2(row.characterName || row.name);
+            const rank = Number(row.rank);
+            const tier = badgeTier(rank);
+            if (!name || !tier) continue;
+            if (!index.has(name)) index.set(name, []);
+            index.get(name).push({
+              leaderboardType,
+              category,
+              label: categoryLabels[category],
+              rank,
+              tier
+            });
+          }
         }
       }
       const categoryIndex = new Map(
@@ -15753,7 +16097,7 @@ ${preview}`
       state.nameIndex = index;
     }
     function badgeSignature(badges) {
-      return badges.map((item) => `${item.category}:${item.rank}`).join("|");
+      return badges.map((item) => `${item.leaderboardType}:${item.category}:${item.rank}`).join("|");
     }
     function renderNameBadges() {
       if (!state.showBadges) return;
@@ -15831,7 +16175,8 @@ ${preview}`
             const icon = createBadgeIcon(documentRef, item.category, iconBaseUrl);
             badge.append(icon, documentRef.createTextNode(String(item.rank)));
             const label = categoryLabel(item.label, item.category);
-            badge.title = runtime.config.isZH ? `${label}排行榜第 ${item.rank} 名` : `${label} leaderboard rank ${item.rank}`;
+            const typeLabel = item.leaderboardType === "ironcow" ? t5("铁牛排行榜", "Iron Cow leaderboard") : t5("标准排行榜", "Standard leaderboard");
+            badge.title = runtime.config.isZH ? `${label}·${typeLabel}第 ${item.rank} 名` : `${label} · ${typeLabel} rank ${item.rank}`;
             return badge;
           })
         );
@@ -15925,7 +16270,7 @@ ${preview}`
     activeInstances += 1;
     return {
       setRankings(categories) {
-        state.categories = categories && typeof categories === "object" ? categories : {};
+        state.leaderboards = normalizeLeaderboardCollection(categories);
         rebuildNameIndex();
         scheduleRefresh();
       },
@@ -16063,14 +16408,15 @@ ${preview}`
     }
   };
   function normalizeLeaderboardPayload(payload) {
-    if (payload?.type !== "leaderboard_updated" || payload?.leaderboardType !== "standard") {
+    const leaderboardType = normalizedLeaderboardType(payload?.leaderboardType);
+    if (payload?.type !== "leaderboard_updated" || !leaderboardType) {
       return null;
     }
     const leaderboard = payload.leaderboard;
     const category = String(
       payload.leaderboardCategory ?? leaderboard?.category ?? ""
     );
-    if (leaderboard?.type !== "standard" || leaderboard?.category !== category || !DEFAULT_CATEGORIES.some(([key]) => key === category) || !Array.isArray(leaderboard?.rows)) {
+    if (normalizedLeaderboardType(leaderboard?.type) !== leaderboardType || leaderboard?.category !== category || !DEFAULT_CATEGORIES.some(([key]) => key === category) || !Array.isArray(leaderboard?.rows)) {
       return null;
     }
     const rows2 = leaderboard.rows.map((row) => {
@@ -16088,7 +16434,7 @@ ${preview}`
     }).filter(
       (row) => row.characterName && Number.isInteger(row.rank) && row.rank >= 1 && row.rank <= 100
     );
-    return rows2.length ? { category, rows: rows2 } : null;
+    return rows2.length ? { leaderboardType, category, rows: rows2 } : null;
   }
   function normalizeCategories(value) {
     const allowed = new Set(DEFAULT_CATEGORIES.map(([category]) => category));
@@ -16102,21 +16448,56 @@ ${preview}`
       })
     );
   }
+  function normalizeLeaderboardCollection(value) {
+    if (!value || typeof value !== "object") {
+      return { standard: {}, ironcow: {} };
+    }
+    const hasTypedShape = LEADERBOARD_TYPES.some(
+      (leaderboardType) => value[leaderboardType]?.categories
+    );
+    if (hasTypedShape) {
+      return Object.fromEntries(
+        LEADERBOARD_TYPES.map((leaderboardType) => [
+          leaderboardType,
+          normalizeCategories(value[leaderboardType]?.categories)
+        ])
+      );
+    }
+    if (LEADERBOARD_TYPES.some((leaderboardType) => value[leaderboardType])) {
+      return Object.fromEntries(
+        LEADERBOARD_TYPES.map((leaderboardType) => [
+          leaderboardType,
+          normalizeCategories(value[leaderboardType])
+        ])
+      );
+    }
+    return { standard: normalizeCategories(value), ironcow: {} };
+  }
   function loadCachedCategories() {
     try {
       const cached = JSON.parse(
         globalThis.localStorage?.getItem(LEADERBOARD_CACHE_KEY) || "null"
       );
-      return cached?.schemaVersion === 1 ? normalizeCategories(cached.categories) : {};
+      if (cached?.schemaVersion === 2) {
+        return normalizeLeaderboardCollection(cached.leaderboards);
+      }
+      const legacy = JSON.parse(
+        globalThis.localStorage?.getItem(LEGACY_LEADERBOARD_CACHE_KEY) || "null"
+      );
+      return legacy?.schemaVersion === 1 ? { standard: normalizeCategories(legacy.categories), ironcow: {} } : { standard: {}, ironcow: {} };
     } catch {
-      return {};
+      return { standard: {}, ironcow: {} };
     }
   }
-  function saveCachedCategories(categories) {
+  function saveCachedCategories(leaderboards) {
     try {
       globalThis.localStorage?.setItem(
         LEADERBOARD_CACHE_KEY,
-        JSON.stringify({ schemaVersion: 1, cachedAt: Date.now(), categories })
+        JSON.stringify({
+          schemaVersion: 2,
+          cachedAt: Date.now(),
+          leaderboards: normalizeLeaderboardCollection(leaderboards)
+        })
       );
     } catch (error) {
       console.warn(
@@ -16125,7 +16506,9 @@ ${preview}`
       );
     }
   }
-  function requestLeaderboardCategories(onRequest) {
+  function requestLeaderboardCategories(leaderboardType, onRequest) {
+    const normalizedType = normalizedLeaderboardType(leaderboardType);
+    if (!normalizedType) return Promise.resolve(null);
     const requestFn = typeof GM !== "undefined" && typeof GM.xmlHttpRequest === "function" ? GM.xmlHttpRequest : typeof GM_xmlhttpRequest === "function" ? GM_xmlhttpRequest : null;
     if (!requestFn) return Promise.resolve(null);
     return new Promise((resolve) => {
@@ -16143,7 +16526,7 @@ ${preview}`
           const raw = response.responseText || response.response;
           const payload = typeof raw === "string" ? JSON.parse(raw) : raw;
           resolve(
-            payload?.schemaVersion === 1 && payload?.leaderboardType === "standard" ? normalizeCategories(payload.categories) : null
+            payload?.schemaVersion === 1 && normalizedLeaderboardType(payload?.leaderboardType) === normalizedType ? normalizeCategories(payload.categories) : null
           );
         } catch {
           resolve(null);
@@ -16153,7 +16536,7 @@ ${preview}`
       try {
         const request2 = requestFn({
           method: "GET",
-          url: LEADERBOARD_API_URL,
+          url: `${LEADERBOARD_API_URL}?leaderboardType=${encodeURIComponent(normalizedType)}`,
           timeout: 1e4,
           onload: finish,
           onabort: () => finish(null),
@@ -16195,22 +16578,32 @@ ${preview}`
     let categories = loadCachedCategories();
     let currentLeaderboard = null;
     let active = true;
-    let activeRequest = null;
+    const activeRequests = /* @__PURE__ */ new Set();
     controller.setRankings(categories);
     const applyCurrentLeaderboard = () => {
       if (!currentLeaderboard) return;
+      const leaderboardType = currentLeaderboard.leaderboardType;
       controller.enhanceLeaderboard({
         category: currentLeaderboard.category,
-        rows: categories[currentLeaderboard.category]?.rows ?? currentLeaderboard.rows
+        rows: categories[leaderboardType]?.[currentLeaderboard.category]?.rows ?? currentLeaderboard.rows
       });
     };
     const refreshRankings = async () => {
-      const response = await requestLeaderboardCategories((request2) => {
-        activeRequest = request2;
-      });
-      activeRequest = null;
-      if (!active || !response) return;
-      categories = response;
+      const responses = await Promise.all(
+        LEADERBOARD_TYPES.map(
+          (leaderboardType) => requestLeaderboardCategories(leaderboardType, (request2) => {
+            if (request2) activeRequests.add(request2);
+          }).then((response) => [leaderboardType, response])
+        )
+      );
+      activeRequests.clear();
+      if (!active) return;
+      const successful = responses.filter(([, response]) => response);
+      if (!successful.length) return;
+      categories = {
+        ...categories,
+        ...Object.fromEntries(successful)
+      };
       saveCachedCategories(categories);
       controller.setRankings(categories);
       applyCurrentLeaderboard();
@@ -16218,7 +16611,7 @@ ${preview}`
     const stopMessages = runtime.onMessage("leaderboard_updated", (payload) => {
       const normalized = normalizeLeaderboardPayload(payload);
       if (!normalized) {
-        if (payload?.type === "leaderboard_updated" && payload?.leaderboardType === "standard") {
+        if (payload?.type === "leaderboard_updated" && normalizedLeaderboardType(payload?.leaderboardType)) {
           currentLeaderboard = null;
           controller.clearLeaderboard();
         }
@@ -16230,12 +16623,15 @@ ${preview}`
         controller.clearLeaderboard();
         return;
       }
-      if (!categories[normalized.category]) {
+      if (!categories[normalized.leaderboardType]?.[normalized.category]) {
         categories = {
           ...categories,
-          [normalized.category]: {
-            receivedAt: (/* @__PURE__ */ new Date()).toISOString(),
-            rows: normalized.rows
+          [normalized.leaderboardType]: {
+            ...categories[normalized.leaderboardType],
+            [normalized.category]: {
+              receivedAt: (/* @__PURE__ */ new Date()).toISOString(),
+              rows: normalized.rows
+            }
           }
         };
         controller.setRankings(categories);
@@ -16253,7 +16649,8 @@ ${preview}`
         active = false;
         clearInterval(interval);
         stopMessages();
-        activeRequest?.abort?.();
+        for (const request2 of activeRequests) request2?.abort?.();
+        activeRequests.clear();
         controller.destroy();
       }
     };
@@ -16302,11 +16699,16 @@ ${preview}`
 
   // src/features/battle-buffs.js
   var STYLE_ID6 = "mwi-buff-style";
-  var EXPANSION_STORAGE_KEY = "MWITools_battle_buff_expansion_v1";
-  var COLLAPSED_CAPACITY = 3;
-  var EXPANDED_CAPACITY = 6;
+  var STATIC_EFFECT_CAPACITY = 3;
+  var MARQUEE_SPEED_PX_PER_SECOND = 24;
   var abilityEffectIndexSource = null;
   var abilityEffectIndex = null;
+  function normalizedEffectToken(value) {
+    return String(value ?? "").toLowerCase().replaceAll(/[^a-z]/g, "");
+  }
+  function targetsEnemy(targetType) {
+    return /enem(?:y|ies)/.test(targetType);
+  }
   function buildAbilityEffectIndex() {
     const source = runtime.state.initData_abilityDetailMap ?? {};
     if (source === abilityEffectIndexSource && abilityEffectIndex) {
@@ -16316,26 +16718,50 @@ ${preview}`
       buffs: /* @__PURE__ */ new Map(),
       debuffs: /* @__PURE__ */ new Map(),
       teamBuffs: /* @__PURE__ */ new Set(),
-      singleTargetDebuffs: /* @__PURE__ */ new Set()
+      singleTargetDebuffs: /* @__PURE__ */ new Set(),
+      allTargetDebuffs: /* @__PURE__ */ new Set(),
+      buffSources: /* @__PURE__ */ new Map()
     };
     const entries = source instanceof Map ? source.entries() : Object.entries(source);
     for (const [abilityHrid, detail] of entries) {
-      for (const effect of detail?.abilityEffects ?? []) {
+      const effects = detail?.abilityEffects ?? [];
+      const inheritedEnemyTarget = effects.map((effect) => normalizedEffectToken(effect?.targetType)).find(targetsEnemy);
+      for (const effect of effects) {
         const durations = (effect?.buffs ?? []).map((buff) => Number(buff?.duration) / 1e9).filter((duration2) => Number.isFinite(duration2) && duration2 > 0);
         if (!durations.length) continue;
         const duration = Math.max(...durations);
-        const targetType = String(effect?.targetType ?? "").toLowerCase().replaceAll(/[^a-z]/g, "");
-        const targetsEnemy = targetType.includes("enemy");
-        const durationsByAbility = targetsEnemy ? index.debuffs : index.buffs;
+        const effectType = normalizedEffectToken(effect?.effectType);
+        const explicitDebuff = effectType.includes("debuff");
+        const explicitBuff = !explicitDebuff && effectType.includes("buff");
+        let targetType = normalizedEffectToken(effect?.targetType);
+        const inferredDebuff = !explicitBuff && targetsEnemy(targetType);
+        const kind = explicitDebuff || inferredDebuff ? "debuff" : "buff";
+        if (!targetType && kind === "debuff") {
+          targetType = inheritedEnemyTarget || "enemy";
+        }
+        const durationsByAbility = kind === "debuff" ? index.debuffs : index.buffs;
         durationsByAbility.set(
           abilityHrid,
           Math.max(duration, durationsByAbility.get(abilityHrid) ?? 0)
         );
-        if (!targetsEnemy && targetType.includes("allallies")) {
+        if (kind === "buff" && targetType.includes("allallies")) {
           index.teamBuffs.add(abilityHrid);
         }
-        if (targetsEnemy && !targetType.includes("allenemies")) {
-          index.singleTargetDebuffs.add(abilityHrid);
+        if (kind === "debuff") {
+          if (targetType.includes("allenemies")) {
+            index.allTargetDebuffs.add(abilityHrid);
+          } else {
+            index.singleTargetDebuffs.add(abilityHrid);
+          }
+        }
+        for (const buff of effect?.buffs ?? []) {
+          const uniqueHrid = String(buff?.uniqueHrid ?? "");
+          if (!uniqueHrid) continue;
+          index.buffSources.set(uniqueHrid, {
+            abilityHrid,
+            duration,
+            kind
+          });
         }
       }
     }
@@ -16360,26 +16786,29 @@ ${preview}`
   var DEBUFFS = dynamicCollection("debuffs");
   var TEAM_BUFFS = dynamicCollection("teamBuffs");
   var SINGLE_TARGET_DEBUFFS = dynamicCollection("singleTargetDebuffs");
+  var ALL_TARGET_DEBUFFS = dynamicCollection("allTargetDebuffs");
   function ensureBuffStyles(scope) {
     if (document.getElementById(STYLE_ID6)) return;
     const style = document.createElement("style");
     style.id = STYLE_ID6;
     style.textContent = `
-.mwi-has-buffbar{height:auto!important;min-height:0;overflow:visible!important}
-.mwi-buff-shell{width:100%;box-sizing:border-box;display:grid;grid-template-rows:21px 18px;margin-top:4px}
-.mwi-buff-shell[data-expanded="true"]{grid-template-rows:46px 18px}
-.mwi-buffbar{width:100%;height:21px;max-height:21px;box-sizing:border-box;display:flex;flex-wrap:wrap;gap:4px;overflow:hidden;align-content:flex-start;align-items:center;justify-content:center}
-.mwi-buff-shell[data-expanded="true"] .mwi-buffbar{height:46px;max-height:46px;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin}
-.mwi-buff-toggle{width:100%;height:18px;box-sizing:border-box;padding:0;border:0;background:transparent;color:inherit;font:700 10px/18px "Trebuchet MS",Verdana,Arial,sans-serif;cursor:pointer;opacity:.7;text-align:center}
-.mwi-buff-toggle:hover,.mwi-buff-toggle:focus-visible{opacity:1;background:rgba(127,127,127,.12);outline:none}
-.mwi-chip{font:11px/1.2 "Trebuchet MS", Verdana, Arial, sans-serif;padding:2px 6px;border-radius:10px;white-space:nowrap;display:inline-flex;align-items:center;gap:4px;position:relative}
+	.mwi-has-buffbar{height:auto!important;min-height:0;overflow:visible!important}
+	.mwi-buff-shell{width:100%;height:21px;box-sizing:border-box;margin-top:4px}
+	.mwi-buffbar{position:relative;width:100%;height:21px;box-sizing:border-box;overflow:hidden}
+	.mwi-buff-track{width:100%;height:21px;display:flex;align-items:center}
+	.mwi-buff-sequence{width:100%;height:21px;display:flex;flex:none;gap:4px;align-items:center;justify-content:center}
+	.mwi-buffbar[data-scrolling="true"] .mwi-buff-track{width:max-content;animation:mwi-buff-marquee var(--mwi-marquee-duration,8s) linear infinite;will-change:transform}
+	.mwi-buffbar[data-scrolling="true"] .mwi-buff-sequence{width:max-content;justify-content:flex-start}
+	.mwi-chip{font:11px/1.2 "Trebuchet MS", Verdana, Arial, sans-serif;padding:2px 6px;border-radius:10px;white-space:nowrap;display:inline-flex;align-items:center;gap:4px;position:relative}
 .mwi-icon-wrap{position:relative;width:15px;height:15px;display:inline-block}
 .mwi-icon{width:15px;height:15px;display:block}
 .mwi-progress-ring{position:absolute;inset:-3px;border-radius:14px;pointer-events:none;mask:linear-gradient(#000 0 0);-webkit-mask:linear-gradient(#000 0 0)}
 .mwi-progress-ring::before{content:"";position:absolute;inset:0;border-radius:inherit;padding:3px;background:conic-gradient(var(--mwi-ring-color) 0deg var(--mwi-ring-deg), transparent var(--mwi-ring-deg) 360deg);-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude}
-.mwi-buff{background:#e7f4e4;color:#1e4d1a;border:1px solid #7fbf7a}
-.mwi-debuff{background:#fbe3e3;color:#6b1a1a;border:1px solid #d17b7b}
-`;
+	.mwi-buff{background:#e7f4e4;color:#1e4d1a;border:1px solid #7fbf7a}
+	.mwi-debuff{background:#fbe3e3;color:#6b1a1a;border:1px solid #d17b7b}
+	@keyframes mwi-buff-marquee{to{transform:translate3d(calc(-1 * var(--mwi-marquee-distance,0px)),0,0)}}
+	@media (prefers-reduced-motion:reduce){.mwi-buffbar[data-scrolling="true"]{overflow-x:auto}.mwi-buffbar[data-scrolling="true"] .mwi-buff-track{animation:none;will-change:auto}.mwi-buffbar[data-scrolling="true"] .mwi-buff-sequence[aria-hidden="true"]{display:none}}
+	`;
     (document.head || document.documentElement).appendChild(style);
     scope.add(() => style.remove());
   }
@@ -16388,27 +16817,6 @@ ${preview}`
     const BATTLE_STATE = { players: /* @__PURE__ */ new Map(), monsters: /* @__PURE__ */ new Map() };
     const PENDING_BUFFS = [];
     const PENDING_DEBUFFS = [];
-    const expandedUnitKeys = (() => {
-      try {
-        const stored = JSON.parse(
-          localStorage.getItem(EXPANSION_STORAGE_KEY) || "[]"
-        );
-        return new Set(
-          Array.isArray(stored) ? stored.filter((value) => typeof value === "string" && value) : []
-        );
-      } catch {
-        return /* @__PURE__ */ new Set();
-      }
-    })();
-    function persistExpandedUnitKeys() {
-      try {
-        localStorage.setItem(
-          EXPANSION_STORAGE_KEY,
-          JSON.stringify([...expandedUnitKeys].sort())
-        );
-      } catch {
-      }
-    }
     function getUnitElements(areaClass) {
       const area = document.querySelector(`[class*="${areaClass}"]`);
       if (!area) return [];
@@ -16424,45 +16832,7 @@ ${preview}`
         monsters: getUnitElements("BattlePanel_monstersArea")
       };
     }
-    function unitStorageKeys(side, units) {
-      const occurrences = /* @__PURE__ */ new Map();
-      return units.map((unitEl, index) => {
-        const name = String(
-          unitEl.querySelector('[class*="CombatUnit_name"]')?.textContent ?? ""
-        ).replaceAll(/\s+/g, " ").trim().toLocaleLowerCase();
-        if (!name) return `${side}:slot:${index}`;
-        const occurrence = occurrences.get(name) ?? 0;
-        occurrences.set(name, occurrence + 1);
-        return `${side}:name:${name}:${occurrence}`;
-      });
-    }
-    function updateBuffToggle(shell2, effectCount) {
-      const expanded = shell2.dataset.expanded === "true";
-      const capacity = expanded ? EXPANDED_CAPACITY : COLLAPSED_CAPACITY;
-      const hiddenCount = Math.max(0, effectCount - capacity);
-      const toggle = shell2.querySelector(".mwi-buff-toggle");
-      if (!toggle) return;
-      toggle.setAttribute("aria-expanded", String(expanded));
-      const direction = expanded ? "▴" : "▾";
-      toggle.textContent = hiddenCount ? `+${hiddenCount} ${direction}` : direction;
-      const action = expanded ? runtime.config.isZH ? "折叠 Buff" : "Collapse buffs" : runtime.config.isZH ? "展开 Buff" : "Expand buffs";
-      const overflow = hiddenCount ? runtime.config.isZH ? `，另有 ${hiddenCount} 个` : `, ${hiddenCount} more` : "";
-      toggle.setAttribute("aria-label", `${action}${overflow}`);
-      toggle.title = `${action}${overflow}`;
-    }
-    function setBuffShellExpanded(shell2, expanded, { persist = false } = {}) {
-      shell2.dataset.expanded = String(expanded);
-      const bar = shell2.querySelector(".mwi-buffbar");
-      if (!expanded && bar) bar.scrollTop = 0;
-      updateBuffToggle(shell2, bar?.childElementCount ?? 0);
-      if (!persist) return;
-      const storageKey = shell2.dataset.storageKey;
-      if (!storageKey) return;
-      if (expanded) expandedUnitKeys.add(storageKey);
-      else expandedUnitKeys.delete(storageKey);
-      persistExpandedUnitKeys();
-    }
-    function ensureBuffBar(unitEl, storageKey = "") {
+    function ensureBuffBar(unitEl) {
       let shell2 = unitEl.querySelector(".mwi-buff-shell");
       let bar = shell2?.querySelector(".mwi-buffbar");
       if (!shell2 || !bar) {
@@ -16470,36 +16840,17 @@ ${preview}`
         shell2.className = "mwi-buff-shell";
         bar = document.createElement("div");
         bar.className = "mwi-buffbar";
-        const toggle = document.createElement("button");
-        toggle.type = "button";
-        toggle.className = "mwi-buff-toggle";
-        toggle.addEventListener("click", () => {
-          setBuffShellExpanded(shell2, shell2.dataset.expanded !== "true", {
-            persist: true
-          });
-        });
-        shell2.append(bar, toggle);
+        shell2.append(bar);
         const statusHost = unitEl.querySelector('[class*="CombatUnit_status"]') ?? unitEl;
         statusHost.classList.add("mwi-has-buffbar");
         statusHost.appendChild(shell2);
       }
-      const resolvedStorageKey = storageKey || unitEl.dataset.mwiBuffStorageKey || "";
-      if (resolvedStorageKey) {
-        unitEl.dataset.mwiBuffStorageKey = resolvedStorageKey;
-        if (shell2.dataset.storageKey !== resolvedStorageKey) {
-          shell2.dataset.storageKey = resolvedStorageKey;
-          setBuffShellExpanded(shell2, expandedUnitKeys.has(resolvedStorageKey));
-        }
-      } else if (!shell2.hasAttribute("data-expanded")) {
-        setBuffShellExpanded(shell2, false);
-      }
       return bar;
     }
     function ensureBattleBuffBars(units = getBattleUnits()) {
-      for (const [side, unitList] of Object.entries(units)) {
-        const storageKeys = unitStorageKeys(side, unitList);
-        unitList.forEach((unitEl, index) => {
-          if (unitEl) ensureBuffBar(unitEl, storageKeys[index]);
+      for (const unitList of Object.values(units)) {
+        unitList.forEach((unitEl) => {
+          if (unitEl) ensureBuffBar(unitEl);
         });
       }
       return units;
@@ -16549,8 +16900,7 @@ ${preview}`
         const bar = unitEl.querySelector(".mwi-buffbar");
         if (bar) {
           bar.replaceChildren();
-          const shell2 = bar.closest(".mwi-buff-shell");
-          if (shell2) updateBuffToggle(shell2, 0);
+          delete bar.dataset.scrolling;
         }
       }
     }
@@ -16625,15 +16975,17 @@ ${preview}`
             });
         }
         if (!DEBUFFS.has(change.prevAction)) continue;
-        if (monsterHits.length === 0) continue;
         const casterIndex = Number(change.key);
         if (!Number.isInteger(casterIndex)) continue;
+        const livingTargets = [...BATTLE_STATE.monsters.entries()].filter(([, state]) => Number(state?.cHP) > 0).map(([key]) => Number(key)).filter(Number.isInteger);
+        const targets = monsterHits.length ? monsterHits : buildAbilityEffectIndex().allTargetDebuffs.has(change.prevAction) ? livingTargets : livingTargets.length === 1 ? livingTargets : [];
+        if (!targets.length) continue;
         PENDING_DEBUFFS.push({
           casterMap: "pMap",
           casterIndex,
           abilityHrid: change.prevAction,
           targetSide: "monsters",
-          targets: monsterHits
+          targets
         });
       }
       const playerHits = playerResult.hpChanges.filter((h) => h.delta < 0).map((h) => Number(h.key));
@@ -16648,87 +17000,194 @@ ${preview}`
             });
         }
         if (!DEBUFFS.has(change.prevAction)) continue;
-        if (playerHits.length === 0) continue;
         const casterIndex = Number(change.key);
         if (!Number.isInteger(casterIndex)) continue;
+        const livingTargets = [...BATTLE_STATE.players.entries()].filter(([, state]) => Number(state?.cHP) > 0).map(([key]) => Number(key)).filter(Number.isInteger);
+        const targets = playerHits.length ? playerHits : buildAbilityEffectIndex().allTargetDebuffs.has(change.prevAction) ? livingTargets : livingTargets.length === 1 ? livingTargets : [];
+        if (!targets.length) continue;
         PENDING_DEBUFFS.push({
           casterMap: "mMap",
           casterIndex,
           abilityHrid: change.prevAction,
           targetSide: "players",
-          targets: playerHits
+          targets
         });
+      }
+    }
+    function durationSeconds2(value, fallback) {
+      const duration = Number(value);
+      if (!Number.isFinite(duration) || duration <= 0) return fallback;
+      if (duration > 864e5) return duration / 1e9;
+      if (duration > 1e3) return duration / 1e3;
+      return duration;
+    }
+    function applyAuthoritativeCombatBuffMaps(payload, units) {
+      const authoritativeEffects = /* @__PURE__ */ new Set();
+      const effectKey2 = (mapName, unitIndex, kind, abilityHrid) => `${mapName}:${unitIndex}:${kind}:${abilityHrid}`;
+      for (const [mapName, unitList] of [
+        ["pMap", units.players],
+        ["mMap", units.monsters]
+      ]) {
+        const map = payload?.[mapName];
+        if (!map || typeof map !== "object") continue;
+        for (const [key, entity] of Object.entries(map)) {
+          if (!entity?.combatBuffMap || typeof entity.combatBuffMap !== "object") {
+            continue;
+          }
+          const unitEl = unitList[Number(key)];
+          if (!unitEl) continue;
+          for (const buff of Object.values(entity.combatBuffMap)) {
+            if (!buff || typeof buff !== "object") continue;
+            const uniqueHrid = String(buff.uniqueHrid ?? "");
+            const source = buildAbilityEffectIndex().buffSources.get(uniqueHrid);
+            const abilityHrid = String(
+              buff.sourceAbilityHrid ?? buff.abilityHrid ?? source?.abilityHrid ?? ""
+            );
+            if (!abilityHrid) continue;
+            const kind = source?.kind ?? (DEBUFFS.has(abilityHrid) ? "debuff" : "buff");
+            const durationSec = durationSeconds2(
+              buff.duration,
+              source?.duration ?? (kind === "debuff" ? DEBUFFS.get(abilityHrid) : BUFFS.get(abilityHrid)) ?? 1
+            );
+            const parsedStart = Date.parse(String(buff.startTime ?? ""));
+            const startedAt = Number.isFinite(parsedStart) ? parsedStart : Date.now();
+            const expiresAt = startedAt + durationSec * 1e3;
+            if (expiresAt <= Date.now()) continue;
+            authoritativeEffects.add(
+              effectKey2(mapName, Number(key), kind, abilityHrid)
+            );
+            updateUnitEffect(unitEl, kind, abilityHrid, durationSec, {
+              startedAt,
+              expiresAt
+            });
+          }
+        }
+      }
+      return {
+        has(mapName, unitIndex, kind, abilityHrid) {
+          return authoritativeEffects.has(
+            effectKey2(mapName, unitIndex, kind, abilityHrid)
+          );
+        }
+      };
+    }
+    function effectKey(kind, abilityHrid) {
+      return `${kind}${abilityHrid}`;
+    }
+    function createEffectChip(effect) {
+      const chip = document.createElement("span");
+      chip.className = `mwi-chip ${effect.kind === "buff" ? "mwi-buff" : "mwi-debuff"}`;
+      chip.dataset.effectKey = effectKey(effect.kind, effect.abilityHrid);
+      const iconWrap = document.createElement("span");
+      iconWrap.className = "mwi-icon-wrap";
+      const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      icon.setAttribute("role", "img");
+      icon.setAttribute("aria-label", runtime.config.isZH ? "技能" : "Ability");
+      icon.setAttribute("class", "Icon_icon__2LtL_ mwi-icon");
+      icon.setAttribute("width", "100%");
+      icon.setAttribute("height", "100%");
+      const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+      const spriteRef = getGameSpriteHref("abilities", effect.abilityHrid);
+      if (spriteRef) {
+        use.setAttribute("href", spriteRef);
+        use.setAttribute("xlink:href", spriteRef);
+        icon.appendChild(use);
+        iconWrap.appendChild(icon);
+      } else {
+        iconWrap.textContent = "?";
+      }
+      const ring = document.createElement("span");
+      ring.className = "mwi-progress-ring";
+      ring.style.setProperty(
+        "--mwi-ring-color",
+        effect.kind === "buff" ? "rgba(60,140,60,0.7)" : "rgba(180,60,60,0.7)"
+      );
+      chip.append(iconWrap, ring);
+      return chip;
+    }
+    function updateMarqueeMetrics(bar, effectCount) {
+      if (effectCount <= STATIC_EFFECT_CAPACITY) return;
+      const sequence = bar.querySelector(
+        '.mwi-buff-sequence:not([aria-hidden="true"])'
+      );
+      if (!sequence) return;
+      const distance = Math.max(sequence.scrollWidth || effectCount * 31, 1) + 4;
+      const duration = Math.max(4, distance / MARQUEE_SPEED_PX_PER_SECOND);
+      const distanceValue = `${distance}px`;
+      const durationValue = `${duration}s`;
+      if (bar.style.getPropertyValue("--mwi-marquee-distance") !== distanceValue) {
+        bar.style.setProperty("--mwi-marquee-distance", distanceValue);
+      }
+      if (bar.style.getPropertyValue("--mwi-marquee-duration") !== durationValue) {
+        bar.style.setProperty("--mwi-marquee-duration", durationValue);
+      }
+    }
+    function rebuildEffectTrack(bar, entries) {
+      const track = document.createElement("div");
+      track.className = "mwi-buff-track";
+      const sequence = document.createElement("div");
+      sequence.className = "mwi-buff-sequence";
+      for (const effect of entries) sequence.append(createEffectChip(effect));
+      track.append(sequence);
+      if (entries.length > STATIC_EFFECT_CAPACITY) {
+        const duplicate = sequence.cloneNode(true);
+        duplicate.setAttribute("aria-hidden", "true");
+        track.append(duplicate);
+        bar.dataset.scrolling = "true";
+      } else {
+        delete bar.dataset.scrolling;
+        bar.style.removeProperty("--mwi-marquee-distance");
+        bar.style.removeProperty("--mwi-marquee-duration");
+      }
+      bar.replaceChildren(track);
+      updateMarqueeMetrics(bar, entries.length);
+    }
+    function updateCountdownRings(bar, entries, now) {
+      for (const effect of entries) {
+        const total = Math.max(1, effect.durationSec);
+        const elapsed = Math.max(
+          0,
+          Math.min(total, (now - effect.startedAt) / 1e3)
+        );
+        const degrees = Math.min(1, Math.max(0, elapsed / total)) * 360;
+        const key = effectKey(effect.kind, effect.abilityHrid);
+        for (const chip of bar.querySelectorAll(".mwi-chip")) {
+          if (chip.dataset.effectKey !== key) continue;
+          chip.querySelector(".mwi-progress-ring")?.style.setProperty("--mwi-ring-deg", `${degrees}deg`);
+        }
       }
     }
     function renderUnit(unitEl) {
       const state = getState2(unitEl);
       const bar = ensureBuffBar(unitEl);
       const now = Date.now();
-      const entries = Array.from(state.effects.values()).filter(
-        (effect) => effect.expiresAt > now
-      );
+      const entries = Array.from(state.effects.values()).filter((effect) => effect.expiresAt > now).sort((a, b) => a.expiresAt - b.expiresAt);
       state.effects = new Map(
-        entries.map((effect) => [effect.abilityHrid, effect])
+        entries.map((effect) => [
+          effectKey(effect.kind, effect.abilityHrid),
+          effect
+        ])
       );
-      const scrollTop = bar.scrollTop;
-      bar.replaceChildren();
-      for (const effect of entries.sort((a, b) => a.expiresAt - b.expiresAt)) {
-        const chip = document.createElement("span");
-        chip.className = `mwi-chip ${effect.kind === "buff" ? "mwi-buff" : "mwi-debuff"}`;
-        const iconWrap = document.createElement("span");
-        iconWrap.className = "mwi-icon-wrap";
-        const icon = document.createElementNS(
-          "http://www.w3.org/2000/svg",
-          "svg"
-        );
-        icon.setAttribute("role", "img");
-        icon.setAttribute("aria-label", runtime.config.isZH ? "技能" : "Ability");
-        icon.setAttribute("class", "Icon_icon__2LtL_ mwi-icon");
-        icon.setAttribute("width", "100%");
-        icon.setAttribute("height", "100%");
-        const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
-        const spriteRef = getGameSpriteHref("abilities", effect.abilityHrid);
-        if (spriteRef) {
-          use.setAttribute("href", spriteRef);
-          use.setAttribute("xlink:href", spriteRef);
-          icon.appendChild(use);
-          iconWrap.appendChild(icon);
-        } else {
-          iconWrap.textContent = "?";
-        }
-        const total = Math.max(1, effect.durationSec);
-        const elapsed = Math.max(
-          0,
-          Math.min(total, (now - effect.startedAt) / 1e3)
-        );
-        const progress = Math.min(1, Math.max(0, elapsed / total));
-        const degrees = progress * 360;
-        chip.appendChild(iconWrap);
-        const ring = document.createElement("span");
-        ring.className = "mwi-progress-ring";
-        ring.style.setProperty("--mwi-ring-deg", `${degrees}deg`);
-        ring.style.setProperty(
-          "--mwi-ring-color",
-          effect.kind === "buff" ? "rgba(60,140,60,0.7)" : "rgba(180,60,60,0.7)"
-        );
-        chip.appendChild(ring);
-        bar.appendChild(chip);
+      const signature = entries.map((effect) => effectKey(effect.kind, effect.abilityHrid)).join("");
+      if (state.renderSignature !== signature) {
+        rebuildEffectTrack(bar, entries);
+        state.renderSignature = signature;
+      } else {
+        updateMarqueeMetrics(bar, entries.length);
       }
-      if (bar.closest(".mwi-buff-shell")?.dataset.expanded === "true") {
-        bar.scrollTop = scrollTop;
-      }
-      const shell2 = bar.closest(".mwi-buff-shell");
-      if (shell2) updateBuffToggle(shell2, entries.length);
+      updateCountdownRings(bar, entries, now);
     }
-    function updateUnitEffect(unitEl, kind, abilityHrid, durationSec) {
+    function updateUnitEffect(unitEl, kind, abilityHrid, durationSec, timing = {}) {
       const state = getState2(unitEl);
       const now = Date.now();
-      state.effects.set(abilityHrid, {
+      const startedAt = Number(timing.startedAt) || now;
+      const expiresAt = Number(timing.expiresAt) || now + durationSec * 1e3;
+      state.effects.set(effectKey(kind, abilityHrid), {
         abilityHrid,
         kind,
         durationSec,
-        startedAt: now,
-        expiresAt: now + durationSec * 1e3
+        startedAt,
+        expiresAt
       });
       renderUnit(unitEl);
     }
@@ -16739,6 +17198,10 @@ ${preview}`
       if (units.players.length === 0 && units.monsters.length === 0) return;
       ensureBuffStyles(scope);
       updateBattleState(payload);
+      const authoritativeEffects = applyAuthoritativeCombatBuffMaps(
+        payload,
+        units
+      );
       if (PENDING_BUFFS.length > 0) {
         const pending = PENDING_BUFFS.splice(0, PENDING_BUFFS.length);
         for (const item of pending) {
@@ -16747,14 +17210,27 @@ ${preview}`
           const isTeamBuff = TEAM_BUFFS.has(item.abilityHrid);
           const unitList = item.mapName === "pMap" ? units.players : units.monsters;
           if (isTeamBuff) {
-            for (const unitEl of unitList) {
-              if (unitEl)
+            for (let unitIndex = 0; unitIndex < unitList.length; unitIndex += 1) {
+              const unitEl = unitList[unitIndex];
+              if (unitEl && !authoritativeEffects.has(
+                item.mapName,
+                unitIndex,
+                "buff",
+                item.abilityHrid
+              )) {
                 updateUnitEffect(unitEl, "buff", item.abilityHrid, duration);
+              }
             }
           } else {
             const unitEl = unitList[item.casterIndex];
-            if (unitEl)
+            if (unitEl && !authoritativeEffects.has(
+              item.mapName,
+              item.casterIndex,
+              "buff",
+              item.abilityHrid
+            )) {
               updateUnitEffect(unitEl, "buff", item.abilityHrid, duration);
+            }
           }
         }
       }
@@ -16764,11 +17240,18 @@ ${preview}`
           if (!DEBUFFS.has(item.abilityHrid)) continue;
           const duration = DEBUFFS.get(item.abilityHrid);
           const applyList = item.targetSide === "monsters" ? units.monsters : units.players;
+          const targetMapName = item.targetSide === "monsters" ? "mMap" : "pMap";
           const targets = SINGLE_TARGET_DEBUFFS.has(item.abilityHrid) ? item.targets.slice(0, 1) : item.targets;
           for (const target of targets) {
             const unitEl = applyList[target];
-            if (unitEl)
+            if (unitEl && !authoritativeEffects.has(
+              targetMapName,
+              target,
+              "debuff",
+              item.abilityHrid
+            )) {
               updateUnitEffect(unitEl, "debuff", item.abilityHrid, duration);
+            }
           }
         }
       }
@@ -16787,12 +17270,17 @@ ${preview}`
           const duration = BUFFS.get(abilityHrid);
           const keyIndex = Number.isInteger(Number(key)) ? Number(key) : idx;
           if (TEAM_BUFFS.has(abilityHrid)) {
-            for (const unitEl of unitList) {
-              if (unitEl) updateUnitEffect(unitEl, "buff", abilityHrid, duration);
+            for (let unitIndex = 0; unitIndex < unitList.length; unitIndex += 1) {
+              const unitEl = unitList[unitIndex];
+              if (unitEl && !authoritativeEffects.has(mapName, unitIndex, "buff", abilityHrid)) {
+                updateUnitEffect(unitEl, "buff", abilityHrid, duration);
+              }
             }
           } else {
             const unitEl = unitList[keyIndex];
-            if (unitEl) updateUnitEffect(unitEl, "buff", abilityHrid, duration);
+            if (unitEl && !authoritativeEffects.has(mapName, keyIndex, "buff", abilityHrid)) {
+              updateUnitEffect(unitEl, "buff", abilityHrid, duration);
+            }
           }
         }
       };
@@ -16826,7 +17314,6 @@ ${preview}`
         if (shell2 || bar) {
           (shell2 ?? bar).closest(".mwi-has-buffbar")?.classList.remove("mwi-has-buffbar");
           (shell2 ?? bar).remove();
-          delete unitEl.dataset.mwiBuffStorageKey;
         }
       }
     }
@@ -16877,7 +17364,13 @@ ${preview}`
     }
   });
   Object.assign(runtime.api, {
-    battleBuffs: { BUFFS, DEBUFFS, TEAM_BUFFS, SINGLE_TARGET_DEBUFFS }
+    battleBuffs: {
+      BUFFS,
+      DEBUFFS,
+      TEAM_BUFFS,
+      SINGLE_TARGET_DEBUFFS,
+      ALL_TARGET_DEBUFFS
+    }
   });
 
   // src/features/inventory.js
@@ -17252,6 +17745,7 @@ ${preview}`
     const categoryValues = /* @__PURE__ */ new Map();
     for (const item of runtime.state.initData_characterItems ?? []) {
       if (item?.itemLocationHrid !== "/item_locations/inventory") continue;
+      if (runtime.api.shouldExcludeItemFromAssets?.(item.itemHrid)) continue;
       if (item.itemHrid === "/items/cowbell" && !runtime.api.shouldIncludeCowbellsInAssets()) {
         continue;
       }
@@ -17502,6 +17996,7 @@ ${preview}`
     renderInventoryPanels();
   }
   function getInventorySortUnitValue(itemHrid, enhancementLevel = 0, order = "fair") {
+    if (runtime.api.shouldExcludeItemFromAssets?.(itemHrid)) return 0;
     const derivedValue = Number(runtime.api.getAssetValue?.(itemHrid, enhancementLevel)) || Number(runtime.api.getFairValue?.(itemHrid, enhancementLevel)) || 0;
     if (order === "ask") {
       return Number(runtime.api.getAskPrice?.(itemHrid, enhancementLevel)) || derivedValue;
@@ -17876,6 +18371,7 @@ ${preview}`
     addInvSortButton,
     addGuildCreditConversionsSortButton
   });
+  runtime.api.assetHistory?.subscribe?.(() => scheduleNetworthRefresh());
 
   // src/features/guild-credit-advisor.js
   var CARD_ID = "mwitools-guild-credit-advisor";
@@ -18199,6 +18695,7 @@ ${preview}`
     .copy{display:block;min-width:0}
     .name-line{display:flex;min-width:0;align-items:center;gap:5px}
     .name{min-width:0;overflow:hidden;color:#f5f6ff;font-size:11px;font-weight:700;text-overflow:ellipsis;white-space:nowrap}
+    .ratio{margin-top:2px;color:#aeb1c9;font:500 9px/1.1 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:nowrap}
     .tag{flex:0 0 auto;padding:1px 4px;border:1px solid color-mix(in srgb,var(--mwi-credit-accent,#43c4ad) 65%,#555976);border-radius:999px;color:var(--mwi-credit-accent,#43c4ad);font-size:8px;font-weight:700}
     .price{display:flex;align-items:baseline;justify-content:flex-end;gap:3px;color:var(--mwi-credit-accent,#43c4ad);font:750 12px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:nowrap}
     .price small{color:#aeb1c9;font:500 9px/1.2 inherit}
@@ -18253,7 +18750,7 @@ ${preview}`
     return `<div class="rank-row${index === 0 ? " best" : ""}${separate ? " current-row" : ""}">
     <span class="rank">${separate ? "—" : index + 1}</span>
     ${itemIconMarkup(option.itemHrid, name)}
-    <span class="copy"><span class="name-line"><span class="name" title="${escapeHtml3(name)}">${escapeHtml3(name)}</span>${current ? `<span class="tag">${escapeHtml3(t6("当前", "Current"))}</span>` : ""}</span></span>
+    <span class="copy"><span class="name-line"><span class="name" title="${escapeHtml3(name)}">${escapeHtml3(name)}</span>${current ? `<span class="tag">${escapeHtml3(t6("当前", "Current"))}</span>` : ""}</span><span class="ratio">${escapeHtml3(formatExact(option.itemCount))} ${escapeHtml3(t6("个物品", "items"))} → ${escapeHtml3(formatExact(option.creditCount))} ${escapeHtml3(t6("点信用", "credits"))}</span></span>
     <span class="price" title="${escapeHtml3(formatExact(option.costPerCredit))}">${pricePrefix}${escapeHtml3(formatNumber2(option.costPerCredit))}<small>${escapeHtml3(t6("每信用点", "per credit"))}</small></span>
   </div>`;
   }
@@ -20321,9 +20818,10 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
     const detail = runtime.state.initData_actionDetailMap?.[actionHrid];
     const duration = runtime.api.getProductionPanelDuration?.(panel);
     if (!detail || !Number.isFinite(duration) || duration <= 0) return false;
-    const exp = Number(
-      String(runtime.api.getOriTextFromElement(expElement) ?? "").replaceAll(runtime.config.THOUSAND_SEPERATOR, "").replaceAll(runtime.config.DECIMAL_SEPERATOR, ".")
-    );
+    const expToken = String(
+      runtime.api.getOriTextFromElement(expElement) ?? ""
+    ).match(/[-+]?\d[\d\s\u00a0\u202f.,]*/)?.[0];
+    const exp = runtime.api.parseGameNumber(expToken);
     if (!Number.isFinite(exp) || exp <= 0) return false;
     const efficiencyDetails = getActionEfficiencyDetails(actionHrid);
     const effBuff = 1 + efficiencyDetails.total / 100;
@@ -21069,16 +21567,7 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
   function parseProductionDurationSeconds(value) {
     const token = String(value ?? "").match(/[-+]?\d[\d\s\u00a0\u202f.,]*/)?.[0];
     if (!token) return null;
-    let normalized = token.replace(/[\s\u00a0\u202f]/g, "");
-    const dot = normalized.lastIndexOf(".");
-    const comma = normalized.lastIndexOf(",");
-    const decimalIndex = Math.max(dot, comma);
-    if (decimalIndex >= 0) {
-      const whole = normalized.slice(0, decimalIndex).replace(/[.,]/g, "");
-      const fraction = normalized.slice(decimalIndex + 1).replace(/[.,]/g, "");
-      normalized = fraction ? `${whole}.${fraction}` : whole;
-    }
-    const number3 = Number(normalized);
+    const number3 = runtime.api.parseGameNumber(token);
     return Number.isFinite(number3) && number3 > 0 ? number3 : null;
   }
   function parseProductionQuickPresets(value, { integer = false, fallback = [] } = {}) {
@@ -21200,9 +21689,7 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
   function renderActionDashboard() {
     addStyles6();
     const host = document.querySelector('div[class*="Header_actionName"]');
-    const actions = [...runtime.state.currentActionsHridList ?? []].sort(
-      (left2, right) => Number(left2?.ordinal ?? 0) - Number(right?.ordinal ?? 0)
-    );
+    const actions = orderCharacterActions(runtime.state.currentActionsHridList);
     const current = actions[0];
     if (!host || !current) {
       clearActionDashboard();
@@ -22126,6 +22613,10 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
   var marketSessionActive = false;
   var marketSessionRequiresModal = false;
   var marketSessionStartedAt = 0;
+  var autoInventoryRefreshHost = null;
+  var autoInventoryRefreshDone = false;
+  var autoInventoryRefreshInProgress = false;
+  var autoInventoryRefreshRetry = null;
   var marketSessionModalSeen = false;
   var marketSessionHost = null;
   var marketSessionRestoreNavTarget = "";
@@ -23268,12 +23759,23 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
     root.append(input, add);
   }
   function findMaterialHost(panel, itemHrid) {
-    const bare = procurement3.normalizeItemHrid(itemHrid).split("/").at(-1);
+    const normalizedItemHrid = procurement3.normalizeItemHrid(itemHrid);
     for (const node of panel.querySelectorAll('[class*="Item_itemContainer"]')) {
       const href = node.querySelector("svg use")?.getAttribute("href") ?? node.querySelector("svg use")?.getAttribute("xlink:href") ?? "";
-      if (href.includes(bare)) return node;
+      if (itemHridFromSpriteHref(href) === normalizedItemHrid) return node;
     }
     return null;
+  }
+  function itemHridFromSpriteHref(href) {
+    const source = String(href ?? "");
+    const hashIndex = source.lastIndexOf("#");
+    if (hashIndex < 0) return "";
+    let fragment = source.slice(hashIndex + 1).split(/[?&]/, 1)[0];
+    try {
+      fragment = decodeURIComponent(fragment);
+    } catch {
+    }
+    return procurement3.normalizeItemHrid(fragment);
   }
   function markRequirementCell(element, row, column) {
     if (!element) return;
@@ -23356,10 +23858,67 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
     );
     return activeModal ? { host: activeModal, sourcePanel: modalPanel } : null;
   }
+  function resetAutoInventoryRefresh() {
+    autoInventoryRefreshHost = null;
+    autoInventoryRefreshDone = false;
+    autoInventoryRefreshInProgress = false;
+    if (autoInventoryRefreshRetry !== null) {
+      clearTimeout(autoInventoryRefreshRetry);
+      autoInventoryRefreshRetry = null;
+    }
+  }
+  function refreshInventorySnapshot(sourcePanel, { silent = false } = {}) {
+    const liveItems = resolveLiveCharacterItems(sourcePanel);
+    if (liveItems === null) {
+      if (!silent) {
+        showToast(
+          t9(
+            "暂时无法读取游戏当前仓库，请稍后再试",
+            "Could not read the current game inventory; try again shortly"
+          )
+        );
+      }
+      return null;
+    }
+    runtime.state.initData_characterItems = liveItems.map((item) => ({
+      ...item
+    }));
+    const result = procurement3.replaceInventorySnapshot(liveItems);
+    lastProductionSignature = "";
+    renderShell();
+    runtime.api.renderProductionPanel?.();
+    renderProductionProcurement();
+    if (!silent) {
+      showToast(
+        runtime.config.isZH ? `仓库已更新：${result.changedItemCount} 种库存变化；购物车 ${result.cartItemCount} 项、项目 ${result.projectCount} 个已按最新库存重算` : `Inventory updated: ${result.changedItemCount} item changes; ${result.cartItemCount} cart items and ${result.projectCount} projects recalculated`
+      );
+    }
+    return result;
+  }
+  function maybeAutoRefreshInventory(host, sourcePanel) {
+    if (autoInventoryRefreshHost !== host) {
+      resetAutoInventoryRefresh();
+      autoInventoryRefreshHost = host;
+    }
+    if (autoInventoryRefreshDone || autoInventoryRefreshInProgress || autoInventoryRefreshRetry !== null)
+      return;
+    autoInventoryRefreshInProgress = true;
+    autoInventoryRefreshDone = refreshInventorySnapshot(sourcePanel, { silent: true }) !== null;
+    autoInventoryRefreshInProgress = false;
+    if (autoInventoryRefreshDone) return;
+    autoInventoryRefreshRetry = setTimeout(() => {
+      autoInventoryRefreshRetry = null;
+      if (autoInventoryRefreshHost !== host || !host.isConnected) return;
+      autoInventoryRefreshInProgress = true;
+      autoInventoryRefreshDone = refreshInventorySnapshot(sourcePanel, { silent: true }) !== null;
+      autoInventoryRefreshInProgress = false;
+    }, 180);
+  }
   function ensureInventoryRefreshButton(panel) {
     const resolved = resolveInventoryRefreshHost(panel);
     if (!resolved) {
       removeInventoryRefreshButtons();
+      resetAutoInventoryRefresh();
       return null;
     }
     const { host, sourcePanel } = resolved;
@@ -23372,7 +23931,10 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
       needsPositionAnchor
     );
     let button = host.querySelector(`#${PRODUCTION_REFRESH_ID}`);
-    if (button) return button;
+    if (button) {
+      maybeAutoRefreshInventory(host, sourcePanel);
+      return button;
+    }
     button = document.createElement("button");
     button.id = PRODUCTION_REFRESH_ID;
     button.type = "button";
@@ -23390,31 +23952,11 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
       event.stopPropagation();
       if (button.disabled) return;
       button.disabled = true;
-      const liveItems = resolveLiveCharacterItems(sourcePanel);
-      if (liveItems === null) {
-        button.disabled = false;
-        showToast(
-          t9(
-            "暂时无法读取游戏当前仓库，请稍后再试",
-            "Could not read the current game inventory; try again shortly"
-          )
-        );
-        return;
-      }
-      runtime.state.initData_characterItems = liveItems.map((item) => ({
-        ...item
-      }));
-      const result = procurement3.replaceInventorySnapshot(liveItems);
-      lastProductionSignature = "";
-      renderShell();
-      runtime.api.renderProductionPanel?.();
-      renderProductionProcurement();
-      showToast(
-        runtime.config.isZH ? `仓库已更新：${result.changedItemCount} 种库存变化；购物车 ${result.cartItemCount} 项、项目 ${result.projectCount} 个已按最新库存重算` : `Inventory updated: ${result.changedItemCount} item changes; ${result.cartItemCount} cart items and ${result.projectCount} projects recalculated`
-      );
+      refreshInventorySnapshot(sourcePanel);
       if (button.isConnected) button.disabled = false;
     });
     host.append(button);
+    maybeAutoRefreshInventory(host, sourcePanel);
     return button;
   }
   function clearProductionUi() {
@@ -23435,6 +23977,7 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
     const context = resolveActionPanel();
     if (!context) {
       removeInventoryRefreshButtons();
+      resetAutoInventoryRefresh();
       const houseModal = findActiveHouseModal();
       if (!houseModal) {
         clearProductionUi();
@@ -24101,16 +24644,16 @@ ${locks}` : ""}`;
       return;
     }
     const pending = new Set(
-      pendingItems().map((item) => item.itemHrid.split("/").at(-1))
+      pendingItems().map((item) => procurement3.normalizeItemHrid(item.itemHrid))
     );
     let scrollTarget = null;
     for (const use of panel.querySelectorAll("svg use")) {
       const href = use.getAttribute("href") ?? use.getAttribute("xlink:href") ?? "";
-      const matched = [...pending].find((bare) => href.includes(bare));
-      if (!matched) continue;
+      const matched = itemHridFromSpriteHref(href);
+      if (!pending.has(matched)) continue;
       const host = use.closest('[class*="Item_itemContainer"]') ?? use.parentElement;
       host.classList.add("mwi-procurement-market-target");
-      if (currentMarketTarget && currentMarketTarget.endsWith(matched) && !scrollTarget) {
+      if (currentMarketTarget && procurement3.normalizeItemHrid(currentMarketTarget) === matched && !scrollTarget) {
         scrollTarget = host;
       }
     }
@@ -24477,6 +25020,7 @@ ${locks}` : ""}`;
         renderScheduler.cancel();
         stopActiveHoldRepeat();
         removeInventoryRefreshButtons();
+        resetAutoInventoryRefresh();
         clearProductionUi();
         clearMarketUi();
         document.getElementById(STYLE_ID9)?.remove();
@@ -25664,9 +26208,12 @@ ${locks}` : ""}`;
   var taskFilterLockStorageKey = "";
   var stickyVisibleSlots = /* @__PURE__ */ new Set();
   var pendingStickyResetSlots = /* @__PURE__ */ new Map();
-  var activeRerollContext = null;
+  var rerollContextsBySlot = /* @__PURE__ */ new Map();
+  var pendingRerollContexts = [];
   var warnedUnexpectedRerollButtons = false;
   var rerollButtonSnapshots = /* @__PURE__ */ new WeakMap();
+  var rerollContainerContexts = /* @__PURE__ */ new WeakMap();
+  var rerollButtonContexts = /* @__PURE__ */ new WeakMap();
   var PROFESSIONS = [
     ["milking", "挤奶", "Milking"],
     ["foraging", "采摘", "Foraging"],
@@ -26211,8 +26758,13 @@ ${locks}` : ""}`;
   }
   function visibleTaskTitle(card) {
     const name = card.querySelector('div[class*="RandomTask_name"]');
+    const nativeText = [...name?.childNodes ?? []].filter(
+      (node) => node.nodeType === 3 || node.nodeType === 1 && !node.matches?.(
+        ".script_taskMapIndex,.mwi-task-new-badge,.mwi-task-train-planner"
+      )
+    ).map((node) => node.textContent ?? "").join(" ").trim();
     const text = String(
-      runtime.api.getOriTextFromElement?.(name ?? card) ?? name?.textContent ?? card.textContent ?? ""
+      nativeText || name?.textContent || card.textContent || ""
     );
     return text.trim().split("\n")[0].trim();
   }
@@ -27185,6 +27737,49 @@ ${locks}` : ""}`;
       clearPendingStickyReset(slot);
     }
   }
+  function removePendingRerollContext(context) {
+    pendingRerollContexts = pendingRerollContexts.filter(
+      (candidate) => candidate !== context
+    );
+  }
+  function clearRerollContext(context, { cancelled = false } = {}) {
+    if (!context) return;
+    removePendingRerollContext(context);
+    if (rerollContextsBySlot.get(context.slot) === context) {
+      rerollContextsBySlot.delete(context.slot);
+    }
+    if (context.timeout) clearTimeout(context.timeout);
+    context.timeout = null;
+    if (cancelled) {
+      clearPendingStickyReset(context.slot);
+      pendingResetSlots.delete(context.slot);
+    } else if (context.confirmed) {
+      nativeResetChoiceUntil = 0;
+    }
+  }
+  function clearAllRerollContexts({ cancelled = false } = {}) {
+    for (const context of [...rerollContextsBySlot.values()]) {
+      clearRerollContext(context, { cancelled });
+    }
+    pendingRerollContexts = [];
+  }
+  function createRerollContext(slot) {
+    clearRerollContext(rerollContextsBySlot.get(slot));
+    const context = {
+      slot,
+      optionsSeen: false,
+      confirmed: false,
+      container: null,
+      timeout: null
+    };
+    context.timeout = setTimeout(() => {
+      clearRerollContext(context, { cancelled: !context.confirmed });
+    }, 3e4);
+    context.timeout?.unref?.();
+    rerollContextsBySlot.set(slot, context);
+    pendingRerollContexts.push(context);
+    return context;
+  }
   function finalizeStickyResetSlots(cards, tasks) {
     cards.forEach((card, index) => {
       const slot = Number(card.dataset.mwitoolsOriginalIndex ?? index);
@@ -27219,11 +27814,7 @@ ${locks}` : ""}`;
           nativeResetChoiceUntil = Date.now() + 1e4;
           const slot = Number(card.dataset.mwitoolsOriginalIndex ?? index);
           pendingResetSlots.add(slot);
-          activeRerollContext = {
-            slot,
-            optionsSeen: false,
-            confirmed: false
-          };
+          createRerollContext(slot);
           clearPendingStickyReset(slot);
           if (runtime.settings.get("taskStatistics") && hasActiveTaskFilters() && card.dataset.mwitoolsFiltered !== "true") {
             const task = liveTaskForCard(
@@ -27358,17 +27949,21 @@ ${locks}` : ""}`;
     const native = [...container.querySelectorAll("button")];
     return native.length === 2 ? native : [];
   }
-  function wireRerollChoiceButton(button) {
+  function wireRerollChoiceButton(button, context) {
+    rerollButtonContexts.set(button, context ?? null);
     if (button[REROLL_CHOICE_HANDLER]) return;
     const handler = () => {
       if (button.dataset.mwitoolsTaskLockDisabled === "true") return;
-      if (activeRerollContext) activeRerollContext.confirmed = true;
+      const currentContext = rerollButtonContexts.get(button);
+      if (!currentContext) return;
+      currentContext.confirmed = true;
+      removePendingRerollContext(currentContext);
     };
     button[REROLL_CHOICE_HANDLER] = handler;
     button.addEventListener("click", handler, true);
   }
-  function lockRerollButton(button) {
-    wireRerollChoiceButton(button);
+  function lockRerollButton(button, context) {
+    wireRerollChoiceButton(button, context);
     if (!rerollButtonSnapshots.has(button)) {
       rerollButtonSnapshots.set(button, {
         disabled: button.disabled,
@@ -27420,6 +28015,64 @@ ${locks}` : ""}`;
     delete button[REROLL_LOCK_HANDLER];
     rerollButtonSnapshots.delete(button);
   }
+  function rerollContextForContainer(container) {
+    const bound = rerollContainerContexts.get(container);
+    if (bound && rerollContextsBySlot.get(bound.slot) === bound) return bound;
+    const card = container.closest?.(TASK_SELECTOR);
+    if (card) {
+      const cards = [...document.querySelectorAll(TASK_SELECTOR)].filter(
+        (candidate) => candidate.parentElement === card.parentElement
+      );
+      const fallbackIndex = Math.max(0, cards.indexOf(card));
+      const slot = Number(card.dataset.mwitoolsOriginalIndex ?? fallbackIndex);
+      const direct = rerollContextsBySlot.get(slot);
+      if (direct) {
+        direct.container = container;
+        direct.optionsSeen = true;
+        removePendingRerollContext(direct);
+        rerollContainerContexts.set(container, direct);
+        return direct;
+      }
+    }
+    const queued = pendingRerollContexts.find(
+      (context) => rerollContextsBySlot.get(context.slot) === context && !context.container && !context.confirmed
+    );
+    if (!queued) return null;
+    queued.container = container;
+    queued.optionsSeen = true;
+    removePendingRerollContext(queued);
+    rerollContainerContexts.set(container, queued);
+    return queued;
+  }
+  function liveLockClassificationForSlot(slot) {
+    const card = [...document.querySelectorAll(TASK_SELECTOR)].find(
+      (candidate, index) => Number(candidate.dataset.mwitoolsOriginalIndex ?? index) === slot
+    );
+    if (!card) return pageClassifications.get(slot) ?? null;
+    const task = liveTaskForCard(card, runtime.state.characterQuests ?? []);
+    if (!task) return pageClassifications.get(slot) ?? null;
+    const title = visibleTaskTitle(card);
+    const profession = professionForCard(card, task, title);
+    return {
+      profession,
+      dungeonLocations: profession.key === "combat" ? dungeonLocationsForCard(card, task, { title }) : []
+    };
+  }
+  function cleanupClosedRerollContexts(containers) {
+    const liveContainers = new Set(containers);
+    for (const context of [...rerollContextsBySlot.values()]) {
+      if (!context.optionsSeen || !context.container) continue;
+      if (context.container.isConnected && liveContainers.has(context.container)) {
+        continue;
+      }
+      clearRerollContext(context, { cancelled: !context.confirmed });
+    }
+  }
+  function hasUnconfirmedRerollContext() {
+    return [...rerollContextsBySlot.values()].some(
+      (context) => context.optionsSeen && !context.confirmed
+    );
+  }
   function syncTaskRerollLocks(root = document) {
     ensureTaskFilterLockState();
     const containers = [
@@ -27431,25 +28084,22 @@ ${locks}` : ""}`;
       ) ?? []) {
         restoreRerollButton(button);
       }
-      if (activeRerollContext?.optionsSeen) {
-        if (!activeRerollContext.confirmed) {
-          clearPendingStickyReset(activeRerollContext.slot);
-          pendingResetSlots.delete(activeRerollContext.slot);
-        } else {
-          nativeResetChoiceUntil = 0;
-        }
-        activeRerollContext = null;
+      for (const context of [...rerollContextsBySlot.values()]) {
+        if (!context.optionsSeen) continue;
+        clearRerollContext(context, { cancelled: !context.confirmed });
       }
       return 0;
     }
-    if (activeRerollContext) activeRerollContext.optionsSeen = true;
-    const classification = activeRerollContext ? pageClassifications.get(activeRerollContext.slot) : null;
-    const locked = taskMatchesLockedFilters(classification);
+    cleanupClosedRerollContexts(containers);
     let changed = 0;
     for (const container of containers) {
+      const context = rerollContextForContainer(container);
+      const locked = taskMatchesLockedFilters(
+        context ? liveLockClassificationForSlot(context.slot) : null
+      );
       const buttons = rerollChoiceButtons(container);
       if (buttons.length !== 2) {
-        if (activeRerollContext && container.querySelector("button") && !warnedUnexpectedRerollButtons) {
+        if (context && container.querySelector("button") && !warnedUnexpectedRerollButtons) {
           warnedUnexpectedRerollButtons = true;
           console.warn(
             "[MWITools] Task reroll choices were not recognized; filter locks were left unchanged."
@@ -27458,9 +28108,9 @@ ${locks}` : ""}`;
         continue;
       }
       for (const button of buttons) {
-        wireRerollChoiceButton(button);
+        wireRerollChoiceButton(button, context);
         if (locked) {
-          lockRerollButton(button);
+          lockRerollButton(button, context);
           changed += 1;
         } else {
           restoreRerollButton(button);
@@ -27537,7 +28187,7 @@ ${locks}` : ""}`;
     if (!runtime.settings.get("taskStatistics")) clearTaskFilterLocks();
     syncTaskRerollLocks();
     repairRangedWayIdleRerollButtons();
-    if (document.querySelector(REROLL_OPTIONS_SELECTOR) && !activeRerollContext?.confirmed) {
+    if (document.querySelector(REROLL_OPTIONS_SELECTOR) && hasUnconfirmedRerollContext()) {
       return true;
     }
     let cards = [...document.querySelectorAll(TASK_SELECTOR)];
@@ -27582,7 +28232,7 @@ ${locks}` : ""}`;
       if (!resumedResetPage) {
         stickyVisibleSlots = /* @__PURE__ */ new Set();
         clearAllPendingStickyResets();
-        activeRerollContext = null;
+        clearAllRerollContexts({ cancelled: true });
         pageOrderBySlot = /* @__PURE__ */ new Map();
         resetTaskFilters();
       }
@@ -27682,7 +28332,7 @@ ${locks}` : ""}`;
     pendingResetSlots = /* @__PURE__ */ new Set();
     stickyVisibleSlots = /* @__PURE__ */ new Set();
     clearAllPendingStickyResets();
-    activeRerollContext = null;
+    clearAllRerollContexts({ cancelled: true });
     nativeResetChoiceUntil = 0;
     temporaryTaskReturn = null;
     runtime.state.mwitoolsPageNewTaskIds = /* @__PURE__ */ new Set();
@@ -27805,7 +28455,7 @@ ${locks}` : ""}`;
     return runtime.api.taskRemaining?.(task) ?? 0;
   }
   function collectTaskTrainGroups(quests = []) {
-    const groups = /* @__PURE__ */ new Map();
+    const rootBuckets = /* @__PURE__ */ new Map();
     const entries = quests.map((task, index) => {
       const actionHrid = taskActionHrid2(task);
       const remaining = taskRemaining2(task);
@@ -27823,23 +28473,39 @@ ${locks}` : ""}`;
         state: remaining <= 0 ? "done" : depth < 0 ? "isolated" : "planned"
       };
       if (entry.state === "planned") {
-        if (!groups.has(root)) groups.set(root, []);
-        groups.get(root).push(entry);
+        if (!rootBuckets.has(root)) rootBuckets.set(root, []);
+        rootBuckets.get(root).push(entry);
       }
       return entry;
     });
-    for (const group of groups.values()) {
-      group.sort(
+    const groups = /* @__PURE__ */ new Map();
+    for (const [chainRoot, bucket] of rootBuckets) {
+      const pending = bucket.sort(
         (left, right) => right.depth - left.depth || left.index - right.index
       );
-      const chain = runtime.api.trainPlanning.buildTrainChain(
-        group[0].outputHrid
-      );
-      if (!chain.steps.length || chain.cycle || chain.truncated) {
-        for (const entry of group) entry.state = "isolated";
-        groups.delete(group[0].root);
-      } else {
+      let branch = 0;
+      while (pending.length) {
+        const top = pending.shift();
+        const chain = runtime.api.trainPlanning.buildTrainChain(top.outputHrid);
+        if (!chain.steps.length || chain.cycle || chain.truncated) {
+          top.state = "isolated";
+          continue;
+        }
+        const outputs = new Set(chain.steps.map((step) => step.outputHrid));
+        const group = [top];
+        for (let index = pending.length - 1; index >= 0; index -= 1) {
+          if (!outputs.has(pending[index].outputHrid)) continue;
+          group.push(pending[index]);
+          pending.splice(index, 1);
+        }
+        group.sort(
+          (left, right) => right.depth - left.depth || left.index - right.index
+        );
+        const groupKey = branch === 0 ? chainRoot : `${chainRoot}${top.outputHrid}`;
+        branch += 1;
+        for (const entry of group) entry.root = groupKey;
         group[0].state = "top";
+        groups.set(groupKey, group);
       }
     }
     return { entries, groups };
@@ -28972,6 +29638,47 @@ ${locks}` : ""}`;
   // src/features/opinion-center/announcements.js
   var STORAGE_KEY = "MWITools_opinion_center_seen_announcements_v1";
   var ANNOUNCEMENTS = Object.freeze([
+    Object.freeze({
+      id: "26.4.16",
+      version: "26.4.16",
+      publishedAt: "2026-08-20",
+      title: Object.freeze({
+        zh: "26.4.16 更新公告",
+        en: "Version 26.4.16 update"
+      }),
+      body: Object.freeze({
+        zh: Object.freeze([
+          "修复任务首次刷新后图标仍停留在旧任务、地图编号独立开关不生效的问题；火车规划现在会核对真实升级链，光辉袍服与烈焰袍服等平行分支不再误合并。",
+          "DPS 命中率改为保存全队与怪物面板快照后计算理论命中率；五人队每位玩家都有独立子标签，每只怪物显示命中等级、闪避等级与结果，旧实战次数不会冒充理论数据。",
+          "市场主接口失败时会自动切换到 q7.nainai.eu.org 备用接口，再按过期缓存与内置备份降级。新增默认关闭的“任务代币计入资产”开关，可独立控制资产、历史和价值排序。",
+          "每次真正打开生产制作页都会静默刷新一次仓库，首次取数失败会自动重试，手动刷新仍保留提示。公会信誉兑换同时显示物品数量、信用点数和每点成本。",
+          "新增铁牛排行榜支持；铁牛榜现在会显示与标准榜相同样式的名次徽章和对应经验/小时。",
+          "修复多个任务同时停留在刷新选择时锁定状态互相串联的问题，每个任务的牛铃和金币选择现在只跟随自身分类。战斗 Buff/Debuff 状态栏改为超过三个图标后单行循环滚动且不再显示折叠开关；包括花粉在内的全部持续型 Debuff 都会按实际受影响单位显示，不再错误挂在施放者头上。",
+          "补全正式服、测试服和国服域名的脚本连接权限，避免相关请求被脚本管理器拦截。",
+          "目标等级、生产耗时和市场数值现在会同时兼容逗号与小数点互换及混合千位格式，修复英文界面把“90,3 XP”误读为“903 XP”、导致升级时间严重偏短的问题。",
+          "手动编辑的资产历史不再被自动快照或其他页面的旧数据覆盖；写入失败会明确提示并回滚，库存总资产旁的昨日浮动也会在历史变化后立即稳定刷新。",
+          "DPS 工具统一更名为 MWI DPS Tracker，历史缓存限制为 1 MB，超限时从最早记录开始清理，避免长期使用持续占用浏览器存储。",
+          "修复已执行过的无限任务被移到队列后方时错误显示为 0 秒的问题；购物车市场高亮改为精确匹配，咖啡、茶等物品不再误标记带前缀的其他变体。",
+          "盈亏的装备、库存、订单、房屋、技能、不可交易代币和神龛分项现在都可以点击炫耀；会按真实对比天数、当前价值、涨跌额和比例，随机生成上涨、下跌或持平的中文战报。",
+          "26.4.16 已标记为重要更新；旧版本玩家会收到顶部更新提醒，以获得铁牛排行榜、任务与战斗修复、市场备用接口、资产和生产等完整改进。"
+        ]),
+        en: Object.freeze([
+          "Fixed task artwork remaining on the previous task after the first reroll and fixed the independent map-number switch. Train planning now validates real upgrade chains, so parallel branches such as Radiant Robes and Flame Robes are no longer merged incorrectly.",
+          "DPS accuracy now uses saved panel snapshots for the full party and monsters to calculate theoretical hit chance. Every member of a five-player party has a subtab, each monster shows accuracy, evasion, and the result, and legacy observed attempts are never presented as theoretical data.",
+          "Marketplace requests automatically fall back to q7.nainai.eu.org when the primary endpoint fails, followed by stale cache and the built-in backup. A new Task Tokens in assets switch defaults off and independently controls assets, history, and value sorting.",
+          "Opening a production page now silently refreshes inventory once, retries automatically when the first snapshot is unavailable, and keeps manual refresh notifications. Guild reputation exchanges now show the item quantity, credit-point return, and cost per point together.",
+          "Added Iron Cow leaderboard support. Iron Cow rankings now show the same badge styles as Standard rankings together with the corresponding XP/hour data.",
+          "Fixed lock state leaking between several tasks whose reroll choices were open at the same time; each task's Cowbell and coin choices now follow only its own category. Battle Buff/Debuff bars now loop left in a single row after the third icon with no expand toggle, and every persistent Debuff, including Toxic Pollen, follows the affected unit instead of appearing above the caster.",
+          "Added script connection permissions for the live, test, and China game domains so related requests are not blocked by userscript managers.",
+          "Target-level estimates, production durations, and market values now accept swapped comma/period decimals and mixed grouping formats. This fixes English panels reading “90,3 XP” as “903 XP” and severely underestimating level-up time.",
+          "Manually edited asset history is no longer overwritten by automatic snapshots or stale data from another page. Failed writes now report and roll back, and the yesterday change beside Total assets refreshes immediately when history changes.",
+          "The DPS tool is now branded MWI DPS Tracker throughout. Its history cache is capped at 1 MB and removes the oldest records first, preventing browser storage from growing indefinitely.",
+          "Fixed progressed infinite actions showing as zero seconds after being moved behind another queue item. Shopping highlights now use exact item matching, so coffee, tea, and similar items no longer mark prefixed variants.",
+          "Equipment, Inventory, Market listings, Houses, Abilities, Non-tradable tokens, and Shrine rows in P/L can now be clicked to flex. Each creates a randomized English rise, fall, or flat report using the real comparison period, current value, amount, and percentage.",
+          "Version 26.4.16 is now marked as an important update. Players on older releases will see the top update prompt for Iron Cow rankings, task and battle fixes, marketplace fallback, asset improvements, Production updates, and the rest of this release."
+        ])
+      })
+    }),
     Object.freeze({
       id: "26.4.15",
       version: "26.4.15",
@@ -31650,7 +32357,7 @@ ${locks}` : ""}`;
   }
   function handleTaskCard() {
     const taskNameDivs = document.querySelectorAll(
-      "div.RandomTask_randomTask__3B9fA div.RandomTask_name__1hl1b"
+      'div[class*="RandomTask_randomTask"] div[class*="RandomTask_name"]'
     );
     for (const div of taskNameDivs) {
       if (div.querySelector("span.script_taskMapIndex")) {
@@ -31998,9 +32705,7 @@ ${locks}` : ""}`;
     const actionDivList = added.querySelectorAll(
       "div.QueuedActions_action__r3HlD"
     );
-    const actions = [...runtime.state.currentActionsHridList ?? []].sort(
-      (left, right) => Number(left?.ordinal ?? 0) - Number(right?.ordinal ?? 0)
-    );
+    const actions = orderCharacterActions(runtime.state.currentActionsHridList);
     if (!actionDivList.length && actions.length > 1) return false;
     if (actionDivList.length !== Math.max(0, actions.length - 1)) {
       console.error(
@@ -32026,8 +32731,8 @@ ${locks}` : ""}`;
         continue;
       }
       const actionHrid = String(actionObj.actionHrid ?? "");
-      const count = actionObj.maxCount - actionObj.currentCount;
-      const isInfinite = count === 0 || actionHrid.includes("/combat/");
+      const count = runtime.api.getActionRemainingCount(actionObj);
+      const isInfinite = !Number.isFinite(count) || actionHrid.includes("/combat/");
       const detail = runtime.state.initData_actionDetailMap[actionHrid];
       const timing = detail ? runtime.api.projectActionTiming?.(
         actionHrid,
@@ -35641,7 +36346,7 @@ ${locks}` : ""}`;
     return value?.[runtime.config.isZH ? "zh" : "en"] ?? value?.en ?? "";
   }
   function currentVersion() {
-    return String(globalThis.GM_info?.script?.version ?? "26.4.15");
+    return String(globalThis.GM_info?.script?.version ?? "26.4.16");
   }
   function isTestBuild() {
     const info = globalThis.GM_info?.script;
@@ -36663,7 +37368,7 @@ ${locks}` : ""}`;
           }))
         }));
         return [
-          `=== MWI DPS Meter | Class Diagnostics | ${VERSION} ===`,
+          `=== MWI DPS Tracker | Class Diagnostics | ${VERSION} ===`,
           `Generated at: ${(/* @__PURE__ */ new Date()).toLocaleString()}`,
           "Note: icons represent each class's signature weapon. The data below contains only class-identification fields.",
           `Recorded events: ${events.length}`,
@@ -36672,7 +37377,7 @@ ${locks}` : ""}`;
         ].join("\n");
       }
       const lines = [
-        `=== 银河奶牛DPS统计｜职业调试报告｜${VERSION} ===`,
+        `=== MWI DPS Tracker｜职业调试报告｜${VERSION} ===`,
         "生成时间：" + (/* @__PURE__ */ new Date()).toLocaleString(),
         "说明：图标为职业代表武器；以下内容仅包含职业识别字段。",
         "记录事件数：" + events.length,
@@ -37115,7 +37820,7 @@ ${locks}` : ""}`;
       save();
       bus.dispatchEvent(new Event("change"));
       console.info(
-        "[KikiMeter] 全量入站消息采集已开始；点击“结束采集”才会停止。"
+        "[MWI DPS Tracker] 全量入站消息采集已开始；点击“结束采集”才会停止。"
       );
       return status();
     }
@@ -37134,7 +37839,7 @@ ${locks}` : ""}`;
       save();
       bus.dispatchEvent(new Event("change"));
       console.info(
-        "[KikiMeter] 全量入站消息采集已结束，共 " + state.fullMessages.length + " 条消息。"
+        "[MWI DPS Tracker] 全量入站消息采集已结束，共 " + state.fullMessages.length + " 条消息。"
       );
       return status();
     }
@@ -37173,7 +37878,7 @@ ${locks}` : ""}`;
           exportedState.storageNotice = "Full message bodies are kept only in this page's memory. Download them before refreshing or closing the page.";
         }
         return [
-          `=== MWI DPS Meter | Manual Full Incoming-Message Probe | ${VERSION} ===`,
+          `=== MWI DPS Tracker | Manual Full Incoming-Message Probe | ${VERSION} ===`,
           `Generated at: ${(/* @__PURE__ */ new Date()).toLocaleString()}`,
           `Capture started: ${state.startedAt || "Not started"}`,
           `Capture ended: ${state.endedAt || (active ? "In progress" : "None")}`,
@@ -37189,7 +37894,7 @@ ${locks}` : ""}`;
         ].join("\n");
       }
       const lines = [
-        `=== 银河奶牛DPS统计｜手动全量入站消息探针｜${VERSION} ===`,
+        `=== MWI DPS Tracker｜手动全量入站消息探针｜${VERSION} ===`,
         "生成时间：" + (/* @__PURE__ */ new Date()).toLocaleString(),
         "采样开始：" + (state.startedAt || "未开始"),
         "采样结束：" + (state.endedAt || (active ? "进行中" : "无")),
@@ -37275,11 +37980,13 @@ ${locks}` : ""}`;
     }
     function download() {
       if (!state.startedAt) {
-        console.warn("[KikiMeter] 尚未开始全量消息采集，已取消空报告下载。");
+        console.warn(
+          "[MWI DPS Tracker] 尚未开始全量消息采集，已取消空报告下载。"
+        );
         return null;
       }
       if (active) {
-        console.warn("[KikiMeter] 请先点击“结束采集”，再下载全量 MSG。");
+        console.warn("[MWI DPS Tracker] 请先点击“结束采集”，再下载全量 MSG。");
         return null;
       }
       const stamp = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-");
@@ -38119,7 +38826,8 @@ ${locks}` : ""}`;
             ...playerKills.keys(),
             ...playerHealing.keys(),
             ...playerTaken.keys(),
-            ...playerAccuracy.keys()
+            ...playerAccuracy.keys(),
+            ...Object.keys(meta.accuracyProfiles || {})
           ])
         );
       },
@@ -38165,7 +38873,7 @@ ${locks}` : ""}`;
     let orphLog = 0;
     const w = (cnt, msg) => {
       if (cnt < MAX) {
-        console.warn("[KikiMeter] " + msg);
+        console.warn("[MWI DPS Tracker] " + msg);
         return cnt + 1;
       }
       return cnt;
@@ -38213,11 +38921,13 @@ ${locks}` : ""}`;
         active = true;
         log = [];
         counts = {};
-        console.info("[KikiMeter] 已开始抓取战斗消息。");
+        console.info("[MWI DPS Tracker] 已开始抓取战斗消息。");
       },
       stop() {
         active = false;
-        console.info("[KikiMeter] 已停止抓取，共 " + log.length + " 条消息。");
+        console.info(
+          "[MWI DPS Tracker] 已停止抓取，共 " + log.length + " 条消息。"
+        );
       },
       record(type, payload) {
         if (!active) return;
@@ -38246,6 +38956,90 @@ ${locks}` : ""}`;
   })();
 
   // src/features/dps/40-socket-parser.js
+  var COMBAT_STYLES = /* @__PURE__ */ new Set(["stab", "slash", "smash", "ranged", "magic"]);
+  function rating(value) {
+    const number3 = Number(value);
+    return Number.isFinite(number3) && number3 >= 0 ? number3 : null;
+  }
+  function theoreticalHitChance(accuracyRating, evasionRating) {
+    const accuracy = rating(accuracyRating);
+    const evasion = rating(evasionRating);
+    if (accuracy === null || evasion === null) return null;
+    const attackPower = Math.pow(accuracy, 1.4);
+    const evasionPower = Math.pow(evasion, 1.4);
+    const total = attackPower + evasionPower;
+    return total > 0 ? attackPower / total : null;
+  }
+  function combatRating(unit, key) {
+    return rating(
+      unit?.combatDetails?.[key] ?? unit?.combatDetails?.combatStats?.[key] ?? unit?.combatStats?.[key]
+    );
+  }
+  function accuracyUnitName(unit, fallback) {
+    return String(unit?.character?.name || unit?.name || fallback || "");
+  }
+  function accuracyCombatStyle(unit) {
+    const stats = unit?.combatDetails?.combatStats ?? {};
+    const hrid = Array.isArray(stats.combatStyleHrids) ? stats.combatStyleHrids[0] : stats.combatStyleHrid;
+    const style = String(hrid || "").split("/").at(-1);
+    return COMBAT_STYLES.has(style) ? style : "";
+  }
+  function buildTheoreticalAccuracyProfiles(players = [], monsters = []) {
+    const monsterRows = (Array.isArray(monsters) ? monsters : []).map(
+      (monster, index) => ({
+        monster,
+        monsterName: accuracyUnitName(
+          monster,
+          String(monster?.hrid || "").split("/").at(-1)?.replaceAll("_", " ") || `Monster ${index + 1}`
+        ),
+        monsterHrid: String(monster?.hrid || "")
+      })
+    );
+    return Object.fromEntries(
+      (Array.isArray(players) ? players : []).map((player, playerIndex) => {
+        const name = accuracyUnitName(player, `Player ${playerIndex + 1}`);
+        const style = accuracyCombatStyle(player);
+        const accuracyRating = style ? combatRating(player, `${style}AccuracyRating`) : null;
+        const unique = /* @__PURE__ */ new Map();
+        for (const row of monsterRows) {
+          const evasionRating = style ? combatRating(row.monster, `${style}EvasionRating`) : null;
+          const hitChance = theoreticalHitChance(accuracyRating, evasionRating);
+          if (hitChance === null) continue;
+          const key = `${row.monsterHrid || `name:${row.monsterName}`}${evasionRating}`;
+          if (unique.has(key)) continue;
+          unique.set(key, {
+            monsterName: row.monsterName,
+            monsterHrid: row.monsterHrid,
+            evasionRating,
+            hitChance
+          });
+        }
+        const duplicateNames = /* @__PURE__ */ new Map();
+        for (const monster of unique.values()) {
+          duplicateNames.set(
+            monster.monsterName,
+            (duplicateNames.get(monster.monsterName) || 0) + 1
+          );
+        }
+        const duplicateIndexes = /* @__PURE__ */ new Map();
+        for (const monster of unique.values()) {
+          if ((duplicateNames.get(monster.monsterName) || 0) <= 1) continue;
+          const index = (duplicateIndexes.get(monster.monsterName) || 0) + 1;
+          duplicateIndexes.set(monster.monsterName, index);
+          monster.monsterName += ` #${index}`;
+        }
+        return [
+          name,
+          {
+            theoretical: true,
+            combatStyle: style,
+            accuracyRating,
+            monsters: Object.fromEntries(unique)
+          }
+        ];
+      }).filter(([name]) => name)
+    );
+  }
   var SocketHook = (() => {
     const bus = new EventTarget();
     let monstersHP = [];
@@ -38394,7 +39188,7 @@ ${locks}` : ""}`;
       }
       if (guildSlotNames.size === 0 && Settings.getDebugMode()) {
         console.warn(
-          "[KikiMeter][Guild] 玩家姓名解析失败，页面选择器可能已经变化。请在试炼中运行 window.__MWI_DPS.scanGuildNames() 查看诊断。"
+          "[MWI DPS Tracker][Guild] 玩家姓名解析失败，页面选择器可能已经变化。请在试炼中运行 window.__MWI_DPS.scanGuildNames() 查看诊断。"
         );
       }
     }
@@ -38405,11 +39199,13 @@ ${locks}` : ""}`;
       const localName = [...keyToName.values()][0];
       if (!localName) {
         console.warn(
-          "[KikiMeter] 尚不知道本地玩家姓名。请在公会试炼进行中再次运行此命令。"
+          "[MWI DPS Tracker] 尚不知道本地玩家姓名。请在公会试炼进行中再次运行此命令。"
         );
         return [];
       }
-      console.log(`[KikiMeter] 正在精确搜索文本 "${localName}" （页面 DOM）…`);
+      console.log(
+        `[MWI DPS Tracker] 正在精确搜索文本 "${localName}" （页面 DOM）…`
+      );
       const matches = [];
       document.querySelectorAll("*").forEach((el2) => {
         if (isOwnUI(el2)) return;
@@ -38417,7 +39213,7 @@ ${locks}` : ""}`;
           matches.push(el2);
         }
       });
-      console.log(`[KikiMeter] ${matches.length} 个完全匹配项。`);
+      console.log(`[MWI DPS Tracker] ${matches.length} 个完全匹配项。`);
       console.log("=====================================================");
       matches.forEach((el2, i) => {
         console.log(`--- 匹配项 #${i} ---`);
@@ -38456,7 +39252,7 @@ ${locks}` : ""}`;
         }
       });
       console.log(
-        `[KikiMeter] 预计玩家数：约 ${target} 名；${out.length} 个候选容器：`
+        `[MWI DPS Tracker] 预计玩家数：约 ${target} 名；${out.length} 个候选容器：`
       );
       console.log("=====================================================");
       out.forEach((c, i) => {
@@ -38467,7 +39263,7 @@ ${locks}` : ""}`;
       console.log("=====================================================");
       if (out.length === 0) {
         console.warn(
-          "[KikiMeter] 没有找到子元素数量完全匹配的容器。请运行 window.__MWI_DPS.scanGuildNamesLoose() 执行宽松搜索。"
+          "[MWI DPS Tracker] 没有找到子元素数量完全匹配的容器。请运行 window.__MWI_DPS.scanGuildNamesLoose() 执行宽松搜索。"
         );
       }
       return out;
@@ -38501,7 +39297,7 @@ ${locks}` : ""}`;
       out.sort((a, b) => b.nameLikeCount - a.nameLikeCount);
       const top = out.slice(0, 15);
       console.log(
-        `[KikiMeter] 宽松搜索：${out.length} 个候选容器，显示前 15 个：`
+        `[MWI DPS Tracker] 宽松搜索：${out.length} 个候选容器，显示前 15 个：`
       );
       console.log("=====================================================");
       top.forEach((c, i) => {
@@ -38525,7 +39321,7 @@ ${locks}` : ""}`;
           });
         }
       });
-      console.log(`[KikiMeter] ${out.length} 个候选属性：`);
+      console.log(`[MWI DPS Tracker] ${out.length} 个候选属性：`);
       console.table(out.slice(0, 60));
       return out;
     }
@@ -39291,7 +40087,11 @@ ${locks}` : ""}`;
             tier: stage.tier,
             stageChanged,
             characterId: currentCharacterId2,
-            classes
+            classes,
+            accuracyProfiles: buildTheoreticalAccuracyProfiles(
+              players,
+              p.monsters || []
+            )
           }
         })
       );
@@ -39873,7 +40673,11 @@ ${locks}` : ""}`;
             classes,
             combatKey: parallelGuildBattle ? String(incomingCombatKey || "") : currentCombatKey || String(p.battleId || ""),
             characterId: currentCharacterId2,
-            parallelGuildBattle
+            parallelGuildBattle,
+            accuracyProfiles: buildTheoreticalAccuracyProfiles(
+              p.players || [],
+              p.monsters || []
+            )
           }
         })
       );
@@ -40307,7 +41111,7 @@ ${locks}` : ""}`;
     function previewGuildNames() {
       resolveGuildNames(guildMaxSlot);
       console.log(
-        `[KikiMeter] ${guildSlotNames.size} 个姓名已解析（预计人数约 ${guildMaxSlot}) :`
+        `[MWI DPS Tracker] ${guildSlotNames.size} 个姓名已解析（预计人数约 ${guildMaxSlot}) :`
       );
       console.log("=====================================================");
       [...guildSlotNames.entries()].forEach(([slot, name]) => {
@@ -40316,7 +41120,7 @@ ${locks}` : ""}`;
       console.log("=====================================================");
       if (guildSlotNames.size !== guildMaxSlot) {
         console.warn(
-          `[KikiMeter] 注意：${guildSlotNames.size} 个姓名已解析，但预计有 ${guildMaxSlot}  个位置，映射可能发生偏移。请确认位置 0 对应本地角色且顺序正确。`
+          `[MWI DPS Tracker] 注意：${guildSlotNames.size} 个姓名已解析，但预计有 ${guildMaxSlot}  个位置，映射可能发生偏移。请确认位置 0 对应本地角色且顺序正确。`
         );
       }
       return Object.fromEntries(guildSlotNames);
@@ -40324,7 +41128,7 @@ ${locks}` : ""}`;
     function debugCombatUnitNames() {
       const els = [...document.querySelectorAll('[class*="CombatUnit_name"]')];
       console.log(
-        `[KikiMeter] ${els.length} 个元素 [class*="CombatUnit_name"]（原始、未过滤）：`
+        `[MWI DPS Tracker] ${els.length} 个元素 [class*="CombatUnit_name"]（原始、未过滤）：`
       );
       console.log("=====================================================");
       els.forEach((el2, i) => {
@@ -40335,7 +41139,7 @@ ${locks}` : ""}`;
       console.log("=====================================================");
       if (els.length === 0) {
         console.warn(
-          "[KikiMeter] 没有找到元素：可能已离开试炼页面，或者游戏 CSS 类名已变化。请停留在试炼进行中页面并再次运行命令。"
+          "[MWI DPS Tracker] 没有找到元素：可能已离开试炼页面，或者游戏 CSS 类名已变化。请停留在试炼进行中页面并再次运行命令。"
         );
       }
       return els;
@@ -40361,7 +41165,7 @@ ${locks}` : ""}`;
         }
       });
       console.log(
-        `[KikiMeter] ${out.length} 个被省略显示的元素（文本省略号或 CSS ellipsis）：`
+        `[MWI DPS Tracker] ${out.length} 个被省略显示的元素（文本省略号或 CSS ellipsis）：`
       );
       console.log("=====================================================");
       out.forEach(({ el: el2, mode }, i) => {
@@ -40376,7 +41180,7 @@ ${locks}` : ""}`;
     function countMiniUnitNames() {
       const els = [...document.querySelectorAll('[class*="MiniUnit_name"]')];
       console.log(
-        `[KikiMeter] ${els.length} 个元素 [class*="MiniUnit_name"]（预计人数约 ${guildMaxSlot || "?"}) :`
+        `[MWI DPS Tracker] ${els.length} 个元素 [class*="MiniUnit_name"]（预计人数约 ${guildMaxSlot || "?"}) :`
       );
       console.log("=====================================================");
       els.forEach((el2, i) => {
@@ -40389,7 +41193,7 @@ ${locks}` : ""}`;
       const nameEls = [...document.querySelectorAll('[class*="MiniUnit_name"]')];
       if (nameEls.length === 0) {
         console.warn(
-          "[KikiMeter] 没有找到 MiniUnit 单元，请确认公会试炼正在进行。"
+          "[MWI DPS Tracker] 没有找到 MiniUnit 单元，请确认公会试炼正在进行。"
         );
         return [];
       }
@@ -40413,10 +41217,10 @@ ${locks}` : ""}`;
         }
       });
       console.log(
-        `[KikiMeter] 主流类名（${counts[majority]}/${cells.length} 个单元） : "${majority}"`
+        `[MWI DPS Tracker] 主流类名（${counts[majority]}/${cells.length} 个单元） : "${majority}"`
       );
       console.log(
-        `[KikiMeter] ${outliers.length} 个异常单元（可能是本地玩家）：`
+        `[MWI DPS Tracker] ${outliers.length} 个异常单元（可能是本地玩家）：`
       );
       console.log("=====================================================");
       outliers.forEach((o) => {
@@ -40425,11 +41229,11 @@ ${locks}` : ""}`;
       console.log("=====================================================");
       if (outliers.length === 0) {
         console.warn(
-          "[KikiMeter] 未发现异常单元；当前服务器可能没有本地玩家高亮，或者所有单元的样式完全相同。请观察角色单元是否存在边框或高亮。"
+          "[MWI DPS Tracker] 未发现异常单元；当前服务器可能没有本地玩家高亮，或者所有单元的样式完全相同。请观察角色单元是否存在边框或高亮。"
         );
       } else if (outliers.length > 1) {
         console.warn(
-          "[KikiMeter] 发现多个异常单元，仅凭类名无法确定本地玩家，请与页面显示进行比对。"
+          "[MWI DPS Tracker] 发现多个异常单元，仅凭类名无法确定本地玩家，请与页面显示进行比对。"
         );
       }
       return outliers;
@@ -40489,7 +41293,53 @@ ${locks}` : ""}`;
   var HistoryStore = /* @__PURE__ */ (() => {
     const KEY = "kikimeter:history:v2", LEGACY_KEY = "kikimeter:history:v1", ACTIVE_KEY = "kikimeter:active:v2";
     const MAX_PER_TYPE = 10;
+    const MAX_HISTORY_BYTES = 1e6;
     let revision = 0;
+    function utf8ByteLength(value) {
+      const text = String(value ?? "");
+      if (typeof globalThis.TextEncoder === "function") {
+        return new globalThis.TextEncoder().encode(text).byteLength;
+      }
+      let bytes = 0;
+      for (let index = 0; index < text.length; index += 1) {
+        const code = text.charCodeAt(index);
+        if (code <= 127) bytes += 1;
+        else if (code <= 2047) bytes += 2;
+        else if (code >= 55296 && code <= 56319) {
+          bytes += 4;
+          index += 1;
+        } else bytes += 3;
+      }
+      return bytes;
+    }
+    function serializedBytes(entries) {
+      return utf8ByteLength(JSON.stringify(entries));
+    }
+    function entryTimestamp(entry) {
+      const timestamp = Date.parse(
+        entry?.endedAt ?? entry?.date ?? entry?.startedAt ?? ""
+      );
+      return Number.isFinite(timestamp) ? timestamp : Number.NEGATIVE_INFINITY;
+    }
+    function oldestEntryIndex(entries) {
+      let oldestIndex = -1;
+      let oldestTime = Infinity;
+      for (let index = 0; index < entries.length; index += 1) {
+        const timestamp = entryTimestamp(entries[index]);
+        if (timestamp < oldestTime || timestamp === oldestTime) {
+          oldestTime = timestamp;
+          oldestIndex = index;
+        }
+      }
+      return oldestIndex;
+    }
+    function trimToByteLimit(entries) {
+      const data = [...entries];
+      while (data.length && serializedBytes(data) > MAX_HISTORY_BYTES) {
+        data.splice(oldestEntryIndex(data), 1);
+      }
+      return data;
+    }
     function validArray(raw) {
       try {
         const v = JSON.parse(raw || "[]");
@@ -40522,10 +41372,7 @@ ${locks}` : ""}`;
           ]
         })
       );
-      try {
-        localStorage.setItem(KEY, JSON.stringify(migrated));
-      } catch (e) {
-      }
+      writeWithQuotaRetry(migrated);
     }
     function entryKey(entry, index = 0) {
       return String(
@@ -40543,7 +41390,7 @@ ${locks}` : ""}`;
     }
     function load() {
       migrateLegacy();
-      const raw = validArray(localStorage.getItem(KEY)), data = trim(raw);
+      const raw = validArray(localStorage.getItem(KEY)), data = trimToByteLimit(trim(raw));
       if (data.length !== raw.length) {
         try {
           localStorage.setItem(KEY, JSON.stringify(data));
@@ -40553,15 +41400,15 @@ ${locks}` : ""}`;
       return data;
     }
     function writeWithQuotaRetry(entries) {
-      let data = trim(entries);
+      const data = trimToByteLimit(trim(entries));
       while (data.length >= 0) {
         try {
           localStorage.setItem(KEY, JSON.stringify(data));
           return true;
         } catch (e) {
-          const idx = [...data].reverse().findIndex((x) => x && x.favorite !== true);
+          const idx = oldestEntryIndex(data);
           if (idx < 0) return false;
-          data.splice(data.length - 1 - idx, 1);
+          data.splice(idx, 1);
         }
       }
       return false;
@@ -40652,6 +41499,8 @@ ${locks}` : ""}`;
         }
       },
       getRevision: () => revision,
+      getStoredByteSize: () => serializedBytes(validArray(localStorage.getItem(KEY))),
+      maxHistoryBytes: MAX_HISTORY_BYTES,
       keys: { history: KEY, active: ACTIVE_KEY }
     };
   })();
@@ -41156,28 +42005,28 @@ ${locks}` : ""}`;
       }));
     }
     function accuracyBreakdown(raw) {
-      const attempts = Number(raw && raw.attempts) || 0;
-      if (!(attempts > 0)) return null;
-      const hits = Math.max(0, Math.min(attempts, Number(raw && raw.hits) || 0));
+      if (!raw?.theoretical) return null;
       const monsters = Object.values(raw && raw.monsters || {}).map((monster) => {
-        const monsterAttempts = Number(monster && monster.attempts) || 0, monsterHits = Math.max(
-          0,
-          Math.min(monsterAttempts, Number(monster && monster.hits) || 0)
-        ), monsterHrid = String(monster && monster.monsterHrid || ""), monsterName2 = String(monster && monster.monsterName || ""), localized = monsterHrid ? getLocalizedEntityName("monster", monsterHrid) : "";
+        const monsterHrid = String(monster && monster.monsterHrid || ""), monsterName2 = String(monster && monster.monsterName || ""), localized = monsterHrid ? getLocalizedEntityName("monster", monsterHrid) : "", suffix = monsterName2.match(/\s+#\d+$/)?.[0] || "", hitChance = Number(monster && monster.hitChance), pct = Number.isFinite(hitChance) ? hitChance * 100 : 0;
         return {
-          monsterName: localized || monsterName2 || (Settings.getLanguage() === "en" ? "Unknown Monster" : "未知怪物"),
+          monsterName: (localized ? localized + suffix : "") || monsterName2 || (Settings.getLanguage() === "en" ? "Unknown Monster" : "未知怪物"),
           monsterHrid,
-          attempts: monsterAttempts,
-          hits: monsterHits,
-          pct: monsterAttempts > 0 ? monsterHits * 100 / monsterAttempts : 0
+          evasionRating: Number(monster && monster.evasionRating) || 0,
+          pct
         };
-      }).filter((monster) => monster.attempts > 0).sort(
-        (a, b) => b.attempts - a.attempts || b.pct - a.pct || a.monsterName.localeCompare(b.monsterName)
+      }).filter((monster) => Number.isFinite(monster.pct)).sort(
+        (a, b) => b.pct - a.pct || a.monsterName.localeCompare(b.monsterName)
       );
-      return { attempts, hits, pct: hits * 100 / attempts, monsters };
+      return {
+        theoretical: true,
+        combatStyle: String(raw.combatStyle || ""),
+        accuracyRating: Number(raw.accuracyRating) || 0,
+        pct: monsters.length ? monsters.reduce((sum, monster) => sum + monster.pct, 0) / monsters.length : 0,
+        monsters
+      };
     }
     function current() {
-      const elapsed = Session.getElapsedSeconds(), names = Session.getAllPlayerNames(), teamDamage = Session.getTeamDamage(), players = names.map((name) => ({
+      const elapsed = Session.getElapsedSeconds(), names = Session.getAllPlayerNames(), teamDamage = Session.getTeamDamage(), accuracyProfiles = Session.getMeta().accuracyProfiles || {}, players = names.map((name) => ({
         name,
         classId: ClassSystem.classFor(name),
         damage: Session.getPlayerDamage(name),
@@ -41187,7 +42036,7 @@ ${locks}` : ""}`;
         taken: Session.getPlayerTaken(name),
         takenPs: Session.getPlayerTakenPs(name),
         kills: Session.getPlayerKills(name),
-        accuracy: accuracyBreakdown(Session.getPlayerAccuracy(name)),
+        accuracy: accuracyBreakdown(accuracyProfiles[name]),
         breakdown: damageBreakdown(
           Session.getPlayerDamageSources(name),
           Session.getPlayerDamage(name),
@@ -41219,14 +42068,14 @@ ${locks}` : ""}`;
       const elapsed = fragment ? (Number(fragment.durationMs) || 0) / 1e3 : Number(entry.durationSeconds) || (Number(entry.durationMs) || 0) / 1e3;
       let players;
       if (fragment) {
-        const maps = fragment.players || {}, damage = maps.damage || {}, healing = maps.healing || {}, taken = maps.taken || {}, kills = maps.kills || {}, accuracy = maps.accuracy || {};
+        const maps = fragment.players || {}, damage = maps.damage || {}, healing = maps.healing || {}, taken = maps.taken || {}, kills = maps.kills || {};
         const names = [
           .../* @__PURE__ */ new Set([
             ...Object.keys(damage),
             ...Object.keys(healing),
             ...Object.keys(taken),
             ...Object.keys(kills),
-            ...Object.keys(accuracy)
+            ...Object.keys(entry.accuracyProfiles || {})
           ])
         ];
         const sources = maps.sources || {}, takenSources = maps.takenSources || {};
@@ -41237,7 +42086,7 @@ ${locks}` : ""}`;
           healing: Number(healing[name]) || 0,
           taken: Number(taken[name]) || 0,
           kills: Number(kills[name]) || 0,
-          accuracy: accuracyBreakdown(accuracy[name]),
+          accuracy: accuracyBreakdown(entry.accuracyProfiles?.[name]),
           dps: elapsed > 0 ? (Number(damage[name]) || 0) / elapsed : 0,
           hps: elapsed > 0 ? (Number(healing[name]) || 0) / elapsed : 0,
           takenPs: elapsed > 0 ? (Number(taken[name]) || 0) / elapsed : 0,
@@ -41256,7 +42105,7 @@ ${locks}` : ""}`;
       } else {
         players = (entry.players || []).map((p) => ({
           ...p,
-          accuracy: accuracyBreakdown(p.accuracy),
+          accuracy: accuracyBreakdown(entry.accuracyProfiles?.[p.name]),
           takenPs: elapsed > 0 ? (Number(p.taken) || 0) / elapsed : 0,
           breakdown: damageBreakdown(
             p.sources,
@@ -42012,114 +42861,144 @@ ${locks}` : ""}`;
     return { show, update, isOpenFor, scheduleClose, cancelClose, close };
   })();
   function renderAccuracyRows(container, rows2, rerender, emptyText) {
-    if (AccuracyBreakdownTooltip.isOpenFor(container)) {
-      AccuracyBreakdownTooltip.update(rows2);
-      const existing = new Map(
-        [...container.querySelectorAll("[data-kikimeter-accuracy-row]")].map(
-          (line) => [line.dataset.player, line]
-        )
-      );
-      if (existing.size === rows2.length && rows2.every((row) => existing.has(row.name))) {
-        rows2.forEach((row, index) => {
-          const line = existing.get(row.name);
-          line._accuracyRow = row;
-          line._accuracyRank.textContent = String(index + 1) + ".";
-          line._accuracyBar.style.width = Math.max(0, Math.min(100, Number(row.pct) || 0)) + "%";
-          line._accuracyStats.textContent = `${(Number(row.pct) || 0).toFixed(1)}% (${Number(row.hits) || 0}/${Number(row.attempts) || 0})`;
-        });
-        rows2.forEach((row) => container.appendChild(existing.get(row.name)));
-        return;
-      }
-      AccuracyBreakdownTooltip.close();
-    }
+    AccuracyBreakdownTooltip.close();
     container.replaceChildren();
-    rows2.forEach((row, index) => {
-      const cls = ClassSystem.get(row.name), line = el("div", {
-        position: "relative",
-        height: "24px",
-        margin: "2px 0",
-        overflow: "hidden",
-        minHeight: "24px",
-        flexShrink: "0",
-        boxSizing: "border-box",
-        borderRadius: "2px",
-        background: "rgba(0,0,0,.42)",
-        border: "1px solid rgba(255,255,255,.06)",
-        color: "#fff"
-      }), bar = el("div", {
-        position: "absolute",
-        inset: "0 auto 0 0",
-        width: Math.max(0, Math.min(100, Number(row.pct) || 0)) + "%",
-        background: `linear-gradient(90deg,${cls.color}d9,${cls.color}70)`,
-        boxShadow: `inset 0 0 5px ${cls.color}`
-      }), content = el("div", {
-        position: "absolute",
-        inset: "0",
-        display: "flex",
-        alignItems: "center",
-        gap: "4px",
-        padding: "1px 5px",
-        whiteSpace: "nowrap",
-        textShadow: "0 1px 2px #000"
-      }), rank = el("span", {
-        width: "18px",
-        textAlign: "right",
-        opacity: ".85",
-        fontSize: "11px"
-      }), icon = iconElement(cls.icon, cls.label), name = el("span", {
-        fontWeight: "600",
-        overflow: "hidden",
-        textOverflow: "ellipsis",
-        flex: "1",
-        minWidth: "30px"
-      }), stats = el("span", {
-        fontSize: "11px",
-        fontVariantNumeric: "tabular-nums",
-        textAlign: "right"
-      });
-      line.dataset.kikimeterAccuracyRow = "true";
-      line.dataset.player = row.name;
-      line._accuracyRow = row;
-      line._accuracyRank = rank;
-      line._accuracyBar = bar;
-      line._accuracyStats = stats;
-      rank.textContent = String(index + 1) + ".";
-      Object.assign(icon.style, {
-        width: "19px",
-        height: "19px",
-        objectFit: "contain",
-        flexShrink: "0",
-        cursor: "pointer",
-        filter: "drop-shadow(0 1px 1px #000)"
-      });
-      icon.title = `${cls.label}${langText2("｜点击选择职业", " | Click to choose class")}`;
-      icon.addEventListener("click", (event) => {
-        event.stopPropagation();
-        openClassPicker(row.name, icon, rerender);
-      });
-      name.textContent = row.name;
-      stats.textContent = `${(Number(row.pct) || 0).toFixed(1)}% (${Number(row.hits) || 0}/${Number(row.attempts) || 0})`;
-      line.title = langText2(
-        "悬停查看对各怪物的命中率",
-        "Hover to view accuracy by monster"
-      );
-      line.addEventListener(
-        "mouseenter",
-        () => AccuracyBreakdownTooltip.show(line, line._accuracyRow, container)
-      );
-      line.addEventListener("mouseleave", AccuracyBreakdownTooltip.scheduleClose);
-      content.append(rank, icon, name, stats);
-      line.append(bar, content);
-      container.appendChild(line);
-    });
     if (!rows2.length) {
       const empty = el("div", {
         padding: "14px",
         textAlign: "center",
         opacity: ".5"
       });
-      empty.textContent = emptyText || langText2("暂无命中率数据", "No accuracy data");
+      empty.textContent = emptyText || langText2("暂无理论命中率数据", "No theoretical accuracy data");
       container.appendChild(empty);
+      return;
+    }
+    const selectedName = rows2.some(
+      (row) => row.name === container.dataset.kikimeterAccuracyPlayer
+    ) ? container.dataset.kikimeterAccuracyPlayer : rows2[0].name;
+    container.dataset.kikimeterAccuracyPlayer = selectedName;
+    const tabs = el("div", {
+      display: "flex",
+      gap: "3px",
+      overflowX: "auto",
+      padding: "1px 0 5px",
+      flexShrink: "0"
+    });
+    for (const row of rows2) {
+      const selected2 = row.name === selectedName;
+      const button = el("button", {
+        flex: "0 0 auto",
+        maxWidth: "130px",
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+        padding: "3px 7px",
+        border: selected2 ? `1px solid ${ACCENT}` : "1px solid rgba(255,255,255,.14)",
+        borderRadius: "4px",
+        background: selected2 ? "rgba(212,175,55,.18)" : "rgba(0,0,0,.3)",
+        color: selected2 ? "#fff" : "rgba(255,255,255,.72)",
+        font: "600 10px/1.2 inherit",
+        cursor: "pointer"
+      });
+      button.type = "button";
+      button.textContent = row.name;
+      button.title = row.name;
+      button.dataset.kikimeterAccuracyPlayerTab = row.name;
+      button.addEventListener("click", () => {
+        container.dataset.kikimeterAccuracyPlayer = row.name;
+        renderAccuracyRows(container, rows2, rerender, emptyText);
+      });
+      tabs.appendChild(button);
+    }
+    container.appendChild(tabs);
+    const selected = rows2.find((row) => row.name === selectedName) || rows2[0];
+    const styleLabel = selected.combatStyle ? selected.combatStyle[0].toUpperCase() + selected.combatStyle.slice(1) : langText2("未知战斗类型", "Unknown style");
+    const summary = el("div", {
+      padding: "2px 5px 5px",
+      color: "rgba(255,255,255,.65)",
+      fontSize: "9px",
+      flexShrink: "0"
+    });
+    const accuracyCopy = Number.isFinite(Number(selected.accuracyRating)) ? selected.accuracyRating : "—";
+    summary.textContent = `${styleLabel} · ${langText2("命中等级", "Accuracy rating")} ${accuracyCopy}`;
+    container.appendChild(summary);
+    const monsters = Array.isArray(selected.monsters) ? selected.monsters : [];
+    const cls = ClassSystem.get(selected.name);
+    for (const monster of monsters) {
+      const pct = Math.max(0, Math.min(100, Number(monster.pct) || 0));
+      const line = el("div", {
+        position: "relative",
+        height: "27px",
+        minHeight: "27px",
+        margin: "2px 0",
+        overflow: "hidden",
+        flexShrink: "0",
+        borderRadius: "2px",
+        background: "rgba(0,0,0,.42)",
+        border: "1px solid rgba(255,255,255,.06)",
+        color: "#fff"
+      });
+      line.dataset.kikimeterAccuracyMonsterRow = "true";
+      line.dataset.monsterHrid = monster.monsterHrid || "";
+      line.title = `${selected.name} · ${styleLabel}
+${langText2("命中等级", "Accuracy rating")}: ${accuracyCopy}
+${langText2("闪避等级", "Evasion rating")}: ${Number.isFinite(Number(monster.evasionRating)) ? monster.evasionRating : "—"}
+${langText2("理论命中率", "Theoretical hit chance")}: ${pct.toFixed(2)}%`;
+      const bar = el("div", {
+        position: "absolute",
+        inset: "0 auto 0 0",
+        width: pct + "%",
+        background: `linear-gradient(90deg,${cls.color}d9,${cls.color}70)`
+      });
+      const content = el("div", {
+        position: "absolute",
+        inset: "0",
+        display: "flex",
+        alignItems: "center",
+        gap: "6px",
+        padding: "1px 6px",
+        textShadow: "0 1px 2px #000"
+      });
+      const iconSource = monster.monsterHrid ? GameAssets.monster(monster.monsterHrid) : "";
+      if (iconSource) {
+        const icon = iconElement(iconSource, monster.monsterName);
+        Object.assign(icon.style, {
+          width: "20px",
+          height: "20px",
+          flexShrink: "0"
+        });
+        content.appendChild(icon);
+      }
+      const label = el("span", {
+        flex: "1",
+        minWidth: "40px",
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+        fontWeight: "600"
+      });
+      label.textContent = monster.monsterName;
+      const stats = el("span", {
+        fontSize: "10px",
+        fontVariantNumeric: "tabular-nums",
+        whiteSpace: "nowrap"
+      });
+      stats.textContent = `${pct.toFixed(2)}%`;
+      content.append(label, stats);
+      line.append(bar, content);
+      container.appendChild(line);
+    }
+    if (!monsters.length) {
+      const unavailable = el("div", {
+        padding: "12px",
+        textAlign: "center",
+        opacity: ".55"
+      });
+      unavailable.textContent = langText2(
+        "该玩家或当前怪物缺少可用的命中／闪避面板属性",
+        "This player or monster has no usable accuracy/evasion ratings"
+      );
+      container.appendChild(unavailable);
     }
   }
   function renderDetailsRows(container, rows2, rerender) {
@@ -43439,25 +44318,24 @@ ${locks}` : ""}`;
         return;
       }
       if (mainMode === "accuracy") {
-        const rows3 = (view.players || []).filter((player) => player.accuracy && player.accuracy.attempts > 0).map((player) => ({
+        const rows3 = (view.players || []).filter((player) => player.accuracy?.theoretical).map((player) => ({
           name: player.name,
-          attempts: player.accuracy.attempts,
-          hits: player.accuracy.hits,
+          theoretical: true,
+          combatStyle: player.accuracy.combatStyle,
+          accuracyRating: player.accuracy.accuracyRating,
           pct: player.accuracy.pct,
           monsters: player.accuracy.monsters
-        })).sort(
-          (a, b) => b.pct - a.pct || b.attempts - a.attempts || a.name.localeCompare(b.name)
-        );
+        })).sort((a, b) => a.name.localeCompare(b.name));
         renderAccuracyRows(
           playersListEl,
           rows3,
           () => renderView(ViewData.get()),
           view.current ? langText4(
-            "暂无可靠判定的直接攻击",
-            "No reliably resolved direct attacks yet"
+            "当前战斗没有可用的玩家或怪物面板属性",
+            "No player or monster panel ratings are available"
           ) : langText4(
-            "该历史记录暂无命中率数据",
-            "No accuracy data for this combat record"
+            "该历史记录没有理论命中率面板快照",
+            "This record has no theoretical accuracy snapshot"
           )
         );
         return;
@@ -43490,9 +44368,9 @@ ${locks}` : ""}`;
       const dur = formatDuration2(entry.durationSeconds);
       const total = entry.teamDamage;
       let out = langText4(
-        `=== KikiMeter 战斗记录｜${dateStr}｜${dur} ===
+        `=== MWI DPS Tracker 战斗记录｜${dateStr}｜${dur} ===
 `,
-        `=== KikiMeter Combat Record | ${dateStr} | ${dur} ===
+        `=== MWI DPS Tracker Combat Record | ${dateStr} | ${dur} ===
 `
       );
       out += langText4(
@@ -43976,6 +44854,21 @@ ${locks}` : ""}`;
 
   // src/features/dps/90-application.js
   var langText3 = (zh, en) => Settings.getLanguage() === "en" ? en : zh;
+  function mergeAccuracyProfiles(previous = {}, incoming = {}) {
+    const merged = { ...previous || {} };
+    for (const [name, profile] of Object.entries(incoming || {})) {
+      const old = merged[name];
+      const sameRatings = old?.theoretical && old.combatStyle === profile?.combatStyle && Number(old.accuracyRating) === Number(profile?.accuracyRating);
+      merged[name] = sameRatings ? {
+        ...profile,
+        monsters: {
+          ...old.monsters || {},
+          ...profile?.monsters || {}
+        }
+      } : profile;
+    }
+    return merged;
+  }
   function start(scope) {
     installThemeFont();
     let currentPlayerNames = [];
@@ -43992,7 +44885,7 @@ ${locks}` : ""}`;
         hasConfirmedCombat = true;
       } catch (e) {
         HistoryStore.clearActive();
-        console.warn("[KikiMeter] 已忽略损坏的活动战斗缓存。");
+        console.warn("[MWI DPS Tracker] 已忽略损坏的活动战斗缓存。");
       }
     }
     function buildHistoryEntry() {
@@ -44015,6 +44908,7 @@ ${locks}` : ""}`;
         teamDamage: snap.teamDamage,
         teamKills: Session.getTeamKills(),
         classes: snap.classes,
+        accuracyProfiles: m.accuracyProfiles || {},
         fragments: snap.fragments,
         graph: snap.graph,
         players: names.map((n) => ({
@@ -44092,6 +44986,12 @@ ${locks}` : ""}`;
             manualReset: false
           });
       }
+      Session.setMeta({
+        accuracyProfiles: sameEncounter ? mergeAccuracyProfiles(
+          old.accuracyProfiles,
+          detail.accuracyProfiles || {}
+        ) : detail.accuracyProfiles || {}
+      });
       ClassSystem.applyClasses(detail.classes);
       hasConfirmedCombat = true;
       pendingReconnect = false;
@@ -44114,7 +45014,7 @@ ${locks}` : ""}`;
       hasConfirmedCombat = true;
       currentPlayerNames = Session.getAllPlayerNames();
       persistActive(true);
-      console.info("[KikiMeter] 已结束当前记录并新建记录：" + reason);
+      console.info("[MWI DPS Tracker] 已结束当前记录并新建记录：" + reason);
     }
     function buildClipboardText() {
       const view = ViewData.get(), total = view.teamDamage;
@@ -44123,7 +45023,7 @@ ${locks}` : ""}`;
       let out = langText3(
         `=== 银河奶牛 DPS 统计｜${view.label}｜${dateStr}｜${formatDuration2(view.elapsed)} ===
 `,
-        `=== MWI DPS Meter | ${view.label} | ${dateStr} | ${formatDuration2(view.elapsed)} ===
+        `=== MWI DPS Tracker | ${view.label} | ${dateStr} | ${formatDuration2(view.elapsed)} ===
 `
       );
       out += langText3(
@@ -44184,7 +45084,7 @@ ${locks}` : ""}`;
       persistActive(true);
       hasConfirmedCombat = true;
       console.info(
-        "[KikiMeter] 公会试炼阶段已结束；当天进入下一关时将继续累计。"
+        "[MWI DPS Tracker] 公会试炼阶段已结束；当天进入下一关时将继续累计。"
       );
     });
     scope.event(SocketHook.bus, "guildSlotRenamed", (ev) => {
@@ -44214,14 +45114,6 @@ ${locks}` : ""}`;
           ev.detail.name,
           ev.detail.amount,
           ev.detail.source
-        );
-    });
-    scope.event(SocketHook.bus, "attackResolved", (ev) => {
-      if (acceptsCombatEvent(ev.detail))
-        Session.addPlayerAccuracy(
-          ev.detail.name,
-          ev.detail.hit,
-          ev.detail.targets
         );
     });
     scope.event(SocketHook.bus, "healing", (ev) => {

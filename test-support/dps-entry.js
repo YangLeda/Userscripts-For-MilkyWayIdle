@@ -28,4 +28,8 @@ export {
   SegmentSelection,
   ViewData,
 } from "../src/features/dps/30-history.js";
-export { SocketHook } from "../src/features/dps/40-socket-parser.js";
+export {
+  SocketHook,
+  buildTheoreticalAccuracyProfiles,
+  theoreticalHitChance,
+} from "../src/features/dps/40-socket-parser.js";

@@ -2,6 +2,47 @@ const STORAGE_KEY = "MWITools_opinion_center_seen_announcements_v1";
 
 export const ANNOUNCEMENTS = Object.freeze([
   Object.freeze({
+    id: "26.4.16",
+    version: "26.4.16",
+    publishedAt: "2026-08-20",
+    title: Object.freeze({
+      zh: "26.4.16 更新公告",
+      en: "Version 26.4.16 update",
+    }),
+    body: Object.freeze({
+      zh: Object.freeze([
+        "修复任务首次刷新后图标仍停留在旧任务、地图编号独立开关不生效的问题；火车规划现在会核对真实升级链，光辉袍服与烈焰袍服等平行分支不再误合并。",
+        "DPS 命中率改为保存全队与怪物面板快照后计算理论命中率；五人队每位玩家都有独立子标签，每只怪物显示命中等级、闪避等级与结果，旧实战次数不会冒充理论数据。",
+        "市场主接口失败时会自动切换到 q7.nainai.eu.org 备用接口，再按过期缓存与内置备份降级。新增默认关闭的“任务代币计入资产”开关，可独立控制资产、历史和价值排序。",
+        "每次真正打开生产制作页都会静默刷新一次仓库，首次取数失败会自动重试，手动刷新仍保留提示。公会信誉兑换同时显示物品数量、信用点数和每点成本。",
+        "新增铁牛排行榜支持；铁牛榜现在会显示与标准榜相同样式的名次徽章和对应经验/小时。",
+        "修复多个任务同时停留在刷新选择时锁定状态互相串联的问题，每个任务的牛铃和金币选择现在只跟随自身分类。战斗 Buff/Debuff 状态栏改为超过三个图标后单行循环滚动且不再显示折叠开关；包括花粉在内的全部持续型 Debuff 都会按实际受影响单位显示，不再错误挂在施放者头上。",
+        "补全正式服、测试服和国服域名的脚本连接权限，避免相关请求被脚本管理器拦截。",
+        "目标等级、生产耗时和市场数值现在会同时兼容逗号与小数点互换及混合千位格式，修复英文界面把“90,3 XP”误读为“903 XP”、导致升级时间严重偏短的问题。",
+        "手动编辑的资产历史不再被自动快照或其他页面的旧数据覆盖；写入失败会明确提示并回滚，库存总资产旁的昨日浮动也会在历史变化后立即稳定刷新。",
+        "DPS 工具统一更名为 MWI DPS Tracker，历史缓存限制为 1 MB，超限时从最早记录开始清理，避免长期使用持续占用浏览器存储。",
+        "修复已执行过的无限任务被移到队列后方时错误显示为 0 秒的问题；购物车市场高亮改为精确匹配，咖啡、茶等物品不再误标记带前缀的其他变体。",
+        "盈亏的装备、库存、订单、房屋、技能、不可交易代币和神龛分项现在都可以点击炫耀；会按真实对比天数、当前价值、涨跌额和比例，随机生成上涨、下跌或持平的中文战报。",
+        "26.4.16 已标记为重要更新；旧版本玩家会收到顶部更新提醒，以获得铁牛排行榜、任务与战斗修复、市场备用接口、资产和生产等完整改进。",
+      ]),
+      en: Object.freeze([
+        "Fixed task artwork remaining on the previous task after the first reroll and fixed the independent map-number switch. Train planning now validates real upgrade chains, so parallel branches such as Radiant Robes and Flame Robes are no longer merged incorrectly.",
+        "DPS accuracy now uses saved panel snapshots for the full party and monsters to calculate theoretical hit chance. Every member of a five-player party has a subtab, each monster shows accuracy, evasion, and the result, and legacy observed attempts are never presented as theoretical data.",
+        "Marketplace requests automatically fall back to q7.nainai.eu.org when the primary endpoint fails, followed by stale cache and the built-in backup. A new Task Tokens in assets switch defaults off and independently controls assets, history, and value sorting.",
+        "Opening a production page now silently refreshes inventory once, retries automatically when the first snapshot is unavailable, and keeps manual refresh notifications. Guild reputation exchanges now show the item quantity, credit-point return, and cost per point together.",
+        "Added Iron Cow leaderboard support. Iron Cow rankings now show the same badge styles as Standard rankings together with the corresponding XP/hour data.",
+        "Fixed lock state leaking between several tasks whose reroll choices were open at the same time; each task's Cowbell and coin choices now follow only its own category. Battle Buff/Debuff bars now loop left in a single row after the third icon with no expand toggle, and every persistent Debuff, including Toxic Pollen, follows the affected unit instead of appearing above the caster.",
+        "Added script connection permissions for the live, test, and China game domains so related requests are not blocked by userscript managers.",
+        "Target-level estimates, production durations, and market values now accept swapped comma/period decimals and mixed grouping formats. This fixes English panels reading “90,3 XP” as “903 XP” and severely underestimating level-up time.",
+        "Manually edited asset history is no longer overwritten by automatic snapshots or stale data from another page. Failed writes now report and roll back, and the yesterday change beside Total assets refreshes immediately when history changes.",
+        "The DPS tool is now branded MWI DPS Tracker throughout. Its history cache is capped at 1 MB and removes the oldest records first, preventing browser storage from growing indefinitely.",
+        "Fixed progressed infinite actions showing as zero seconds after being moved behind another queue item. Shopping highlights now use exact item matching, so coffee, tea, and similar items no longer mark prefixed variants.",
+        "Equipment, Inventory, Market listings, Houses, Abilities, Non-tradable tokens, and Shrine rows in P/L can now be clicked to flex. Each creates a randomized English rise, fall, or flat report using the real comparison period, current value, amount, and percentage.",
+        "Version 26.4.16 is now marked as an important update. Players on older releases will see the top update prompt for Iron Cow rankings, task and battle fixes, marketplace fallback, asset improvements, Production updates, and the rest of this release.",
+      ]),
+    }),
+  }),
+  Object.freeze({
     id: "26.4.15",
     version: "26.4.15",
     publishedAt: "2026-08-17",

@@ -1453,32 +1453,28 @@ const KikiMeter = (() => {
     }
     if (mainMode === "accuracy") {
       const rows = (view.players || [])
-        .filter((player) => player.accuracy && player.accuracy.attempts > 0)
+        .filter((player) => player.accuracy?.theoretical)
         .map((player) => ({
           name: player.name,
-          attempts: player.accuracy.attempts,
-          hits: player.accuracy.hits,
+          theoretical: true,
+          combatStyle: player.accuracy.combatStyle,
+          accuracyRating: player.accuracy.accuracyRating,
           pct: player.accuracy.pct,
           monsters: player.accuracy.monsters,
         }))
-        .sort(
-          (a, b) =>
-            b.pct - a.pct ||
-            b.attempts - a.attempts ||
-            a.name.localeCompare(b.name),
-        );
+        .sort((a, b) => a.name.localeCompare(b.name));
       renderAccuracyRows(
         playersListEl,
         rows,
         () => renderView(ViewData.get()),
         view.current
           ? langText(
-              "暂无可靠判定的直接攻击",
-              "No reliably resolved direct attacks yet",
+              "当前战斗没有可用的玩家或怪物面板属性",
+              "No player or monster panel ratings are available",
             )
           : langText(
-              "该历史记录暂无命中率数据",
-              "No accuracy data for this combat record",
+              "该历史记录没有理论命中率面板快照",
+              "This record has no theoretical accuracy snapshot",
             ),
       );
       return;
@@ -1564,8 +1560,8 @@ const KikiMeter = (() => {
     const dur = formatDuration(entry.durationSeconds);
     const total = entry.teamDamage;
     let out = langText(
-      `=== KikiMeter 战斗记录｜${dateStr}｜${dur} ===\n`,
-      `=== KikiMeter Combat Record | ${dateStr} | ${dur} ===\n`,
+      `=== MWI DPS Tracker 战斗记录｜${dateStr}｜${dur} ===\n`,
+      `=== MWI DPS Tracker Combat Record | ${dateStr} | ${dur} ===\n`,
     );
     out += langText(
       `团队：${formatRate(entry.teamDps || 0)} DPS｜总伤害 ${formatDamage(total || 0)}`,

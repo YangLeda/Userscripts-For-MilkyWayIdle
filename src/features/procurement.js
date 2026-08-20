@@ -23,6 +23,10 @@ let marketSessionDone = new Map();
 let marketSessionActive = false;
 let marketSessionRequiresModal = false;
 let marketSessionStartedAt = 0;
+let autoInventoryRefreshHost = null;
+let autoInventoryRefreshDone = false;
+let autoInventoryRefreshInProgress = false;
+let autoInventoryRefreshRetry = null;
 let marketSessionModalSeen = false;
 let marketSessionHost = null;
 let marketSessionRestoreNavTarget = "";
@@ -1305,15 +1309,28 @@ function appendSunnyEnhancingCompatibility(root) {
 }
 
 function findMaterialHost(panel, itemHrid) {
-  const bare = procurement.normalizeItemHrid(itemHrid).split("/").at(-1);
+  const normalizedItemHrid = procurement.normalizeItemHrid(itemHrid);
   for (const node of panel.querySelectorAll('[class*="Item_itemContainer"]')) {
     const href =
       node.querySelector("svg use")?.getAttribute("href") ??
       node.querySelector("svg use")?.getAttribute("xlink:href") ??
       "";
-    if (href.includes(bare)) return node;
+    if (itemHridFromSpriteHref(href) === normalizedItemHrid) return node;
   }
   return null;
+}
+
+function itemHridFromSpriteHref(href) {
+  const source = String(href ?? "");
+  const hashIndex = source.lastIndexOf("#");
+  if (hashIndex < 0) return "";
+  let fragment = source.slice(hashIndex + 1).split(/[?&]/, 1)[0];
+  try {
+    fragment = decodeURIComponent(fragment);
+  } catch {
+    // Keep the original fragment when a third-party sprite URL is malformed.
+  }
+  return procurement.normalizeItemHrid(fragment);
 }
 
 function markRequirementCell(element, row, column) {
@@ -1407,10 +1424,78 @@ function resolveInventoryRefreshHost(panel) {
   return activeModal ? { host: activeModal, sourcePanel: modalPanel } : null;
 }
 
+function resetAutoInventoryRefresh() {
+  autoInventoryRefreshHost = null;
+  autoInventoryRefreshDone = false;
+  autoInventoryRefreshInProgress = false;
+  if (autoInventoryRefreshRetry !== null) {
+    clearTimeout(autoInventoryRefreshRetry);
+    autoInventoryRefreshRetry = null;
+  }
+}
+
+function refreshInventorySnapshot(sourcePanel, { silent = false } = {}) {
+  const liveItems = resolveLiveCharacterItems(sourcePanel);
+  if (liveItems === null) {
+    if (!silent) {
+      showToast(
+        t(
+          "暂时无法读取游戏当前仓库，请稍后再试",
+          "Could not read the current game inventory; try again shortly",
+        ),
+      );
+    }
+    return null;
+  }
+  runtime.state.initData_characterItems = liveItems.map((item) => ({
+    ...item,
+  }));
+  const result = procurement.replaceInventorySnapshot(liveItems);
+  lastProductionSignature = "";
+  renderShell();
+  runtime.api.renderProductionPanel?.();
+  renderProductionProcurement();
+  if (!silent) {
+    showToast(
+      runtime.config.isZH
+        ? `仓库已更新：${result.changedItemCount} 种库存变化；购物车 ${result.cartItemCount} 项、项目 ${result.projectCount} 个已按最新库存重算`
+        : `Inventory updated: ${result.changedItemCount} item changes; ${result.cartItemCount} cart items and ${result.projectCount} projects recalculated`,
+    );
+  }
+  return result;
+}
+
+function maybeAutoRefreshInventory(host, sourcePanel) {
+  if (autoInventoryRefreshHost !== host) {
+    resetAutoInventoryRefresh();
+    autoInventoryRefreshHost = host;
+  }
+  if (
+    autoInventoryRefreshDone ||
+    autoInventoryRefreshInProgress ||
+    autoInventoryRefreshRetry !== null
+  )
+    return;
+  autoInventoryRefreshInProgress = true;
+  autoInventoryRefreshDone =
+    refreshInventorySnapshot(sourcePanel, { silent: true }) !== null;
+  autoInventoryRefreshInProgress = false;
+  if (autoInventoryRefreshDone) return;
+  autoInventoryRefreshRetry = setTimeout(() => {
+    autoInventoryRefreshRetry = null;
+    if (autoInventoryRefreshHost !== host || !host.isConnected) return;
+    autoInventoryRefreshInProgress = true;
+    autoInventoryRefreshDone =
+      refreshInventorySnapshot(sourcePanel, { silent: true }) !== null;
+    autoInventoryRefreshInProgress = false;
+  }, 180);
+}
+
 function ensureInventoryRefreshButton(panel) {
   const resolved = resolveInventoryRefreshHost(panel);
   if (!resolved) {
     removeInventoryRefreshButtons();
+    resetAutoInventoryRefresh();
     return null;
   }
   const { host, sourcePanel } = resolved;
@@ -1427,7 +1512,10 @@ function ensureInventoryRefreshButton(panel) {
     needsPositionAnchor,
   );
   let button = host.querySelector(`#${PRODUCTION_REFRESH_ID}`);
-  if (button) return button;
+  if (button) {
+    maybeAutoRefreshInventory(host, sourcePanel);
+    return button;
+  }
   button = document.createElement("button");
   button.id = PRODUCTION_REFRESH_ID;
   button.type = "button";
@@ -1445,33 +1533,11 @@ function ensureInventoryRefreshButton(panel) {
     event.stopPropagation();
     if (button.disabled) return;
     button.disabled = true;
-    const liveItems = resolveLiveCharacterItems(sourcePanel);
-    if (liveItems === null) {
-      button.disabled = false;
-      showToast(
-        t(
-          "暂时无法读取游戏当前仓库，请稍后再试",
-          "Could not read the current game inventory; try again shortly",
-        ),
-      );
-      return;
-    }
-    runtime.state.initData_characterItems = liveItems.map((item) => ({
-      ...item,
-    }));
-    const result = procurement.replaceInventorySnapshot(liveItems);
-    lastProductionSignature = "";
-    renderShell();
-    runtime.api.renderProductionPanel?.();
-    renderProductionProcurement();
-    showToast(
-      runtime.config.isZH
-        ? `仓库已更新：${result.changedItemCount} 种库存变化；购物车 ${result.cartItemCount} 项、项目 ${result.projectCount} 个已按最新库存重算`
-        : `Inventory updated: ${result.changedItemCount} item changes; ${result.cartItemCount} cart items and ${result.projectCount} projects recalculated`,
-    );
+    refreshInventorySnapshot(sourcePanel);
     if (button.isConnected) button.disabled = false;
   });
   host.append(button);
+  maybeAutoRefreshInventory(host, sourcePanel);
   return button;
 }
 
@@ -1502,6 +1568,7 @@ function renderProductionProcurement() {
   const context = resolveActionPanel();
   if (!context) {
     removeInventoryRefreshButtons();
+    resetAutoInventoryRefresh();
     const houseModal = findActiveHouseModal();
     if (!houseModal) {
       clearProductionUi();
@@ -2313,20 +2380,20 @@ function highlightMarketItems(panel, scroll = false) {
     return;
   }
   const pending = new Set(
-    pendingItems().map((item) => item.itemHrid.split("/").at(-1)),
+    pendingItems().map((item) => procurement.normalizeItemHrid(item.itemHrid)),
   );
   let scrollTarget = null;
   for (const use of panel.querySelectorAll("svg use")) {
     const href =
       use.getAttribute("href") ?? use.getAttribute("xlink:href") ?? "";
-    const matched = [...pending].find((bare) => href.includes(bare));
-    if (!matched) continue;
+    const matched = itemHridFromSpriteHref(href);
+    if (!pending.has(matched)) continue;
     const host =
       use.closest('[class*="Item_itemContainer"]') ?? use.parentElement;
     host.classList.add("mwi-procurement-market-target");
     if (
       currentMarketTarget &&
-      currentMarketTarget.endsWith(matched) &&
+      procurement.normalizeItemHrid(currentMarketTarget) === matched &&
       !scrollTarget
     ) {
       scrollTarget = host;
@@ -2773,6 +2840,7 @@ runtime.features.register({
       renderScheduler.cancel();
       stopActiveHoldRepeat();
       removeInventoryRefreshButtons();
+      resetAutoInventoryRefresh();
       clearProductionUi();
       clearMarketUi();
       document.getElementById(STYLE_ID)?.remove();

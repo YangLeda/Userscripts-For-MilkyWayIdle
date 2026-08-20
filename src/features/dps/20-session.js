@@ -691,6 +691,7 @@ const Session = (() => {
           ...playerHealing.keys(),
           ...playerTaken.keys(),
           ...playerAccuracy.keys(),
+          ...Object.keys(meta.accuracyProfiles || {}),
         ]),
       );
     },
@@ -744,7 +745,7 @@ const Diagnostics = (() => {
   let orphLog = 0;
   const w = (cnt, msg) => {
     if (cnt < MAX) {
-      console.warn("[KikiMeter] " + msg);
+      console.warn("[MWI DPS Tracker] " + msg);
       return cnt + 1;
     }
     return cnt;
@@ -796,11 +797,13 @@ const Capture = (() => {
       active = true;
       log = [];
       counts = {};
-      console.info("[KikiMeter] 已开始抓取战斗消息。");
+      console.info("[MWI DPS Tracker] 已开始抓取战斗消息。");
     },
     stop() {
       active = false;
-      console.info("[KikiMeter] 已停止抓取，共 " + log.length + " 条消息。");
+      console.info(
+        "[MWI DPS Tracker] 已停止抓取，共 " + log.length + " 条消息。",
+      );
     },
     record(type, payload) {
       if (!active) return;

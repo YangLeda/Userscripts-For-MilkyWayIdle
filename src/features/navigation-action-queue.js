@@ -3,6 +3,7 @@ import {
   formatRemainingDuration,
   formatRemainingTiming,
 } from "../core/time-format.js";
+import { orderCharacterActions } from "../core/message-state.js";
 
 export const THIRD_PARTY_LINKS = [
   {
@@ -175,9 +176,7 @@ function handleActionQueueMenueCalculateTime(added) {
   const actionDivList = added.querySelectorAll(
     "div.QueuedActions_action__r3HlD",
   );
-  const actions = [...(runtime.state.currentActionsHridList ?? [])].sort(
-    (left, right) => Number(left?.ordinal ?? 0) - Number(right?.ordinal ?? 0),
-  );
+  const actions = orderCharacterActions(runtime.state.currentActionsHridList);
   if (!actionDivList.length && actions.length > 1) return false;
   if (actionDivList.length !== Math.max(0, actions.length - 1)) {
     console.error(
@@ -213,8 +212,9 @@ function handleActionQueueMenueCalculateTime(added) {
       continue;
     }
     const actionHrid = String(actionObj.actionHrid ?? "");
-    const count = actionObj.maxCount - actionObj.currentCount;
-    const isInfinite = count === 0 || actionHrid.includes("/combat/");
+    const count = runtime.api.getActionRemainingCount(actionObj);
+    const isInfinite =
+      !Number.isFinite(count) || actionHrid.includes("/combat/");
     const detail = runtime.state.initData_actionDetailMap[actionHrid];
     const timing = detail
       ? runtime.api.projectActionTiming?.(

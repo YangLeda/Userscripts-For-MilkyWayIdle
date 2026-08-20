@@ -22,6 +22,27 @@ import "./70-recount-compat.js";
 
 const langText = (zh, en) => (Settings.getLanguage() === "en" ? en : zh);
 
+function mergeAccuracyProfiles(previous = {}, incoming = {}) {
+  const merged = { ...(previous || {}) };
+  for (const [name, profile] of Object.entries(incoming || {})) {
+    const old = merged[name];
+    const sameRatings =
+      old?.theoretical &&
+      old.combatStyle === profile?.combatStyle &&
+      Number(old.accuracyRating) === Number(profile?.accuracyRating);
+    merged[name] = sameRatings
+      ? {
+          ...profile,
+          monsters: {
+            ...(old.monsters || {}),
+            ...(profile?.monsters || {}),
+          },
+        }
+      : profile;
+  }
+  return merged;
+}
+
 function start(scope) {
   installThemeFont();
   let currentPlayerNames = [];
@@ -39,7 +60,7 @@ function start(scope) {
       hasConfirmedCombat = true;
     } catch (e) {
       HistoryStore.clearActive();
-      console.warn("[KikiMeter] 已忽略损坏的活动战斗缓存。");
+      console.warn("[MWI DPS Tracker] 已忽略损坏的活动战斗缓存。");
     }
   }
 
@@ -76,6 +97,7 @@ function start(scope) {
       teamDamage: snap.teamDamage,
       teamKills: Session.getTeamKills(),
       classes: snap.classes,
+      accuracyProfiles: m.accuracyProfiles || {},
       fragments: snap.fragments,
       graph: snap.graph,
       players: names.map((n) => ({
@@ -161,6 +183,14 @@ function start(scope) {
           manualReset: false,
         });
     }
+    Session.setMeta({
+      accuracyProfiles: sameEncounter
+        ? mergeAccuracyProfiles(
+            old.accuracyProfiles,
+            detail.accuracyProfiles || {},
+          )
+        : detail.accuracyProfiles || {},
+    });
     ClassSystem.applyClasses(detail.classes);
     hasConfirmedCombat = true;
     pendingReconnect = false;
@@ -184,7 +214,7 @@ function start(scope) {
     hasConfirmedCombat = true;
     currentPlayerNames = Session.getAllPlayerNames();
     persistActive(true);
-    console.info("[KikiMeter] 已结束当前记录并新建记录：" + reason);
+    console.info("[MWI DPS Tracker] 已结束当前记录并新建记录：" + reason);
   }
 
   function buildClipboardText() {
@@ -197,7 +227,7 @@ function start(scope) {
       d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     let out = langText(
       `=== 银河奶牛 DPS 统计｜${view.label}｜${dateStr}｜${formatDuration(view.elapsed)} ===\n`,
-      `=== MWI DPS Meter | ${view.label} | ${dateStr} | ${formatDuration(view.elapsed)} ===\n`,
+      `=== MWI DPS Tracker | ${view.label} | ${dateStr} | ${formatDuration(view.elapsed)} ===\n`,
     );
     out += langText(
       `团队：${formatRate(view.teamDps)} DPS｜总伤害 ${formatDamage(total)}`,
@@ -275,7 +305,7 @@ function start(scope) {
     persistActive(true);
     hasConfirmedCombat = true;
     console.info(
-      "[KikiMeter] 公会试炼阶段已结束；当天进入下一关时将继续累计。",
+      "[MWI DPS Tracker] 公会试炼阶段已结束；当天进入下一关时将继续累计。",
     );
   });
   scope.event(SocketHook.bus, "guildSlotRenamed", (ev) => {
@@ -307,14 +337,6 @@ function start(scope) {
         ev.detail.name,
         ev.detail.amount,
         ev.detail.source,
-      );
-  });
-  scope.event(SocketHook.bus, "attackResolved", (ev) => {
-    if (acceptsCombatEvent(ev.detail))
-      Session.addPlayerAccuracy(
-        ev.detail.name,
-        ev.detail.hit,
-        ev.detail.targets,
       );
   });
   scope.event(SocketHook.bus, "healing", (ev) => {

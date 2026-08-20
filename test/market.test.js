@@ -52,6 +52,21 @@ test("number parsing and formatting follow the game locale instead of the system
   localStorage.setItem("i18nextLng", "en-US");
 });
 
+test("number parsing tolerates decimal separators that disagree with the UI locale", () => {
+  localStorage.setItem("i18nextLng", "en-US");
+  assert.equal(runtime.api.parseGameNumber("90,3"), 90.3);
+  assert.equal(runtime.api.parseGameNumber("90.3"), 90.3);
+  assert.equal(runtime.api.parseCompactNumber("1.234,56K"), 1_234_560);
+  assert.equal(runtime.api.parseCompactNumber("1,234.56K"), 1_234_560);
+  assert.equal(runtime.api.parseCompactNumber("1\u202f234,5K"), 1_234_500);
+  assert.equal(runtime.api.parseCompactNumber("1,234K"), 1_234_000);
+
+  localStorage.setItem("i18nextLng", "pt");
+  assert.equal(runtime.api.parseCompactNumber("1.234K"), 1_234_000);
+  assert.equal(runtime.api.parseGameNumber("1,234"), 1.234);
+  localStorage.setItem("i18nextLng", "en-US");
+});
+
 test("optional million cap keeps billion and trillion values in M", () => {
   runtime.settings.settingsMap.displayCapMM.isTrue = true;
   assert.equal(runtime.api.numberFormatter(1_200_000_000), "1,200M");
@@ -87,6 +102,59 @@ test("market endpoints and refresh intervals follow the current server", () => {
     runtime.api.getMarketRefreshInterval("www.milkywayidle.com"),
     6 * 60 * 60 * 1000,
   );
+  assert.equal(
+    runtime.api.getMarketFallbackUrl(),
+    "https://q7.nainai.eu.org/game_data/marketplace.json",
+  );
+});
+
+test("production market fetch falls back only after the primary request fails", async () => {
+  localStorage.removeItem("MWITools_marketAPI_timestamp");
+  localStorage.removeItem("MWITools_marketAPI_json");
+  const requested = [];
+  const payload = JSON.stringify({
+    timestamp: 2,
+    marketData: { "/items/milk": { 0: { a: 12, b: 10 } } },
+  });
+  globalThis.GM_xmlhttpRequest = ({ url, onload }) => {
+    requested.push(url);
+    globalThis.queueMicrotask(() =>
+      onload(
+        url.includes("q7.nainai.eu.org")
+          ? { status: 200, responseText: payload }
+          : { status: 503, responseText: "" },
+      ),
+    );
+  };
+
+  const result = await runtime.api.fetchMarketJSON(
+    true,
+    "www.milkywayidle.com",
+  );
+  assert.equal(result.timestamp, 2);
+  assert.deepEqual(requested, [
+    "https://www.milkywayidle.com/game_data/marketplace.json",
+    "https://q7.nainai.eu.org/game_data/marketplace.json",
+  ]);
+  delete globalThis.GM_xmlhttpRequest;
+});
+
+test("test server market fetch never calls the production fallback", async () => {
+  localStorage.removeItem("MWITools_marketAPI_timestamp");
+  localStorage.removeItem("MWITools_marketAPI_json");
+  const requested = [];
+  globalThis.GM_xmlhttpRequest = ({ url, onload }) => {
+    requested.push(url);
+    globalThis.queueMicrotask(() => onload({ status: 503, responseText: "" }));
+  };
+  assert.equal(
+    await runtime.api.fetchMarketJSON(true, "test.milkywayidle.com"),
+    null,
+  );
+  assert.deepEqual(requested, [
+    "https://test.milkywayidle.com/game_data/marketplace.json",
+  ]);
+  delete globalThis.GM_xmlhttpRequest;
 });
 
 test("server values use exact enhancement levels and orderbook fallbacks", () => {

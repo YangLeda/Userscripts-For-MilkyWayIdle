@@ -394,19 +394,21 @@ test("the shared Ctrl tooltip announcement is red, bold, and underlined", () => 
   scope.cleanup();
 });
 
-test("announcement history preserves each release separately through 26.4.15", () => {
-  const release15 = ANNOUNCEMENTS[0];
-  const latest = ANNOUNCEMENTS[1];
-  const newest = ANNOUNCEMENTS[2];
-  const current = ANNOUNCEMENTS[3];
-  const previous = ANNOUNCEMENTS[4];
-  const prior = ANNOUNCEMENTS[5];
-  const older = ANNOUNCEMENTS[6];
-  const oldest = ANNOUNCEMENTS[7];
-  const earliest = ANNOUNCEMENTS[8];
+test("announcement history preserves each release separately through 26.4.16", () => {
+  const release16 = ANNOUNCEMENTS[0];
+  const release15 = ANNOUNCEMENTS[1];
+  const latest = ANNOUNCEMENTS[2];
+  const newest = ANNOUNCEMENTS[3];
+  const current = ANNOUNCEMENTS[4];
+  const previous = ANNOUNCEMENTS[5];
+  const prior = ANNOUNCEMENTS[6];
+  const older = ANNOUNCEMENTS[7];
+  const oldest = ANNOUNCEMENTS[8];
+  const earliest = ANNOUNCEMENTS[9];
   assert.deepEqual(
     ANNOUNCEMENTS.map(({ version }) => version),
     [
+      "26.4.16",
       "26.4.15",
       "26.4.14",
       "26.4.13",
@@ -417,6 +419,21 @@ test("announcement history preserves each release separately through 26.4.15", (
       "26.4.7",
       "26.4.6",
     ],
+  );
+  assert.equal(release16.version, "26.4.16");
+  assert.equal(release16.publishedAt, "2026-08-20");
+  assert.match(release16.title.zh, /26\.4\.16 更新公告/);
+  assert.match(release16.title.en, /Version 26\.4\.16 update/);
+  assert.equal(release16.body.zh.length, release16.body.en.length);
+  assert.equal(release16.body.zh.length, 13);
+  assert.match(
+    release16.body.zh.join("\n"),
+    /任务首次刷新[\s\S]*地图编号[\s\S]*光辉袍服[\s\S]*烈焰袍服[\s\S]*DPS 命中率[\s\S]*五人队[\s\S]*q7\.nainai\.eu\.org[\s\S]*任务代币[\s\S]*生产制作页[\s\S]*公会信誉[\s\S]*铁牛排行榜支持[\s\S]*多个任务[\s\S]*单行循环滚动[\s\S]*连接权限[\s\S]*90,3 XP[\s\S]*手动编辑[\s\S]*MWI DPS Tracker[\s\S]*1 MB[\s\S]*无限任务[\s\S]*精确匹配[\s\S]*分项现在都可以点击炫耀[\s\S]*标记为重要更新/,
+  );
+  assert.doesNotMatch(release16.body.zh.join("\n"), /前 1 万|公开 JSON/);
+  assert.doesNotMatch(
+    release16.body.en.join("\n"),
+    /top-10,000|public JSON|synchronizes/i,
   );
   assert.equal(release15.version, "26.4.15");
   assert.equal(release15.publishedAt, "2026-08-17");

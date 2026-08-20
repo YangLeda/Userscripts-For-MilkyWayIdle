@@ -59,9 +59,12 @@ let lockedTaskFilters = new Set();
 let taskFilterLockStorageKey = "";
 let stickyVisibleSlots = new Set();
 let pendingStickyResetSlots = new Map();
-let activeRerollContext = null;
+let rerollContextsBySlot = new Map();
+let pendingRerollContexts = [];
 let warnedUnexpectedRerollButtons = false;
 const rerollButtonSnapshots = new WeakMap();
+const rerollContainerContexts = new WeakMap();
+const rerollButtonContexts = new WeakMap();
 
 const PROFESSIONS = [
   ["milking", "挤奶", "Milking"],
@@ -740,11 +743,20 @@ function taskIconMatches(card) {
 
 function visibleTaskTitle(card) {
   const name = card.querySelector('div[class*="RandomTask_name"]');
+  const nativeText = [...(name?.childNodes ?? [])]
+    .filter(
+      (node) =>
+        node.nodeType === 3 ||
+        (node.nodeType === 1 &&
+          !node.matches?.(
+            ".script_taskMapIndex,.mwi-task-new-badge,.mwi-task-train-planner",
+          )),
+    )
+    .map((node) => node.textContent ?? "")
+    .join(" ")
+    .trim();
   const text = String(
-    runtime.api.getOriTextFromElement?.(name ?? card) ??
-      name?.textContent ??
-      card.textContent ??
-      "",
+    nativeText || name?.textContent || card.textContent || "",
   );
   return text.trim().split("\n")[0].trim();
 }
@@ -1913,6 +1925,53 @@ function clearAllPendingStickyResets() {
   }
 }
 
+function removePendingRerollContext(context) {
+  pendingRerollContexts = pendingRerollContexts.filter(
+    (candidate) => candidate !== context,
+  );
+}
+
+function clearRerollContext(context, { cancelled = false } = {}) {
+  if (!context) return;
+  removePendingRerollContext(context);
+  if (rerollContextsBySlot.get(context.slot) === context) {
+    rerollContextsBySlot.delete(context.slot);
+  }
+  if (context.timeout) clearTimeout(context.timeout);
+  context.timeout = null;
+  if (cancelled) {
+    clearPendingStickyReset(context.slot);
+    pendingResetSlots.delete(context.slot);
+  } else if (context.confirmed) {
+    nativeResetChoiceUntil = 0;
+  }
+}
+
+function clearAllRerollContexts({ cancelled = false } = {}) {
+  for (const context of [...rerollContextsBySlot.values()]) {
+    clearRerollContext(context, { cancelled });
+  }
+  pendingRerollContexts = [];
+}
+
+function createRerollContext(slot) {
+  clearRerollContext(rerollContextsBySlot.get(slot));
+  const context = {
+    slot,
+    optionsSeen: false,
+    confirmed: false,
+    container: null,
+    timeout: null,
+  };
+  context.timeout = setTimeout(() => {
+    clearRerollContext(context, { cancelled: !context.confirmed });
+  }, 30_000);
+  context.timeout?.unref?.();
+  rerollContextsBySlot.set(slot, context);
+  pendingRerollContexts.push(context);
+  return context;
+}
+
 function finalizeStickyResetSlots(cards, tasks) {
   cards.forEach((card, index) => {
     const slot = Number(card.dataset.mwitoolsOriginalIndex ?? index);
@@ -1952,11 +2011,7 @@ function wireResetButtons(cards) {
         nativeResetChoiceUntil = Date.now() + 10_000;
         const slot = Number(card.dataset.mwitoolsOriginalIndex ?? index);
         pendingResetSlots.add(slot);
-        activeRerollContext = {
-          slot,
-          optionsSeen: false,
-          confirmed: false,
-        };
+        createRerollContext(slot);
         clearPendingStickyReset(slot);
         if (
           runtime.settings.get("taskStatistics") &&
@@ -2140,18 +2195,22 @@ function rerollChoiceButtons(container) {
   return native.length === 2 ? native : [];
 }
 
-function wireRerollChoiceButton(button) {
+function wireRerollChoiceButton(button, context) {
+  rerollButtonContexts.set(button, context ?? null);
   if (button[REROLL_CHOICE_HANDLER]) return;
   const handler = () => {
     if (button.dataset.mwitoolsTaskLockDisabled === "true") return;
-    if (activeRerollContext) activeRerollContext.confirmed = true;
+    const currentContext = rerollButtonContexts.get(button);
+    if (!currentContext) return;
+    currentContext.confirmed = true;
+    removePendingRerollContext(currentContext);
   };
   button[REROLL_CHOICE_HANDLER] = handler;
   button.addEventListener("click", handler, true);
 }
 
-function lockRerollButton(button) {
-  wireRerollChoiceButton(button);
+function lockRerollButton(button, context) {
+  wireRerollChoiceButton(button, context);
   if (!rerollButtonSnapshots.has(button)) {
     rerollButtonSnapshots.set(button, {
       disabled: button.disabled,
@@ -2206,6 +2265,80 @@ function restoreRerollButton(button) {
   rerollButtonSnapshots.delete(button);
 }
 
+function rerollContextForContainer(container) {
+  const bound = rerollContainerContexts.get(container);
+  if (bound && rerollContextsBySlot.get(bound.slot) === bound) return bound;
+
+  const card = container.closest?.(TASK_SELECTOR);
+  if (card) {
+    const cards = [...document.querySelectorAll(TASK_SELECTOR)].filter(
+      (candidate) => candidate.parentElement === card.parentElement,
+    );
+    const fallbackIndex = Math.max(0, cards.indexOf(card));
+    const slot = Number(card.dataset.mwitoolsOriginalIndex ?? fallbackIndex);
+    const direct = rerollContextsBySlot.get(slot);
+    if (direct) {
+      direct.container = container;
+      direct.optionsSeen = true;
+      removePendingRerollContext(direct);
+      rerollContainerContexts.set(container, direct);
+      return direct;
+    }
+  }
+
+  const queued = pendingRerollContexts.find(
+    (context) =>
+      rerollContextsBySlot.get(context.slot) === context &&
+      !context.container &&
+      !context.confirmed,
+  );
+  if (!queued) return null;
+  queued.container = container;
+  queued.optionsSeen = true;
+  removePendingRerollContext(queued);
+  rerollContainerContexts.set(container, queued);
+  return queued;
+}
+
+function liveLockClassificationForSlot(slot) {
+  const card = [...document.querySelectorAll(TASK_SELECTOR)].find(
+    (candidate, index) =>
+      Number(candidate.dataset.mwitoolsOriginalIndex ?? index) === slot,
+  );
+  if (!card) return pageClassifications.get(slot) ?? null;
+  const task = liveTaskForCard(card, runtime.state.characterQuests ?? []);
+  if (!task) return pageClassifications.get(slot) ?? null;
+  const title = visibleTaskTitle(card);
+  const profession = professionForCard(card, task, title);
+  return {
+    profession,
+    dungeonLocations:
+      profession.key === "combat"
+        ? dungeonLocationsForCard(card, task, { title })
+        : [],
+  };
+}
+
+function cleanupClosedRerollContexts(containers) {
+  const liveContainers = new Set(containers);
+  for (const context of [...rerollContextsBySlot.values()]) {
+    if (!context.optionsSeen || !context.container) continue;
+    if (
+      context.container.isConnected &&
+      liveContainers.has(context.container)
+    ) {
+      continue;
+    }
+    clearRerollContext(context, { cancelled: !context.confirmed });
+  }
+}
+
+function hasUnconfirmedRerollContext() {
+  return [...rerollContextsBySlot.values()].some(
+    (context) => context.optionsSeen && !context.confirmed,
+  );
+}
+
 function syncTaskRerollLocks(root = document) {
   ensureTaskFilterLockState();
   const containers = [
@@ -2217,29 +2350,24 @@ function syncTaskRerollLocks(root = document) {
     ) ?? []) {
       restoreRerollButton(button);
     }
-    if (activeRerollContext?.optionsSeen) {
-      if (!activeRerollContext.confirmed) {
-        clearPendingStickyReset(activeRerollContext.slot);
-        pendingResetSlots.delete(activeRerollContext.slot);
-      } else {
-        nativeResetChoiceUntil = 0;
-      }
-      activeRerollContext = null;
+    for (const context of [...rerollContextsBySlot.values()]) {
+      if (!context.optionsSeen) continue;
+      clearRerollContext(context, { cancelled: !context.confirmed });
     }
     return 0;
   }
 
-  if (activeRerollContext) activeRerollContext.optionsSeen = true;
-  const classification = activeRerollContext
-    ? pageClassifications.get(activeRerollContext.slot)
-    : null;
-  const locked = taskMatchesLockedFilters(classification);
+  cleanupClosedRerollContexts(containers);
   let changed = 0;
   for (const container of containers) {
+    const context = rerollContextForContainer(container);
+    const locked = taskMatchesLockedFilters(
+      context ? liveLockClassificationForSlot(context.slot) : null,
+    );
     const buttons = rerollChoiceButtons(container);
     if (buttons.length !== 2) {
       if (
-        activeRerollContext &&
+        context &&
         container.querySelector("button") &&
         !warnedUnexpectedRerollButtons
       ) {
@@ -2251,9 +2379,9 @@ function syncTaskRerollLocks(root = document) {
       continue;
     }
     for (const button of buttons) {
-      wireRerollChoiceButton(button);
+      wireRerollChoiceButton(button, context);
       if (locked) {
-        lockRerollButton(button);
+        lockRerollButton(button, context);
         changed += 1;
       } else {
         restoreRerollButton(button);
@@ -2342,7 +2470,7 @@ function renderTasks({ forceSort = false, allowReusedPositional = true } = {}) {
   repairRangedWayIdleRerollButtons();
   if (
     document.querySelector(REROLL_OPTIONS_SELECTOR) &&
-    !activeRerollContext?.confirmed
+    hasUnconfirmedRerollContext()
   ) {
     return true;
   }
@@ -2394,7 +2522,7 @@ function renderTasks({ forceSort = false, allowReusedPositional = true } = {}) {
     if (!resumedResetPage) {
       stickyVisibleSlots = new Set();
       clearAllPendingStickyResets();
-      activeRerollContext = null;
+      clearAllRerollContexts({ cancelled: true });
       pageOrderBySlot = new Map();
       resetTaskFilters();
     }
@@ -2511,7 +2639,7 @@ function cleanupTasks() {
   pendingResetSlots = new Set();
   stickyVisibleSlots = new Set();
   clearAllPendingStickyResets();
-  activeRerollContext = null;
+  clearAllRerollContexts({ cancelled: true });
   nativeResetChoiceUntil = 0;
   temporaryTaskReturn = null;
   runtime.state.mwitoolsPageNewTaskIds = new Set();

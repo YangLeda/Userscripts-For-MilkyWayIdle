@@ -42,7 +42,7 @@ function taskRemaining(task) {
 }
 
 export function collectTaskTrainGroups(quests = []) {
-  const groups = new Map();
+  const rootBuckets = new Map();
   const entries = quests.map((task, index) => {
     const actionHrid = taskActionHrid(task);
     const remaining = taskRemaining(task);
@@ -63,24 +63,41 @@ export function collectTaskTrainGroups(quests = []) {
       state: remaining <= 0 ? "done" : depth < 0 ? "isolated" : "planned",
     };
     if (entry.state === "planned") {
-      if (!groups.has(root)) groups.set(root, []);
-      groups.get(root).push(entry);
+      if (!rootBuckets.has(root)) rootBuckets.set(root, []);
+      rootBuckets.get(root).push(entry);
     }
     return entry;
   });
 
-  for (const group of groups.values()) {
-    group.sort(
+  const groups = new Map();
+  for (const [chainRoot, bucket] of rootBuckets) {
+    const pending = bucket.sort(
       (left, right) => right.depth - left.depth || left.index - right.index,
     );
-    const chain = runtime.api.trainPlanning.buildTrainChain(
-      group[0].outputHrid,
-    );
-    if (!chain.steps.length || chain.cycle || chain.truncated) {
-      for (const entry of group) entry.state = "isolated";
-      groups.delete(group[0].root);
-    } else {
+    let branch = 0;
+    while (pending.length) {
+      const top = pending.shift();
+      const chain = runtime.api.trainPlanning.buildTrainChain(top.outputHrid);
+      if (!chain.steps.length || chain.cycle || chain.truncated) {
+        top.state = "isolated";
+        continue;
+      }
+      const outputs = new Set(chain.steps.map((step) => step.outputHrid));
+      const group = [top];
+      for (let index = pending.length - 1; index >= 0; index -= 1) {
+        if (!outputs.has(pending[index].outputHrid)) continue;
+        group.push(pending[index]);
+        pending.splice(index, 1);
+      }
+      group.sort(
+        (left, right) => right.depth - left.depth || left.index - right.index,
+      );
+      const groupKey =
+        branch === 0 ? chainRoot : `${chainRoot}\u001f${top.outputHrid}`;
+      branch += 1;
+      for (const entry of group) entry.root = groupKey;
       group[0].state = "top";
+      groups.set(groupKey, group);
     }
   }
   return { entries, groups };

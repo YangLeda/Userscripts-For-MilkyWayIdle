@@ -863,116 +863,8 @@ const AccuracyBreakdownTooltip = (() => {
 })();
 
 function renderAccuracyRows(container, rows, rerender, emptyText) {
-  if (AccuracyBreakdownTooltip.isOpenFor(container)) {
-    AccuracyBreakdownTooltip.update(rows);
-    const existing = new Map(
-      [...container.querySelectorAll("[data-kikimeter-accuracy-row]")].map(
-        (line) => [line.dataset.player, line],
-      ),
-    );
-    if (
-      existing.size === rows.length &&
-      rows.every((row) => existing.has(row.name))
-    ) {
-      rows.forEach((row, index) => {
-        const line = existing.get(row.name);
-        line._accuracyRow = row;
-        line._accuracyRank.textContent = String(index + 1) + ".";
-        line._accuracyBar.style.width =
-          Math.max(0, Math.min(100, Number(row.pct) || 0)) + "%";
-        line._accuracyStats.textContent = `${(Number(row.pct) || 0).toFixed(1)}% (${Number(row.hits) || 0}/${Number(row.attempts) || 0})`;
-      });
-      rows.forEach((row) => container.appendChild(existing.get(row.name)));
-      return;
-    }
-    AccuracyBreakdownTooltip.close();
-  }
+  AccuracyBreakdownTooltip.close();
   container.replaceChildren();
-  rows.forEach((row, index) => {
-    const cls = ClassSystem.get(row.name),
-      line = el("div", {
-        position: "relative",
-        height: "24px",
-        margin: "2px 0",
-        overflow: "hidden",
-        minHeight: "24px",
-        flexShrink: "0",
-        boxSizing: "border-box",
-        borderRadius: "2px",
-        background: "rgba(0,0,0,.42)",
-        border: "1px solid rgba(255,255,255,.06)",
-        color: "#fff",
-      }),
-      bar = el("div", {
-        position: "absolute",
-        inset: "0 auto 0 0",
-        width: Math.max(0, Math.min(100, Number(row.pct) || 0)) + "%",
-        background: `linear-gradient(90deg,${cls.color}d9,${cls.color}70)`,
-        boxShadow: `inset 0 0 5px ${cls.color}`,
-      }),
-      content = el("div", {
-        position: "absolute",
-        inset: "0",
-        display: "flex",
-        alignItems: "center",
-        gap: "4px",
-        padding: "1px 5px",
-        whiteSpace: "nowrap",
-        textShadow: "0 1px 2px #000",
-      }),
-      rank = el("span", {
-        width: "18px",
-        textAlign: "right",
-        opacity: ".85",
-        fontSize: "11px",
-      }),
-      icon = iconElement(cls.icon, cls.label),
-      name = el("span", {
-        fontWeight: "600",
-        overflow: "hidden",
-        textOverflow: "ellipsis",
-        flex: "1",
-        minWidth: "30px",
-      }),
-      stats = el("span", {
-        fontSize: "11px",
-        fontVariantNumeric: "tabular-nums",
-        textAlign: "right",
-      });
-    line.dataset.kikimeterAccuracyRow = "true";
-    line.dataset.player = row.name;
-    line._accuracyRow = row;
-    line._accuracyRank = rank;
-    line._accuracyBar = bar;
-    line._accuracyStats = stats;
-    rank.textContent = String(index + 1) + ".";
-    Object.assign(icon.style, {
-      width: "19px",
-      height: "19px",
-      objectFit: "contain",
-      flexShrink: "0",
-      cursor: "pointer",
-      filter: "drop-shadow(0 1px 1px #000)",
-    });
-    icon.title = `${cls.label}${langText("｜点击选择职业", " | Click to choose class")}`;
-    icon.addEventListener("click", (event) => {
-      event.stopPropagation();
-      openClassPicker(row.name, icon, rerender);
-    });
-    name.textContent = row.name;
-    stats.textContent = `${(Number(row.pct) || 0).toFixed(1)}% (${Number(row.hits) || 0}/${Number(row.attempts) || 0})`;
-    line.title = langText(
-      "悬停查看对各怪物的命中率",
-      "Hover to view accuracy by monster",
-    );
-    line.addEventListener("mouseenter", () =>
-      AccuracyBreakdownTooltip.show(line, line._accuracyRow, container),
-    );
-    line.addEventListener("mouseleave", AccuracyBreakdownTooltip.scheduleClose);
-    content.append(rank, icon, name, stats);
-    line.append(bar, content);
-    container.appendChild(line);
-  });
   if (!rows.length) {
     const empty = el("div", {
       padding: "14px",
@@ -980,8 +872,147 @@ function renderAccuracyRows(container, rows, rerender, emptyText) {
       opacity: ".5",
     });
     empty.textContent =
-      emptyText || langText("暂无命中率数据", "No accuracy data");
+      emptyText ||
+      langText("暂无理论命中率数据", "No theoretical accuracy data");
     container.appendChild(empty);
+    return;
+  }
+
+  const selectedName = rows.some(
+    (row) => row.name === container.dataset.kikimeterAccuracyPlayer,
+  )
+    ? container.dataset.kikimeterAccuracyPlayer
+    : rows[0].name;
+  container.dataset.kikimeterAccuracyPlayer = selectedName;
+  const tabs = el("div", {
+    display: "flex",
+    gap: "3px",
+    overflowX: "auto",
+    padding: "1px 0 5px",
+    flexShrink: "0",
+  });
+  for (const row of rows) {
+    const selected = row.name === selectedName;
+    const button = el("button", {
+      flex: "0 0 auto",
+      maxWidth: "130px",
+      overflow: "hidden",
+      textOverflow: "ellipsis",
+      whiteSpace: "nowrap",
+      padding: "3px 7px",
+      border: selected
+        ? `1px solid ${ACCENT}`
+        : "1px solid rgba(255,255,255,.14)",
+      borderRadius: "4px",
+      background: selected ? "rgba(212,175,55,.18)" : "rgba(0,0,0,.3)",
+      color: selected ? "#fff" : "rgba(255,255,255,.72)",
+      font: "600 10px/1.2 inherit",
+      cursor: "pointer",
+    });
+    button.type = "button";
+    button.textContent = row.name;
+    button.title = row.name;
+    button.dataset.kikimeterAccuracyPlayerTab = row.name;
+    button.addEventListener("click", () => {
+      container.dataset.kikimeterAccuracyPlayer = row.name;
+      renderAccuracyRows(container, rows, rerender, emptyText);
+    });
+    tabs.appendChild(button);
+  }
+  container.appendChild(tabs);
+
+  const selected = rows.find((row) => row.name === selectedName) || rows[0];
+  const styleLabel = selected.combatStyle
+    ? selected.combatStyle[0].toUpperCase() + selected.combatStyle.slice(1)
+    : langText("未知战斗类型", "Unknown style");
+  const summary = el("div", {
+    padding: "2px 5px 5px",
+    color: "rgba(255,255,255,.65)",
+    fontSize: "9px",
+    flexShrink: "0",
+  });
+  const accuracyCopy = Number.isFinite(Number(selected.accuracyRating))
+    ? selected.accuracyRating
+    : "—";
+  summary.textContent = `${styleLabel} · ${langText("命中等级", "Accuracy rating")} ${accuracyCopy}`;
+  container.appendChild(summary);
+
+  const monsters = Array.isArray(selected.monsters) ? selected.monsters : [];
+  const cls = ClassSystem.get(selected.name);
+  for (const monster of monsters) {
+    const pct = Math.max(0, Math.min(100, Number(monster.pct) || 0));
+    const line = el("div", {
+      position: "relative",
+      height: "27px",
+      minHeight: "27px",
+      margin: "2px 0",
+      overflow: "hidden",
+      flexShrink: "0",
+      borderRadius: "2px",
+      background: "rgba(0,0,0,.42)",
+      border: "1px solid rgba(255,255,255,.06)",
+      color: "#fff",
+    });
+    line.dataset.kikimeterAccuracyMonsterRow = "true";
+    line.dataset.monsterHrid = monster.monsterHrid || "";
+    line.title = `${selected.name} · ${styleLabel}\n${langText("命中等级", "Accuracy rating")}: ${accuracyCopy}\n${langText("闪避等级", "Evasion rating")}: ${Number.isFinite(Number(monster.evasionRating)) ? monster.evasionRating : "—"}\n${langText("理论命中率", "Theoretical hit chance")}: ${pct.toFixed(2)}%`;
+    const bar = el("div", {
+      position: "absolute",
+      inset: "0 auto 0 0",
+      width: pct + "%",
+      background: `linear-gradient(90deg,${cls.color}d9,${cls.color}70)`,
+    });
+    const content = el("div", {
+      position: "absolute",
+      inset: "0",
+      display: "flex",
+      alignItems: "center",
+      gap: "6px",
+      padding: "1px 6px",
+      textShadow: "0 1px 2px #000",
+    });
+    const iconSource = monster.monsterHrid
+      ? GameAssets.monster(monster.monsterHrid)
+      : "";
+    if (iconSource) {
+      const icon = iconElement(iconSource, monster.monsterName);
+      Object.assign(icon.style, {
+        width: "20px",
+        height: "20px",
+        flexShrink: "0",
+      });
+      content.appendChild(icon);
+    }
+    const label = el("span", {
+      flex: "1",
+      minWidth: "40px",
+      overflow: "hidden",
+      textOverflow: "ellipsis",
+      whiteSpace: "nowrap",
+      fontWeight: "600",
+    });
+    label.textContent = monster.monsterName;
+    const stats = el("span", {
+      fontSize: "10px",
+      fontVariantNumeric: "tabular-nums",
+      whiteSpace: "nowrap",
+    });
+    stats.textContent = `${pct.toFixed(2)}%`;
+    content.append(label, stats);
+    line.append(bar, content);
+    container.appendChild(line);
+  }
+  if (!monsters.length) {
+    const unavailable = el("div", {
+      padding: "12px",
+      textAlign: "center",
+      opacity: ".55",
+    });
+    unavailable.textContent = langText(
+      "该玩家或当前怪物缺少可用的命中／闪避面板属性",
+      "This player or monster has no usable accuracy/evasion ratings",
+    );
+    container.appendChild(unavailable);
   }
 }
 

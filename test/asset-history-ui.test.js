@@ -60,7 +60,9 @@ const { AssetHistoryStore, getUtc8DayKey } =
 const { AssetCenter } =
   await import("../src/features/asset-history/25-center.js");
 const {
+  ASSET_COMPONENT_SHARE_TEMPLATE_COUNT,
   ASSET_SHARE_TEMPLATE_COUNT,
+  buildAssetComponentShareMessage,
   buildAssetShareMessage,
   createAssetHistoryUi,
   pasteAssetShareToChat,
@@ -480,6 +482,128 @@ test("asset sharing provides separate Chinese and English profit/loss phrases", 
   assert.deepEqual(observedValues, ["", message]);
   assert.equal(input.value, message);
   assert.equal(document.activeElement, input);
+});
+
+test("component asset sharing has bilingual rise, fall, and flat phrase pools", () => {
+  assert.ok(ASSET_COMPONENT_SHARE_TEMPLATE_COUNT >= 10);
+  const components = [
+    ["equipment", "装备", "Equipment"],
+    ["inventory", "库存", "Inventory"],
+    ["marketListings", "订单", "Market listings"],
+    ["houses", "房屋", "Houses"],
+    ["abilities", "技能", "Abilities"],
+    ["nonTradableTokens", "不可交易代币", "Non-tradable tokens"],
+    ["shrine", "神龛", "Shrine"],
+  ];
+  for (const isZH of [true, false]) {
+    runtime.config.isZH = isZH;
+    for (const [key, zh, en] of components) {
+      for (const [change, percent] of [
+        [250, 25],
+        [-250, -20],
+        [0, 0],
+      ]) {
+        const messages = new Set(
+          Array.from(
+            { length: ASSET_COMPONENT_SHARE_TEMPLATE_COUNT },
+            (_, index) =>
+              buildAssetComponentShareMessage(
+                {
+                  key,
+                  current: 1_000,
+                  change,
+                  percent,
+                  gapDays: 3,
+                },
+                index,
+              ),
+          ),
+        );
+        assert.equal(messages.size, ASSET_COMPONENT_SHARE_TEMPLATE_COUNT);
+        for (const message of messages) {
+          assert.match(message, new RegExp(isZH ? zh : en, "i"));
+          assert.match(message, /1,000/);
+          assert.match(message, isZH ? /相比 3 天前/ : /vs 3 days ago/i);
+          assert.match(message, new RegExp(`${Math.abs(change)}`));
+          assert.match(message, new RegExp(`${Math.abs(percent).toFixed(2)}%`));
+        }
+      }
+    }
+  }
+  runtime.config.isZH = true;
+  assert.match(
+    buildAssetComponentShareMessage({
+      key: "equipment",
+      current: 500,
+      change: 500,
+      percent: null,
+      gapDays: 1,
+    }),
+    /由 0 起步（无可比百分比）/,
+  );
+  assert.equal(
+    buildAssetComponentShareMessage({
+      key: "total",
+      current: 500,
+      change: 100,
+      percent: 25,
+    }),
+    "",
+  );
+});
+
+test("component asset rows paste their own comparison report into chat", () => {
+  document.body.replaceChildren();
+  intervals.clear();
+  const shell = gameShell();
+  const scope = runtime.createCleanupScope();
+  const scopeKey = "production:component-share";
+  const store = new AssetHistoryStore(localStorage);
+  const dayKey = getUtc8DayKey();
+  const previousDate = new Date(`${dayKey}T00:00:00Z`);
+  previousDate.setUTCDate(previousDate.getUTCDate() - 1);
+  const previousDayKey = previousDate.toISOString().slice(0, 10);
+  const previous = {
+    equipment: 800,
+    inventory: 200,
+    marketListings: 300,
+    houses: 400,
+    abilities: 500,
+    nonTradableTokens: 600,
+    shrine: 700,
+  };
+  store.updateDay(previousDayKey, previous, scopeKey);
+  const ui = createAssetHistoryUi({ scope, store, scopeKey });
+  document.querySelector("#mwitools-asset-history-tab").click();
+  ui.update({
+    values: {
+      ...previous,
+      equipment: 1_000,
+    },
+  });
+  const input = document.createElement("input");
+  input.className = "Chat_chatInput__test";
+  document.body.append(input);
+  const equipmentButton = document.querySelector(
+    '[data-component-share="equipment"]',
+  );
+  assert.equal(equipmentButton.disabled, false);
+  assert.equal(
+    document.querySelector('[data-component-share="inventory"]').disabled,
+    false,
+  );
+  equipmentButton.click();
+  assert.match(input.value, /装备/);
+  assert.match(input.value, /相比 1 天前/);
+  assert.match(input.value, /200/);
+  assert.match(input.value, /25\.00%/);
+  assert.match(
+    document.querySelector(".mwi-asset-share-status").textContent,
+    /已放入聊天框/,
+  );
+  ui.destroy();
+  scope.cleanup();
+  shell.remove();
 });
 
 test("盈亏 visually suppresses native selection without mutating React tab state", async () => {
@@ -1306,4 +1430,91 @@ test("asset center inserts one editable record into a historical date gap", () =
   ui.destroy();
   scope.cleanup();
   shell.remove();
+});
+
+test("manual asset edits survive automatic snapshots and storage reloads", () => {
+  const data = new Map();
+  const storage = {
+    getItem: (key) => data.get(key) ?? null,
+    setItem: (key, value) => data.set(key, String(value)),
+  };
+  const store = new AssetHistoryStore(storage);
+  const scopeKey = "production:manual-edit";
+  const dayKey = getUtc8DayKey();
+  const editedValues = {
+    equipment: 100,
+    inventory: 200,
+    marketListings: 300,
+    houses: 400,
+    abilities: 500,
+    nonTradableTokens: 600,
+    shrine: 700,
+  };
+  let changes = 0;
+  store.subscribe(() => {
+    changes += 1;
+  });
+  store.updateDay(dayKey, editedValues, scopeKey);
+
+  assert.equal(
+    store.record(
+      {
+        complete: true,
+        recordedAt: new Date().toISOString(),
+        server: "production",
+        characterId: "manual-edit",
+        values: { ...editedValues, equipment: 9_999 },
+      },
+      scopeKey,
+    ),
+    false,
+  );
+
+  const reloaded = new AssetHistoryStore(storage);
+  assert.equal(reloaded.getRole(scopeKey).days[dayKey].values.equipment, 100);
+  assert.equal(reloaded.getRole(scopeKey).days[dayKey].edited, true);
+  assert.equal(changes, 1);
+});
+
+test("asset day writes merge stale instances and roll back failed persistence", () => {
+  const data = new Map();
+  let failWrites = false;
+  const storage = {
+    getItem: (key) => data.get(key) ?? null,
+    setItem(key, value) {
+      if (failWrites) throw new Error("quota");
+      data.set(key, String(value));
+    },
+  };
+  const first = new AssetHistoryStore(storage);
+  const stale = new AssetHistoryStore(storage);
+  const scopeKey = "production:multi-tab";
+  const values = (equipment) => ({
+    equipment,
+    inventory: 2,
+    marketListings: 3,
+    houses: 4,
+    abilities: 5,
+    nonTradableTokens: 6,
+    shrine: 7,
+  });
+  first.updateDay("2026-08-18", values(10), scopeKey);
+  stale.updateDay("2026-08-19", values(20), scopeKey);
+  assert.deepEqual(
+    new AssetHistoryStore(storage).list(scopeKey).map(([dayKey]) => dayKey),
+    ["2026-08-18", "2026-08-19"],
+  );
+
+  failWrites = true;
+  assert.throws(
+    () => stale.updateDay("2026-08-19", values(999), scopeKey),
+    /quota/,
+  );
+  failWrites = false;
+  assert.equal(stale.getRole(scopeKey).days["2026-08-19"].values.equipment, 20);
+  assert.equal(
+    new AssetHistoryStore(storage).getRole(scopeKey).days["2026-08-19"].values
+      .equipment,
+    20,
+  );
 });

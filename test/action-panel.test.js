@@ -226,6 +226,51 @@ test("production details add target-level and working quick-input controls", asy
   assert.equal(document.querySelector(".mwi-production-quick-inputs"), null);
 });
 
+test("target-level XP accepts a decimal comma in an English game panel", async () => {
+  const panel = document.querySelector(
+    'div[class*="SkillActionDetail_regularComponent"]',
+  );
+  runtime.config.isZH = false;
+  localStorage.setItem("i18nextLng", "en-US");
+  runtime.state.initData_characterSkills = [
+    { skillHrid: "/skills/crafting", level: 103, experience: 103_000 },
+  ];
+  panel.innerHTML = `<div class="SkillActionDetail_name__test">Lumber</div>
+    <div class="SkillActionDetail_expGain__test">90,3 XP</div>
+    <div class="SkillActionDetail_info__test">
+      <div class="SkillActionDetail_label__test">Duration</div>
+      <div class="SkillActionDetail_value__test">13,39s</div>
+    </div>
+    <div class="SkillActionDetail_actionContainer__test">
+      <div class="SkillActionDetail_maxActionCountInput__test">
+        <input class="Input_input__native" value="300">
+      </div>
+    </div>
+    <div class="SkillActionDetail_dropTable__test"></div>`;
+  delete panel.dataset.mwitoolsActionPanel;
+
+  assert.equal(await runtime.api.handleActionPanel(panel), true);
+  const target = panel.querySelector("#tillLevelInput");
+  target.value = "105";
+  target.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+  assert.match(
+    panel.querySelector("#mwi-level-progress").textContent,
+    /24 actions/,
+  );
+  assert.equal(
+    panel.querySelector(
+      'div[class*="SkillActionDetail_maxActionCountInput"] input',
+    ).value,
+    "24",
+  );
+
+  runtime.config.isZH = true;
+  localStorage.setItem("i18nextLng", "zh-CN");
+  runtime.state.initData_characterSkills = [
+    { skillHrid: "/skills/crafting", level: 100, experience: 1_000 },
+  ];
+});
+
 test("target-level estimate retries cleanly after a partially mounted panel", async () => {
   const panel = document.querySelector(
     'div[class*="SkillActionDetail_regularComponent"]',

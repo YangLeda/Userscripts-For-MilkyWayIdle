@@ -330,6 +330,39 @@ test("queue totals keep the finite prefix and stop at the first infinity", () =>
   );
 });
 
+test("a progressed infinite action stays infinite after a finite action moves ahead", () => {
+  runtime.config.isZH = true;
+  runtime.state.currentActionsHridList = [
+    {
+      id: "infinite",
+      ordinal: 1,
+      actionHrid: "/actions/crafting/infinite",
+      hasMaxCount: false,
+      maxCount: 0,
+      currentCount: 5,
+    },
+    {
+      id: "finite",
+      actionHrid: "/actions/crafting/queued",
+      hasMaxCount: true,
+      maxCount: 10,
+      currentCount: 0,
+    },
+  ];
+  document.body.innerHTML = `<div><div class="QueuedActions_queuedActionsEditMenu__3OoQH"><div class="QueuedActions_actions__2Lur6"><div class="QueuedActions_action__r3HlD"><div></div></div></div></div></div>`;
+  const menu = document.querySelector(
+    ".QueuedActions_queuedActionsEditMenu__3OoQH",
+  );
+
+  runtime.api.handleActionQueueMenueCalculateTime(menu);
+
+  assert.equal(menu.querySelector(".script_actionTime").textContent, "∞");
+  assert.equal(
+    document.querySelector("#script_queueTotalTime").textContent,
+    "总时间：10分 + ∞",
+  );
+});
+
 test("open queue timing refreshes after an actions_updated reorder", async () => {
   runtime.settings.settingsMap.actionQueue.isTrue = true;
   runtime.state.currentActionsHridList = [

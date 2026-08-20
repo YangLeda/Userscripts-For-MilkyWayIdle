@@ -295,6 +295,29 @@ function applyLeaderboard(payload) {
   if (rows.length) runtime.state.guildLeaderboard = rows;
 }
 
+export function orderCharacterActions(actions) {
+  return (Array.isArray(actions) ? actions : [])
+    .map((action, index) => ({ action, index }))
+    .sort((left, right) => {
+      const leftOrdinal =
+        left.action?.ordinal === null || left.action?.ordinal === undefined
+          ? Number.NaN
+          : Number(left.action.ordinal);
+      const rightOrdinal =
+        right.action?.ordinal === null || right.action?.ordinal === undefined
+          ? Number.NaN
+          : Number(right.action.ordinal);
+      const leftOrder = Number.isFinite(leftOrdinal)
+        ? leftOrdinal
+        : Number.NEGATIVE_INFINITY;
+      const rightOrder = Number.isFinite(rightOrdinal)
+        ? rightOrdinal
+        : Number.NEGATIVE_INFINITY;
+      return leftOrder - rightOrder || left.index - right.index;
+    })
+    .map(({ action }) => action);
+}
+
 function normalizeActionList(actions) {
   const keyed = new Map();
   const idless = [];
@@ -315,19 +338,11 @@ function normalizeActionList(actions) {
       index: previous?.index ?? index,
     });
   }
-  return [...keyed.values(), ...idless]
-    .sort((left, right) => {
-      const leftOrdinal = Number(left.action?.ordinal);
-      const rightOrdinal = Number(right.action?.ordinal);
-      const leftOrder = Number.isFinite(leftOrdinal)
-        ? leftOrdinal
-        : Number.MAX_SAFE_INTEGER;
-      const rightOrder = Number.isFinite(rightOrdinal)
-        ? rightOrdinal
-        : Number.MAX_SAFE_INTEGER;
-      return leftOrder - rightOrder || left.index - right.index;
-    })
-    .map(({ action }) => action);
+  return orderCharacterActions(
+    [...keyed.values(), ...idless]
+      .sort((left, right) => left.index - right.index)
+      .map(({ action }) => action),
+  );
 }
 
 function applyActionsUpdated(payload) {
@@ -505,4 +520,5 @@ Object.assign(runtime.api, {
   applyLeaderboard,
   applyActionTypeBuffs,
   applySkillsUpdated,
+  orderCharacterActions,
 });

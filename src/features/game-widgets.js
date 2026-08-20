@@ -527,7 +527,7 @@ function handleMarketItemFilter(div, itemDetal) {
 /* 任务卡片显示战斗地图序号 */
 function handleTaskCard() {
   const taskNameDivs = document.querySelectorAll(
-    "div.RandomTask_randomTask__3B9fA div.RandomTask_name__1hl1b",
+    'div[class*="RandomTask_randomTask"] div[class*="RandomTask_name"]',
   );
   for (const div of taskNameDivs) {
     if (div.querySelector("span.script_taskMapIndex")) {

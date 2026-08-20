@@ -243,6 +243,7 @@ test("DPS feature reuses settings and cleans repeated enable-disable cycles", as
     attackAttemptCounter: 0,
     isPreparingAutoAttack: true,
     combatDetails: {
+      magicAccuracyRating: 100,
       combatStats: {
         combatStyleHrids: ["/combat_styles/magic"],
         damageType: "/damage_types/fire",
@@ -261,6 +262,7 @@ test("DPS feature reuses settings and cleans repeated enable-disable cycles", as
           name: "Training Rat",
           hrid: "/monsters/training_rat",
           currentHitpoints: 100,
+          combatDetails: { magicEvasionRating: 100 },
         },
       ],
     },
@@ -283,22 +285,20 @@ test("DPS feature reuses settings and cleans repeated enable-disable cycles", as
     /#steady_shot$/,
   );
   accuracyButton.click();
-  let accuracyRow = dpsPanel.querySelector("[data-kikimeter-accuracy-row]");
+  const playerTab = dpsPanel.querySelector(
+    '[data-kikimeter-accuracy-player-tab="集成甲"]',
+  );
+  assert.ok(playerTab, "the accuracy view must expose a player sub-tab");
+  let accuracyRow = dpsPanel.querySelector(
+    "[data-kikimeter-accuracy-monster-row]",
+  );
   assert.ok(accuracyRow);
-  assert.match(accuracyRow.textContent, /100\.0% \(1\/1\)/);
-  accuracyRow.dispatchEvent(new dom.window.MouseEvent("mouseenter"));
-  let accuracyTooltip = document.querySelector(
-    "[data-kikimeter-accuracy-tooltip]",
-  );
-  assert.ok(accuracyTooltip);
-  assert.match(accuracyTooltip.textContent, /Training Rat/);
-  assert.match(accuracyTooltip.textContent, /100\.0% \(1\/1\)/);
-  const monsterLine = accuracyTooltip.querySelector(
-    '[data-monster-hrid="/monsters/training_rat"]',
-  );
-  assert.ok(monsterLine, "accuracy details must keep the monster identity");
+  assert.match(accuracyRow.textContent, /Training Rat/);
+  assert.match(accuracyRow.textContent, /50\.00%/);
+  assert.match(accuracyRow.title, /Accuracy rating: 100/);
+  assert.match(accuracyRow.title, /Evasion rating: 100/);
   assert.match(
-    monsterLine.querySelector("svg use")?.getAttribute("href") || "",
+    accuracyRow.querySelector("svg use")?.getAttribute("href") || "",
     /combat_monsters_sprite\.test\.svg#training_rat$/,
   );
 
@@ -309,10 +309,8 @@ test("DPS feature reuses settings and cleans repeated enable-disable cycles", as
   };
   runtime.dispatchMessage(missPayload, JSON.stringify(missPayload));
   window.__MWI_DPS.selectSegment("current");
-  accuracyRow = dpsPanel.querySelector("[data-kikimeter-accuracy-row]");
-  assert.match(accuracyRow.textContent, /50\.0% \(1\/2\)/);
-  accuracyTooltip = document.querySelector("[data-kikimeter-accuracy-tooltip]");
-  assert.match(accuracyTooltip.textContent, /50\.0% \(1\/2\)/);
+  accuracyRow = dpsPanel.querySelector("[data-kikimeter-accuracy-monster-row]");
+  assert.match(accuracyRow.textContent, /50\.00%/);
 
   await runtime.features.disable("dps");
   assert.equal(window.__MWI_DPS.enabled, false);

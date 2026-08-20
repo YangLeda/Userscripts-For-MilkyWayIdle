@@ -20,7 +20,57 @@ runtime.config.isZH = true;
 let battleBuffsEnabled = false;
 runtime.settings.get = (id) =>
   id === "battleBuffs" ? battleBuffsEnabled : false;
+const OFFICIAL_PERSISTENT_DEBUFFS = Object.freeze([
+  ["/abilities/crippling_slash", "allEnemies", ["crippling_slash"]],
+  ["/abilities/fracturing_impact", "allEnemies", ["fracturing_impact"]],
+  ["/abilities/frost_surge", "allEnemies", ["frost_surge"]],
+  ["/abilities/ice_spear", "enemy", ["ice_spear"]],
+  ["/abilities/maim", "enemy", ["maim"]],
+  [
+    "/abilities/pestilent_shot",
+    "enemy",
+    [
+      "pestilent_shot_armor",
+      "pestilent_shot_water_resistance",
+      "pestilent_shot_nature_resistance",
+      "pestilent_shot_fire_resistance",
+    ],
+  ],
+  ["/abilities/puncture", "enemy", ["puncture"]],
+  [
+    "/abilities/smoke_burst",
+    "enemy",
+    ["smoke_burst_accuracy", "smoke_burst_evasion"],
+  ],
+  [
+    "/abilities/toxic_pollen",
+    "allEnemies",
+    [
+      "toxic_pollen_armor",
+      "toxic_pollen_water_resistance",
+      "toxic_pollen_nature_resistance",
+      "toxic_pollen_fire_resistance",
+    ],
+  ],
+]);
 runtime.state.initData_abilityDetailMap = {
+  ...Object.fromEntries(
+    OFFICIAL_PERSISTENT_DEBUFFS.map(([abilityHrid, targetType, buffHrids]) => [
+      abilityHrid,
+      {
+        abilityEffects: [
+          {
+            effectType: "/ability_effect_types/damage",
+            targetType,
+            buffs: buffHrids.map((buffHrid) => ({
+              uniqueHrid: `/buff_uniques/${buffHrid}`,
+              duration: 10_000_000_000,
+            })),
+          },
+        ],
+      },
+    ]),
+  ),
   "/abilities/berserk": {
     abilityEffects: [
       { targetType: "self", buffs: [{ duration: 8_000_000_000 }] },
@@ -29,16 +79,6 @@ runtime.state.initData_abilityDetailMap = {
   "/abilities/fierce_aura": {
     abilityEffects: [
       { targetType: "all_allies", buffs: [{ duration: 10_000_000_000 }] },
-    ],
-  },
-  "/abilities/maim": {
-    abilityEffects: [
-      { targetType: "enemy", buffs: [{ duration: 9_000_000_000 }] },
-    ],
-  },
-  "/abilities/puncture": {
-    abilityEffects: [
-      { targetType: "enemy", buffs: [{ duration: 12_000_000_000 }] },
     ],
   },
   "/abilities/toughness": {
@@ -69,6 +109,55 @@ runtime.state.initData_abilityDetailMap = {
   "/abilities/spike_shell": {
     abilityEffects: [
       { targetType: "self", buffs: [{ duration: 30_000_000_000 }] },
+    ],
+  },
+  "/abilities/withering_field": {
+    abilityEffects: [
+      {
+        effectType: "/ability_effect_types/damage",
+        targetType: "allEnemies",
+      },
+      {
+        effectType: "/ability_effect_types/debuff",
+        buffs: [{ duration: 11_000_000_000 }],
+      },
+    ],
+  },
+  "/abilities/hybrid_ward": {
+    abilityEffects: [
+      {
+        effectType: "/ability_effect_types/buff",
+        targetType: "self",
+        buffs: [{ duration: 15_000_000_000 }],
+      },
+      {
+        effectType: "/ability_effect_types/debuff",
+        targetType: "enemy",
+        buffs: [{ duration: 7_000_000_000 }],
+      },
+    ],
+  },
+  "/abilities/monster_hex": {
+    abilityEffects: [
+      {
+        effectType: "/ability_effect_types/debuff",
+        targetType: "enemy",
+        buffs: [{ duration: 6_000_000_000 }],
+      },
+    ],
+  },
+  "/abilities/marked_hex": {
+    abilityEffects: [
+      {
+        effectType: "/ability_effect_types/debuff",
+        targetType: "enemy",
+        buffs: [
+          {
+            uniqueHrid: "/buff_uniques/marked_hex",
+            duration: 13_000_000_000,
+          },
+        ],
+      },
     ],
   },
 };
@@ -107,12 +196,39 @@ function monsterUnits() {
 }
 
 test("battle buff catalog stays consistent", () => {
-  const { BUFFS, DEBUFFS, TEAM_BUFFS, SINGLE_TARGET_DEBUFFS } =
-    runtime.api.battleBuffs;
+  const {
+    BUFFS,
+    DEBUFFS,
+    TEAM_BUFFS,
+    SINGLE_TARGET_DEBUFFS,
+    ALL_TARGET_DEBUFFS,
+  } = runtime.api.battleBuffs;
   // Team buffs and single-target debuffs must reference known abilities.
   for (const hrid of TEAM_BUFFS) assert.ok(BUFFS.has(hrid), hrid);
   for (const hrid of SINGLE_TARGET_DEBUFFS) assert.ok(DEBUFFS.has(hrid), hrid);
-  assert.equal(DEBUFFS.get("/abilities/puncture"), 12);
+  assert.equal(DEBUFFS.get("/abilities/puncture"), 10);
+  assert.ok(DEBUFFS.has("/abilities/withering_field"));
+  assert.ok(ALL_TARGET_DEBUFFS.has("/abilities/withering_field"));
+  assert.equal(SINGLE_TARGET_DEBUFFS.has("/abilities/withering_field"), false);
+
+  for (const [abilityHrid, targetType] of OFFICIAL_PERSISTENT_DEBUFFS) {
+    assert.ok(DEBUFFS.has(abilityHrid), `${abilityHrid} is a debuff`);
+    assert.equal(
+      BUFFS.has(abilityHrid),
+      false,
+      `${abilityHrid} must never render as a caster buff`,
+    );
+    assert.equal(
+      ALL_TARGET_DEBUFFS.has(abilityHrid),
+      targetType === "allEnemies",
+      `${abilityHrid} has the correct all-target classification`,
+    );
+    assert.equal(
+      SINGLE_TARGET_DEBUFFS.has(abilityHrid),
+      targetType === "enemy",
+      `${abilityHrid} has the correct single-target classification`,
+    );
+  }
 });
 
 test("a cast buff renders an icon chip below the caster", async () => {
@@ -146,8 +262,8 @@ test("a cast buff renders an icon chip below the caster", async () => {
   battleBuffsEnabled = false;
 });
 
-test("buff cards keep fixed rows and remember independent expansion", async () => {
-  localStorage.removeItem(EXPANSION_STORAGE_KEY);
+test("status bars stay single-row and marquee after the third icon", async () => {
+  localStorage.setItem(EXPANSION_STORAGE_KEY, JSON.stringify(["legacy"]));
   battleBuffsEnabled = true;
   battleMarkup(2, 1);
   await runtime.features.enable("battleBuffs");
@@ -156,17 +272,14 @@ test("buff cards keep fixed rows and remember independent expansion", async () =
   const secondShell = playerUnits()[1].querySelector(".mwi-buff-shell");
   assert.ok(firstShell, "empty cards reserve their buff space immediately");
   assert.ok(secondShell, "every visible unit receives an independent shell");
-  assert.equal(firstShell.dataset.expanded, "false");
-  assert.equal(secondShell.dataset.expanded, "false");
+  assert.equal(firstShell.querySelector(".mwi-buff-toggle"), null);
+  assert.equal(secondShell.querySelector(".mwi-buff-toggle"), null);
 
   const styles = document.querySelector("#mwi-buff-style").textContent;
-  assert.match(styles, /grid-template-rows:21px 18px/);
-  assert.match(styles, /data-expanded="true"[^}]*grid-template-rows:46px 18px/);
-  assert.match(
-    styles,
-    /data-expanded="true"[^}]*\.mwi-buffbar[^}]*overflow-y:auto/,
-  );
-  assert.doesNotMatch(styles, /\.mwi-buffbar[^}]*height:auto/);
+  assert.match(styles, /mwi-buff-shell\{[^}]*height:21px/);
+  assert.match(styles, /@keyframes mwi-buff-marquee/);
+  assert.match(styles, /prefers-reduced-motion:reduce/);
+  assert.doesNotMatch(styles, /data-expanded|mwi-buff-toggle/);
 
   const abilities = [
     "/abilities/berserk",
@@ -186,55 +299,42 @@ test("buff cards keep fixed rows and remember independent expansion", async () =
   };
 
   const firstBar = firstShell.querySelector(".mwi-buffbar");
-  const firstToggle = firstShell.querySelector(".mwi-buff-toggle");
   abilities.slice(0, 3).forEach(applyBuff);
   assert.equal(firstBar.querySelectorAll(".mwi-chip").length, 3);
-  assert.doesNotMatch(firstToggle.textContent, /\+/);
+  assert.equal(firstBar.dataset.scrolling, undefined);
+  assert.equal(firstBar.querySelectorAll(".mwi-buff-sequence").length, 1);
   applyBuff(abilities[3]);
-  assert.equal(firstBar.querySelectorAll(".mwi-chip").length, 4);
-  assert.match(firstToggle.textContent, /\+1/);
-  assert.equal(firstToggle.getAttribute("aria-expanded"), "false");
+  assert.equal(firstBar.dataset.scrolling, "true");
+  assert.equal(firstBar.querySelectorAll(".mwi-buff-sequence").length, 2);
+  assert.equal(firstBar.querySelectorAll(".mwi-chip").length, 8);
+  assert.equal(
+    firstBar
+      .querySelector('.mwi-buff-sequence[aria-hidden="true"]')
+      ?.getAttribute("aria-hidden"),
+    "true",
+  );
+  assert.match(
+    firstBar.style.getPropertyValue("--mwi-marquee-distance"),
+    /px$/,
+  );
+  assert.match(firstBar.style.getPropertyValue("--mwi-marquee-duration"), /s$/);
   assert.equal(secondShell.querySelectorAll(".mwi-chip").length, 0);
 
-  firstToggle.click();
-  assert.equal(firstShell.dataset.expanded, "true");
-  assert.equal(firstToggle.getAttribute("aria-expanded"), "true");
-  assert.doesNotMatch(firstToggle.textContent, /\+/);
-  assert.equal(secondShell.dataset.expanded, "false");
-  assert.equal(
-    JSON.parse(localStorage.getItem(EXPANSION_STORAGE_KEY)).length,
-    1,
-  );
-
-  abilities.slice(4, 6).forEach(applyBuff);
-  assert.equal(firstBar.querySelectorAll(".mwi-chip").length, 6);
-  assert.doesNotMatch(firstToggle.textContent, /\+/);
-  applyBuff(abilities[6]);
-  assert.equal(firstBar.querySelectorAll(".mwi-chip").length, 7);
-  assert.match(firstToggle.textContent, /\+1/);
-
-  firstBar.scrollTop = 12;
+  const stableTrack = firstBar.querySelector(".mwi-buff-track");
   runtime.dispatchMessage({
     type: "battle_updated",
-    pMap: { 0: { abilityHrid: "/abilities/spike_shell" } },
+    pMap: { 0: { abilityHrid: abilities[3] } },
     mMap: {},
   });
   assert.equal(
-    firstBar.scrollTop,
-    12,
-    "countdown redraws preserve inner scroll",
-  );
-
-  await runtime.features.disable("battleBuffs");
-  battleMarkup(2, 1);
-  await runtime.features.enable("battleBuffs");
-  assert.equal(
-    playerUnits()[0].querySelector(".mwi-buff-shell").dataset.expanded,
-    "true",
+    firstBar.querySelector(".mwi-buff-track"),
+    stableTrack,
+    "countdown and repeated effects update in place without restarting marquee",
   );
   assert.equal(
-    playerUnits()[1].querySelector(".mwi-buff-shell").dataset.expanded,
-    "false",
+    localStorage.getItem(EXPANSION_STORAGE_KEY),
+    JSON.stringify(["legacy"]),
+    "the retired expansion preference is ignored without deleting user storage",
   );
 
   await runtime.features.disable("battleBuffs");
@@ -306,6 +406,166 @@ test("a cast debuff lands on the damaged monster the following frame", async () 
   battleBuffsEnabled = false;
 });
 
+test("explicit and hybrid debuffs stay on affected targets", async () => {
+  battleBuffsEnabled = true;
+  battleMarkup(2, 2);
+  await runtime.features.enable("battleBuffs");
+
+  runtime.dispatchMessage({
+    type: "battle_updated",
+    pMap: {
+      0: { abilityHrid: "/abilities/withering_field", cHP: 100 },
+      1: { cHP: 100 },
+    },
+    mMap: { 0: { cHP: 100 }, 1: { cHP: 100 } },
+  });
+  assert.equal(
+    playerUnits()[0].querySelectorAll(".mwi-chip.mwi-debuff").length,
+    0,
+    "a debuff without its own targetType is never downgraded to a caster buff",
+  );
+  runtime.dispatchMessage({
+    type: "battle_updated",
+    pMap: { 0: { isAutoAtk: true } },
+    mMap: {},
+  });
+  for (const monster of monsterUnits()) {
+    assert.equal(monster.querySelectorAll(".mwi-chip.mwi-debuff").length, 1);
+  }
+
+  runtime.dispatchMessage({
+    type: "battle_updated",
+    pMap: { 1: { abilityHrid: "/abilities/hybrid_ward" } },
+    mMap: {},
+  });
+  assert.equal(
+    playerUnits()[1].querySelectorAll(".mwi-chip.mwi-buff").length,
+    1,
+    "the friendly half of a hybrid skill remains on its caster",
+  );
+  runtime.dispatchMessage({
+    type: "battle_updated",
+    pMap: { 1: { isAutoAtk: true } },
+    mMap: { 1: { cHP: 80 } },
+  });
+  assert.match(
+    monsterUnits()[1]
+      .querySelector("use[href$='#hybrid_ward']")
+      ?.getAttribute("href") ?? "",
+    /#hybrid_ward$/,
+  );
+  assert.equal(
+    playerUnits()[1].querySelectorAll(".mwi-chip.mwi-debuff").length,
+    0,
+  );
+
+  runtime.dispatchMessage({
+    type: "battle_updated",
+    pMap: {},
+    mMap: { 0: { abilityHrid: "/abilities/monster_hex" } },
+  });
+  runtime.dispatchMessage({
+    type: "battle_updated",
+    pMap: { 1: { cHP: 70 } },
+    mMap: { 0: { isAutoAtk: true } },
+  });
+  assert.match(
+    playerUnits()[1]
+      .querySelector("use[href$='#monster_hex']")
+      ?.getAttribute("href") ?? "",
+    /#monster_hex$/,
+    "monster debuffs land on the damaged player",
+  );
+  assert.equal(
+    monsterUnits()[0].querySelector("use[href$='#monster_hex']"),
+    null,
+  );
+
+  await runtime.features.disable("battleBuffs");
+  battleBuffsEnabled = false;
+});
+
+test("combatBuffMap authoritatively places a status on its owning unit", async () => {
+  battleBuffsEnabled = true;
+  battleMarkup(1, 2);
+  await runtime.features.enable("battleBuffs");
+
+  runtime.dispatchMessage({
+    type: "battle_updated",
+    pMap: { 0: { abilityHrid: "/abilities/marked_hex", cHP: 100 } },
+    mMap: {
+      0: { cHP: 100 },
+      1: {
+        cHP: 100,
+        combatBuffMap: {
+          "/buff_uniques/marked_hex": {
+            uniqueHrid: "/buff_uniques/marked_hex",
+            startTime: new Date().toISOString(),
+            duration: 13_000_000_000,
+          },
+        },
+      },
+    },
+  });
+
+  assert.equal(monsterUnits()[0].querySelectorAll(".mwi-chip").length, 0);
+  assert.match(
+    monsterUnits()[1].querySelector("use")?.getAttribute("href") ?? "",
+    /#marked_hex$/,
+  );
+  assert.equal(playerUnits()[0].querySelectorAll(".mwi-chip").length, 0);
+
+  await runtime.features.disable("battleBuffs");
+  battleBuffsEnabled = false;
+});
+
+test("partial authoritative maps do not hide an all-target debuff from other hit units", async () => {
+  battleBuffsEnabled = true;
+  battleMarkup(1, 2);
+  await runtime.features.enable("battleBuffs");
+
+  runtime.dispatchMessage({
+    type: "battle_updated",
+    pMap: { 0: { abilityHrid: "/abilities/toxic_pollen", cHP: 100 } },
+    mMap: { 0: { cHP: 100 }, 1: { cHP: 100 } },
+  });
+  runtime.dispatchMessage({
+    type: "battle_updated",
+    pMap: { 0: { isAutoAtk: true } },
+    mMap: {
+      0: {
+        cHP: 80,
+        combatBuffMap: {
+          "/buff_uniques/toxic_pollen_armor": {
+            uniqueHrid: "/buff_uniques/toxic_pollen_armor",
+            startTime: new Date().toISOString(),
+            duration: 10_000_000_000,
+          },
+        },
+      },
+      1: { cHP: 75 },
+    },
+  });
+
+  for (const monster of monsterUnits()) {
+    assert.match(
+      monster
+        .querySelector("use[href$='#toxic_pollen']")
+        ?.getAttribute("href") ?? "",
+      /#toxic_pollen$/,
+      "every affected monster receives Toxic Pollen",
+    );
+  }
+  assert.equal(
+    playerUnits()[0].querySelector("use[href$='#toxic_pollen']"),
+    null,
+    "Toxic Pollen never appears on its caster",
+  );
+
+  await runtime.features.disable("battleBuffs");
+  battleBuffsEnabled = false;
+});
+
 test("disabling the feature removes all buff bars", async () => {
   battleBuffsEnabled = true;
   battleMarkup(1, 1);
@@ -317,7 +577,7 @@ test("disabling the feature removes all buff bars", async () => {
   });
   assert.ok(playerUnits()[0].querySelector(".mwi-buffbar"));
   assert.ok(playerUnits()[0].querySelector(".mwi-buff-shell"));
-  assert.ok(playerUnits()[0].querySelector(".mwi-buff-toggle"));
+  assert.equal(playerUnits()[0].querySelector(".mwi-buff-toggle"), null);
   assert.ok(playerUnits()[0].querySelector(".mwi-has-buffbar"));
   assert.ok(document.querySelector("#mwi-buff-style"));
 

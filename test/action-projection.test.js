@@ -303,6 +303,10 @@ test("infinite production is capped by live material inventory", () => {
   assert.equal(result.totalSeconds, 100);
   assert.equal(result.outputs[0].expectedCount, 10);
   assert.equal(result.totalProfit, 800);
+  assert.equal(
+    runtime.api.getActionRemainingCount({ maxCount: 0, currentCount: 100 }),
+    Infinity,
+  );
 
   const queue = runtime.api.projectQueue(
     [
