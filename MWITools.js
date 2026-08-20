@@ -29659,7 +29659,8 @@ ${locks}` : ""}`;
           "手动编辑的资产历史不再被自动快照或其他页面的旧数据覆盖；写入失败会明确提示并回滚，库存总资产旁的昨日浮动也会在历史变化后立即稳定刷新。",
           "DPS 工具统一更名为 MWI DPS Tracker，历史缓存限制为 1 MB，超限时从最早记录开始清理，避免长期使用持续占用浏览器存储。",
           "修复已执行过的无限任务被移到队列后方时错误显示为 0 秒的问题；购物车市场高亮改为精确匹配，咖啡、茶等物品不再误标记带前缀的其他变体。",
-          "盈亏的装备、库存、订单、房屋、技能、不可交易代币和神龛分项现在都可以点击炫耀；会按真实对比天数、当前价值、涨跌额和比例，随机生成上涨、下跌或持平的中文战报。"
+          "盈亏的装备、库存、订单、房屋、技能、不可交易代币和神龛分项现在都可以点击炫耀；会按真实对比天数、当前价值、涨跌额和比例，随机生成上涨、下跌或持平的中文战报。",
+          "26.4.16 已标记为重要更新；旧版本玩家会收到顶部更新提醒，以获得铁牛排行榜、任务与战斗修复、市场备用接口、资产和生产等完整改进。"
         ]),
         en: Object.freeze([
           "Fixed task artwork remaining on the previous task after the first reroll and fixed the independent map-number switch. Train planning now validates real upgrade chains, so parallel branches such as Radiant Robes and Flame Robes are no longer merged incorrectly.",
@@ -29673,7 +29674,8 @@ ${locks}` : ""}`;
           "Manually edited asset history is no longer overwritten by automatic snapshots or stale data from another page. Failed writes now report and roll back, and the yesterday change beside Total assets refreshes immediately when history changes.",
           "The DPS tool is now branded MWI DPS Tracker throughout. Its history cache is capped at 1 MB and removes the oldest records first, preventing browser storage from growing indefinitely.",
           "Fixed progressed infinite actions showing as zero seconds after being moved behind another queue item. Shopping highlights now use exact item matching, so coffee, tea, and similar items no longer mark prefixed variants.",
-          "Equipment, Inventory, Market listings, Houses, Abilities, Non-tradable tokens, and Shrine rows in P/L can now be clicked to flex. Each creates a randomized English rise, fall, or flat report using the real comparison period, current value, amount, and percentage."
+          "Equipment, Inventory, Market listings, Houses, Abilities, Non-tradable tokens, and Shrine rows in P/L can now be clicked to flex. Each creates a randomized English rise, fall, or flat report using the real comparison period, current value, amount, and percentage.",
+          "Version 26.4.16 is now marked as an important update. Players on older releases will see the top update prompt for Iron Cow rankings, task and battle fixes, marketplace fallback, asset improvements, Production updates, and the rest of this release."
         ])
       })
     }),
