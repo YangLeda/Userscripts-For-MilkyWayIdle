@@ -60,7 +60,7 @@ function start(scope) {
       hasConfirmedCombat = true;
     } catch (e) {
       HistoryStore.clearActive();
-      console.warn("[KikiMeter] 已忽略损坏的活动战斗缓存。");
+      console.warn("[MWI DPS Tracker] 已忽略损坏的活动战斗缓存。");
     }
   }
 
@@ -214,7 +214,7 @@ function start(scope) {
     hasConfirmedCombat = true;
     currentPlayerNames = Session.getAllPlayerNames();
     persistActive(true);
-    console.info("[KikiMeter] 已结束当前记录并新建记录：" + reason);
+    console.info("[MWI DPS Tracker] 已结束当前记录并新建记录：" + reason);
   }
 
   function buildClipboardText() {
@@ -227,7 +227,7 @@ function start(scope) {
       d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     let out = langText(
       `=== 银河奶牛 DPS 统计｜${view.label}｜${dateStr}｜${formatDuration(view.elapsed)} ===\n`,
-      `=== MWI DPS Meter | ${view.label} | ${dateStr} | ${formatDuration(view.elapsed)} ===\n`,
+      `=== MWI DPS Tracker | ${view.label} | ${dateStr} | ${formatDuration(view.elapsed)} ===\n`,
     );
     out += langText(
       `团队：${formatRate(view.teamDps)} DPS｜总伤害 ${formatDamage(total)}`,
@@ -305,7 +305,7 @@ function start(scope) {
     persistActive(true);
     hasConfirmedCombat = true;
     console.info(
-      "[KikiMeter] 公会试炼阶段已结束；当天进入下一关时将继续累计。",
+      "[MWI DPS Tracker] 公会试炼阶段已结束；当天进入下一关时将继续累计。",
     );
   });
   scope.event(SocketHook.bus, "guildSlotRenamed", (ev) => {

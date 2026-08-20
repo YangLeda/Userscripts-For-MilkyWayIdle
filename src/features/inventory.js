@@ -1199,3 +1199,5 @@ Object.assign(runtime.api, {
   addInvSortButton,
   addGuildCreditConversionsSortButton,
 });
+
+runtime.api.assetHistory?.subscribe?.(() => scheduleNetworthRefresh());

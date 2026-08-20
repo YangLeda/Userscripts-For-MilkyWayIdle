@@ -354,7 +354,7 @@ const SocketHook = (() => {
 
     if (guildSlotNames.size === 0 && Settings.getDebugMode()) {
       console.warn(
-        "[KikiMeter][Guild] 玩家姓名解析失败，页面选择器可能已经变化。" +
+        "[MWI DPS Tracker][Guild] 玩家姓名解析失败，页面选择器可能已经变化。" +
           "请在试炼中运行 window.__MWI_DPS.scanGuildNames() 查看诊断。",
       );
     }
@@ -386,12 +386,14 @@ const SocketHook = (() => {
     const localName = [...keyToName.values()][0];
     if (!localName) {
       console.warn(
-        "[KikiMeter] 尚不知道本地玩家姓名。" +
+        "[MWI DPS Tracker] 尚不知道本地玩家姓名。" +
           "请在公会试炼进行中再次运行此命令。",
       );
       return [];
     }
-    console.log(`[KikiMeter] 正在精确搜索文本 "${localName}" （页面 DOM）…`);
+    console.log(
+      `[MWI DPS Tracker] 正在精确搜索文本 "${localName}" （页面 DOM）…`,
+    );
     const matches = [];
     document.querySelectorAll("*").forEach((el) => {
       if (isOwnUI(el)) return;
@@ -401,7 +403,7 @@ const SocketHook = (() => {
         matches.push(el);
       }
     });
-    console.log(`[KikiMeter] ${matches.length} 个完全匹配项。`);
+    console.log(`[MWI DPS Tracker] ${matches.length} 个完全匹配项。`);
     console.log("=====================================================");
     matches.forEach((el, i) => {
       console.log(`--- 匹配项 #${i} ---`);
@@ -453,7 +455,7 @@ const SocketHook = (() => {
     // les versions précédentes (console.table / objets imbriqués) ne se
     // copiaient pas correctement depuis la console Chrome.
     console.log(
-      `[KikiMeter] 预计玩家数：约 ${target} 名；${out.length} 个候选容器：`,
+      `[MWI DPS Tracker] 预计玩家数：约 ${target} 名；${out.length} 个候选容器：`,
     );
     console.log("=====================================================");
     out.forEach((c, i) => {
@@ -464,7 +466,7 @@ const SocketHook = (() => {
     console.log("=====================================================");
     if (out.length === 0) {
       console.warn(
-        "[KikiMeter] 没有找到子元素数量完全匹配的容器。" +
+        "[MWI DPS Tracker] 没有找到子元素数量完全匹配的容器。" +
           "请运行 window.__MWI_DPS.scanGuildNamesLoose() 执行宽松搜索。",
       );
     }
@@ -507,7 +509,7 @@ const SocketHook = (() => {
     out.sort((a, b) => b.nameLikeCount - a.nameLikeCount);
     const top = out.slice(0, 15);
     console.log(
-      `[KikiMeter] 宽松搜索：${out.length} 个候选容器，显示前 15 个：`,
+      `[MWI DPS Tracker] 宽松搜索：${out.length} 个候选容器，显示前 15 个：`,
     );
     console.log("=====================================================");
     top.forEach((c, i) => {
@@ -543,7 +545,7 @@ const SocketHook = (() => {
           });
         }
       });
-    console.log(`[KikiMeter] ${out.length} 个候选属性：`);
+    console.log(`[MWI DPS Tracker] ${out.length} 个候选属性：`);
     console.table(out.slice(0, 60));
     return out;
   }
@@ -2909,7 +2911,7 @@ const SocketHook = (() => {
   function previewGuildNames() {
     resolveGuildNames(guildMaxSlot);
     console.log(
-      `[KikiMeter] ${guildSlotNames.size} 个姓名已解析（预计人数约 ${guildMaxSlot}) :`,
+      `[MWI DPS Tracker] ${guildSlotNames.size} 个姓名已解析（预计人数约 ${guildMaxSlot}) :`,
     );
     console.log("=====================================================");
     [...guildSlotNames.entries()].forEach(([slot, name]) => {
@@ -2918,7 +2920,7 @@ const SocketHook = (() => {
     console.log("=====================================================");
     if (guildSlotNames.size !== guildMaxSlot) {
       console.warn(
-        `[KikiMeter] 注意：${guildSlotNames.size} 个姓名已解析，但预计有 ${guildMaxSlot} ` +
+        `[MWI DPS Tracker] 注意：${guildSlotNames.size} 个姓名已解析，但预计有 ${guildMaxSlot} ` +
           ` 个位置，映射可能发生偏移。` +
           `请确认位置 0 对应本地角色且顺序正确。`,
       );
@@ -2933,7 +2935,7 @@ const SocketHook = (() => {
   function debugCombatUnitNames() {
     const els = [...document.querySelectorAll('[class*="CombatUnit_name"]')];
     console.log(
-      `[KikiMeter] ${els.length} 个元素 [class*="CombatUnit_name"]（原始、未过滤）：`,
+      `[MWI DPS Tracker] ${els.length} 个元素 [class*="CombatUnit_name"]（原始、未过滤）：`,
     );
     console.log("=====================================================");
     els.forEach((el, i) => {
@@ -2945,7 +2947,7 @@ const SocketHook = (() => {
     console.log("=====================================================");
     if (els.length === 0) {
       console.warn(
-        "[KikiMeter] 没有找到元素：可能已离开试炼页面，或者游戏 CSS 类名已变化。" +
+        "[MWI DPS Tracker] 没有找到元素：可能已离开试炼页面，或者游戏 CSS 类名已变化。" +
           "请停留在试炼进行中页面并再次运行命令。",
       );
     }
@@ -2987,7 +2989,7 @@ const SocketHook = (() => {
       }
     });
     console.log(
-      `[KikiMeter] ${out.length} 个被省略显示的元素（文本省略号或 CSS ellipsis）：`,
+      `[MWI DPS Tracker] ${out.length} 个被省略显示的元素（文本省略号或 CSS ellipsis）：`,
     );
     console.log("=====================================================");
     out.forEach(({ el, mode }, i) => {
@@ -3008,7 +3010,7 @@ const SocketHook = (() => {
   function countMiniUnitNames() {
     const els = [...document.querySelectorAll('[class*="MiniUnit_name"]')];
     console.log(
-      `[KikiMeter] ${els.length} 个元素 [class*="MiniUnit_name"]（预计人数约 ${guildMaxSlot || "?"}) :`,
+      `[MWI DPS Tracker] ${els.length} 个元素 [class*="MiniUnit_name"]（预计人数约 ${guildMaxSlot || "?"}) :`,
     );
     console.log("=====================================================");
     els.forEach((el, i) => {
@@ -3030,7 +3032,7 @@ const SocketHook = (() => {
     const nameEls = [...document.querySelectorAll('[class*="MiniUnit_name"]')];
     if (nameEls.length === 0) {
       console.warn(
-        "[KikiMeter] 没有找到 MiniUnit 单元，请确认公会试炼正在进行。",
+        "[MWI DPS Tracker] 没有找到 MiniUnit 单元，请确认公会试炼正在进行。",
       );
       return [];
     }
@@ -3056,10 +3058,10 @@ const SocketHook = (() => {
       }
     });
     console.log(
-      `[KikiMeter] 主流类名（${counts[majority]}/${cells.length} 个单元） : "${majority}"`,
+      `[MWI DPS Tracker] 主流类名（${counts[majority]}/${cells.length} 个单元） : "${majority}"`,
     );
     console.log(
-      `[KikiMeter] ${outliers.length} 个异常单元（可能是本地玩家）：`,
+      `[MWI DPS Tracker] ${outliers.length} 个异常单元（可能是本地玩家）：`,
     );
     console.log("=====================================================");
     outliers.forEach((o) => {
@@ -3068,12 +3070,12 @@ const SocketHook = (() => {
     console.log("=====================================================");
     if (outliers.length === 0) {
       console.warn(
-        "[KikiMeter] 未发现异常单元；当前服务器可能没有本地玩家高亮，" +
+        "[MWI DPS Tracker] 未发现异常单元；当前服务器可能没有本地玩家高亮，" +
           "或者所有单元的样式完全相同。请观察角色单元是否存在边框或高亮。",
       );
     } else if (outliers.length > 1) {
       console.warn(
-        "[KikiMeter] 发现多个异常单元，仅凭类名无法确定本地玩家，请与页面显示进行比对。",
+        "[MWI DPS Tracker] 发现多个异常单元，仅凭类名无法确定本地玩家，请与页面显示进行比对。",
       );
     }
     return outliers;

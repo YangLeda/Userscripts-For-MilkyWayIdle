@@ -241,12 +241,12 @@ for (const [classId, definition] of Object.entries(ClassSystem.definitions)) {
   );
 }
 assert(
-  ClassDebug.report().startsWith("=== MWI DPS Meter | Class Diagnostics"),
+  ClassDebug.report().startsWith("=== MWI DPS Tracker | Class Diagnostics"),
   "职业调试报告没有跟随 DPS 英文设置",
 );
 assert(
   ClassProbe.report().startsWith(
-    "=== MWI DPS Meter | Manual Full Incoming-Message Probe",
+    "=== MWI DPS Tracker | Manual Full Incoming-Message Probe",
   ),
   "全量探针报告没有跟随 DPS 英文设置",
 );
@@ -2634,6 +2634,46 @@ try {
   globalThis.performance = realPerformance;
 }
 
+HistoryStore.clear();
+HistoryStore.push({
+  id: "byte-cap-favorite-oldest",
+  type: "combat",
+  date: new Date("2026-01-01T00:00:00Z").toISOString(),
+  favorite: true,
+  payload: "旧".repeat(110_000),
+});
+for (let index = 1; index <= 5; index += 1) {
+  HistoryStore.push({
+    id: `byte-cap-${index}`,
+    type: "combat",
+    date: new Date(`2026-01-0${index + 1}T00:00:00Z`).toISOString(),
+    payload: "x".repeat(220_000),
+  });
+}
+assert(
+  HistoryStore.getStoredByteSize() <= HistoryStore.maxHistoryBytes,
+  "DPS 历史缓存超过了 1 MB 硬上限",
+);
+assert(
+  !HistoryStore.getAll().some(
+    (entry) => entry.id === "byte-cap-favorite-oldest",
+  ) && HistoryStore.getAll().some((entry) => entry.id === "byte-cap-5"),
+  "DPS 字节上限没有优先删除最早记录，或错误保留了超限收藏",
+);
+HistoryStore.push({
+  id: "single-oversized-record",
+  type: "combat",
+  date: new Date("2030-01-01T00:00:00Z").toISOString(),
+  payload: "x".repeat(1_000_100),
+});
+assert(
+  HistoryStore.getStoredByteSize() <= HistoryStore.maxHistoryBytes &&
+    !HistoryStore.getAll().some(
+      (entry) => entry.id === "single-oversized-record",
+    ),
+  "单条超大 DPS 记录仍被持久化",
+);
+
 console.log(
-  "银河奶牛DPS统计 tests: classes, attribution, reconnect, history, and Details segment selection passed.",
+  "MWI DPS Tracker tests: classes, attribution, reconnect, history, and Details segment selection passed.",
 );

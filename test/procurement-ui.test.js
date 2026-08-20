@@ -1290,6 +1290,43 @@ test("market shopping navigation renders item icons instead of name pills", () =
   runtime.api.procurement.removeFromCart("/items/cotton");
 });
 
+test("market highlighting matches exact item sprite fragments", () => {
+  runtime.api.procurement.clearCart({ includeStarred: true });
+  runtime.api.procurement.addToCart({
+    itemHrid: "/items/stamina_coffee",
+    name: "Stamina Coffee",
+    quantity: 1,
+  });
+  const modal = document.createElement("div");
+  modal.className = "MainPanel_marketplaceModal__exact-fixture";
+  const panel = document.createElement("section");
+  panel.className = "MarketplacePanel_marketplacePanel__exact-fixture";
+  panel.innerHTML = `
+    <div class="Item_itemContainer__exact" data-item="base"><svg><use href="/static/media/items_sprite.test.svg#stamina_coffee"></use></svg></div>
+    <div class="Item_itemContainer__exact" data-item="prefixed"><svg><use href="/static/media/items_sprite.test.svg#super_stamina_coffee"></use></svg></div>`;
+  panel.getClientRects = () => [{}];
+  modal.append(panel);
+  document.body.append(modal);
+
+  runtime.api.updateProcurementMarketUi();
+
+  assert.equal(
+    panel
+      .querySelector('[data-item="base"]')
+      .classList.contains("mwi-procurement-market-target"),
+    true,
+  );
+  assert.equal(
+    panel
+      .querySelector('[data-item="prefixed"]')
+      .classList.contains("mwi-procurement-market-target"),
+    false,
+  );
+
+  modal.remove();
+  runtime.api.procurement.clearCart({ includeStarred: true });
+});
+
 test("market-session deletion works from both the drawer and product navigation", () => {
   const procurement = runtime.api.procurement;
   procurement.clearCart({ includeStarred: true });

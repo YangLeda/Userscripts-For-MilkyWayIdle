@@ -3659,19 +3659,66 @@
     const normalized = Math.round(numericPrice / increment) * increment;
     return Math.min(Math.max(normalized, minimum), maximum);
   }
-  function parseCompactNumber(value) {
-    if (typeof value === "number") return value;
-    const thousandSeparator = runtime.config.THOUSAND_SEPERATOR ?? ",";
-    const decimalSeparator = runtime.config.DECIMAL_SEPERATOR || ".";
-    let normalized = String(value ?? "").trim().toLowerCase();
-    if (thousandSeparator) {
-      normalized = normalized.replaceAll(thousandSeparator, "");
+  function normalizeGameNumberToken(token) {
+    let normalized = String(token ?? "").replaceAll(/[\s\u00a0\u202f]/g, "");
+    if (!/^[+-]?(?:\d[\d.,]*|[.,]\d+)$/.test(normalized)) return null;
+    const sign = normalized.startsWith("-") ? "-" : normalized.startsWith("+") ? "+" : "";
+    if (sign) normalized = normalized.slice(1);
+    const dotCount = (normalized.match(/\./g) ?? []).length;
+    const commaCount = (normalized.match(/,/g) ?? []).length;
+    let decimalIndex = -1;
+    if (dotCount && commaCount) {
+      decimalIndex = Math.max(
+        normalized.lastIndexOf("."),
+        normalized.lastIndexOf(",")
+      );
+    } else if (dotCount || commaCount) {
+      const separator = dotCount ? "." : ",";
+      const parts = normalized.split(separator);
+      if (parts.length === 2 && parts[0] === "") {
+        decimalIndex = 0;
+      } else if (parts.length > 2) {
+        const looksGrouped = parts[0].length >= 1 && parts[0].length <= 3 && parts.slice(1).every((part) => part.length === 3);
+        if (!looksGrouped) decimalIndex = normalized.lastIndexOf(separator);
+      } else {
+        const fractionLength = parts[1]?.length ?? 0;
+        if (fractionLength > 0 && fractionLength <= 2) {
+          decimalIndex = normalized.lastIndexOf(separator);
+        } else if (fractionLength > 0 && separator === runtime.config.DECIMAL_SEPERATOR && separator !== runtime.config.THOUSAND_SEPERATOR) {
+          decimalIndex = normalized.lastIndexOf(separator);
+        }
+      }
     }
-    normalized = normalized.replaceAll(/[\s\u00a0\u202f]/g, "").replace(decimalSeparator, ".");
-    const match = normalized.match(/^([+-]?(?:\d+\.?\d*|\.\d+))\s*([kmbt])?$/i);
+    if (decimalIndex >= 0) {
+      const whole = normalized.slice(0, decimalIndex).replaceAll(/[.,]/g, "");
+      const fraction = normalized.slice(decimalIndex + 1).replaceAll(/[.,]/g, "");
+      if (!fraction) return null;
+      normalized = `${whole || "0"}.${fraction}`;
+    } else {
+      normalized = normalized.replaceAll(/[.,]/g, "");
+    }
+    return `${sign}${normalized}`;
+  }
+  function parseGameNumber(value, { allowCompactSuffix = false } = {}) {
+    if (typeof value === "number") return value;
+    const source = String(value ?? "").trim().toLowerCase();
+    const suffixPattern = allowCompactSuffix ? "([kmbt])?" : "";
+    const match = source.match(
+      new RegExp(
+        `^([+-]?(?:\\d[\\d\\s\\u00a0\\u202f.,]*|[.,]\\d+))\\s*${suffixPattern}$`,
+        "i"
+      )
+    );
     if (!match) return Number.NaN;
+    const normalized = normalizeGameNumberToken(match[1]);
+    if (!normalized) return Number.NaN;
+    const number3 = Number(normalized);
+    if (!Number.isFinite(number3)) return Number.NaN;
     const multipliers = { k: 1e3, m: 1e6, b: 1e9, t: 1e12 };
-    return Number(match[1]) * (multipliers[match[2]] ?? 1);
+    return number3 * (multipliers[match[2]] ?? 1);
+  }
+  function parseCompactNumber(value) {
+    return parseGameNumber(value, { allowCompactSuffix: true });
   }
   function getNumberLocale() {
     return runtime.config.NUMBER_LOCALE || "en-US";
@@ -3983,6 +4030,7 @@
     getNetSellPriceAtAsk,
     getMarketPriceIncrement,
     normalizeMarketPrice,
+    parseGameNumber,
     parseCompactNumber,
     numberFormatter,
     formatExactNumber,
@@ -4487,10 +4535,10 @@
   }
   function getActionCount(action) {
     if (action?.hasMaxCount === false) return Infinity;
-    const target = Number(
-      action?.targetCount ?? action?.maxCount ?? action?.count ?? action?.actionCount
-    );
-    if (!Number.isFinite(target) || target < 0) return Infinity;
+    const rawTarget = action?.targetCount ?? action?.maxCount ?? action?.count ?? action?.actionCount;
+    const target = Number(rawTarget);
+    if (rawTarget === null || rawTarget === void 0) return Infinity;
+    if (!Number.isFinite(target) || target <= 0) return Infinity;
     const current = Number(action?.currentCount ?? action?.completedCount ?? 0);
     return Math.max(0, target - (Number.isFinite(current) ? current : 0));
   }
@@ -9457,6 +9505,15 @@
     ]);
     if (rows2.length) runtime.state.guildLeaderboard = rows2;
   }
+  function orderCharacterActions(actions) {
+    return (Array.isArray(actions) ? actions : []).map((action, index) => ({ action, index })).sort((left, right) => {
+      const leftOrdinal = left.action?.ordinal === null || left.action?.ordinal === void 0 ? Number.NaN : Number(left.action.ordinal);
+      const rightOrdinal = right.action?.ordinal === null || right.action?.ordinal === void 0 ? Number.NaN : Number(right.action.ordinal);
+      const leftOrder = Number.isFinite(leftOrdinal) ? leftOrdinal : Number.NEGATIVE_INFINITY;
+      const rightOrder = Number.isFinite(rightOrdinal) ? rightOrdinal : Number.NEGATIVE_INFINITY;
+      return leftOrder - rightOrder || left.index - right.index;
+    }).map(({ action }) => action);
+  }
   function normalizeActionList(actions) {
     const keyed = /* @__PURE__ */ new Map();
     const idless = [];
@@ -9474,13 +9531,9 @@
         index: previous?.index ?? index
       });
     }
-    return [...keyed.values(), ...idless].sort((left, right) => {
-      const leftOrdinal = Number(left.action?.ordinal);
-      const rightOrdinal = Number(right.action?.ordinal);
-      const leftOrder = Number.isFinite(leftOrdinal) ? leftOrdinal : Number.MAX_SAFE_INTEGER;
-      const rightOrder = Number.isFinite(rightOrdinal) ? rightOrdinal : Number.MAX_SAFE_INTEGER;
-      return leftOrder - rightOrder || left.index - right.index;
-    }).map(({ action }) => action);
+    return orderCharacterActions(
+      [...keyed.values(), ...idless].sort((left, right) => left.index - right.index).map(({ action }) => action)
+    );
   }
   function applyActionsUpdated(payload) {
     const updates = payload.endCharacterActions;
@@ -9634,7 +9687,8 @@
     applyGuildCharacters,
     applyLeaderboard,
     applyActionTypeBuffs,
-    applySkillsUpdated
+    applySkillsUpdated,
+    orderCharacterActions
   });
 
   // src/core/messages.js
@@ -10615,6 +10669,7 @@
     lightBg: "ep_light_bg"
   };
   var ASSET_HISTORY_SCHEMA_VERSION = 2;
+  var NO_HISTORY_CHANGE = /* @__PURE__ */ Symbol("no-history-change");
   var DEFAULT_ASSET_HISTORY_PREFERENCES = Object.freeze({
     language: null,
     themeMode: "dark",
@@ -10835,12 +10890,65 @@
   var AssetHistoryStore = class {
     constructor(storage = globalThis.localStorage) {
       this.storage = storage;
+      this.listeners = /* @__PURE__ */ new Set();
       const loaded = safeParse(storage?.getItem(ASSET_HISTORY_STORAGE_KEY), null);
       this.data = migrateStoredData(loaded);
       if (loaded && loaded.version !== ASSET_HISTORY_SCHEMA_VERSION) this.save();
     }
     save() {
-      this.storage?.setItem(ASSET_HISTORY_STORAGE_KEY, JSON.stringify(this.data));
+      if (!this.storage) return false;
+      const serialized = JSON.stringify(this.data);
+      this.storage.setItem(ASSET_HISTORY_STORAGE_KEY, serialized);
+      if (this.storage.getItem(ASSET_HISTORY_STORAGE_KEY) !== serialized) {
+        throw new Error(
+          runtime.config.isZH ? "资产历史写入校验失败。" : "Asset history storage verification failed."
+        );
+      }
+      return true;
+    }
+    subscribe(listener) {
+      if (typeof listener !== "function") return () => {
+      };
+      this.listeners.add(listener);
+      return () => this.listeners.delete(listener);
+    }
+    emit(change) {
+      for (const listener of this.listeners) {
+        try {
+          listener(change);
+        } catch (error) {
+          console.error(
+            runtime.config.isZH ? "[MWITools] 资产历史监听器执行失败。" : "[MWITools] Asset history listener failed.",
+            error
+          );
+        }
+      }
+    }
+    reloadFromStorage({ notify = true } = {}) {
+      const raw = this.storage?.getItem(ASSET_HISTORY_STORAGE_KEY);
+      const loaded = safeParse(raw, null);
+      if (!loaded) return false;
+      const next = migrateStoredData(loaded);
+      if (JSON.stringify(next) === JSON.stringify(this.data)) return false;
+      this.data = next;
+      if (notify) this.emit({ reason: "storage" });
+      return true;
+    }
+    commit(change, mutate) {
+      const persistedRaw = this.storage?.getItem(ASSET_HISTORY_STORAGE_KEY);
+      const persisted = safeParse(persistedRaw, null);
+      const fallback = this.data;
+      if (persisted) this.data = migrateStoredData(persisted);
+      try {
+        const result = mutate();
+        if (result === NO_HISTORY_CHANGE) return false;
+        this.save();
+        this.emit(change);
+        return result;
+      } catch (error) {
+        this.data = persistedRaw ? migrateStoredData(safeParse(persistedRaw, null)) : fallback;
+        throw error;
+      }
     }
     scopeKey(characterId = runtime.state.currentCharacterId) {
       const server = runtime.api.getMarketEnvironment?.() ?? "production";
@@ -10962,15 +11070,17 @@
       const values = normalizeAssetValues(snapshot.values);
       if (!Number.isFinite(values.total)) return false;
       const dayKey = getUtc8DayKey(new Date(snapshot.recordedAt));
-      const role = this.getRole(scopeKey);
-      role.server = snapshot.server;
-      role.characterId = snapshot.characterId;
-      role.days[dayKey] = {
-        recordedAt: snapshot.recordedAt,
-        values
-      };
-      this.save();
-      return dayKey;
+      return this.commit({ reason: "record", scopeKey, dayKey }, () => {
+        const role = this.getRole(scopeKey);
+        if (role.days[dayKey]?.edited === true) return NO_HISTORY_CHANGE;
+        role.server = snapshot.server;
+        role.characterId = snapshot.characterId;
+        role.days[dayKey] = {
+          recordedAt: snapshot.recordedAt,
+          values
+        };
+        return dayKey;
+      });
     }
     comparison(dayKey = getUtc8DayKey(), scopeKey = this.scopeKey()) {
       const entries = this.list(scopeKey).filter(([date2]) => date2 < dayKey);
@@ -11002,13 +11112,14 @@
       if (!ASSET_COMPONENT_KEYS.every((key) => Number.isFinite(values[key]))) {
         throw new TypeError("Every asset component needs a finite value");
       }
-      this.getRole(scopeKey).days[dayKey] = {
-        recordedAt: (/* @__PURE__ */ new Date()).toISOString(),
-        values,
-        edited: true
-      };
-      this.save();
-      return values;
+      return this.commit({ reason: "update", scopeKey, dayKey }, () => {
+        this.getRole(scopeKey).days[dayKey] = {
+          recordedAt: (/* @__PURE__ */ new Date()).toISOString(),
+          values,
+          edited: true
+        };
+        return values;
+      });
     }
     insertDay(dayKey, componentValues, scopeKey = this.scopeKey()) {
       if (!isValidDayKey(dayKey)) {
@@ -11022,36 +11133,39 @@
           "Every inserted asset component needs a non-negative finite value"
         );
       }
-      const role = this.getRole(scopeKey);
-      if (Object.hasOwn(role.days, dayKey)) {
-        throw new RangeError(`Asset history already contains ${dayKey}`);
-      }
-      role.days[dayKey] = {
-        recordedAt: (/* @__PURE__ */ new Date(`${dayKey}T15:59:59.999Z`)).toISOString(),
-        values,
-        inserted: true,
-        edited: true
-      };
-      this.save();
-      return values;
+      return this.commit({ reason: "insert", scopeKey, dayKey }, () => {
+        const role = this.getRole(scopeKey);
+        if (Object.hasOwn(role.days, dayKey)) {
+          throw new RangeError(`Asset history already contains ${dayKey}`);
+        }
+        role.days[dayKey] = {
+          recordedAt: (/* @__PURE__ */ new Date(`${dayKey}T15:59:59.999Z`)).toISOString(),
+          values,
+          inserted: true,
+          edited: true
+        };
+        return values;
+      });
     }
     deleteDay(dayKey, scopeKey = this.scopeKey()) {
-      const days = this.getRole(scopeKey).days;
-      if (!Object.hasOwn(days, dayKey)) return false;
-      delete days[dayKey];
-      this.save();
-      return true;
+      return this.commit({ reason: "delete", scopeKey, dayKey }, () => {
+        const days = this.getRole(scopeKey).days;
+        if (!Object.hasOwn(days, dayKey)) return NO_HISTORY_CHANGE;
+        delete days[dayKey];
+        return true;
+      });
     }
     cleanupInvalid(scopeKey = this.scopeKey()) {
-      let removed = 0;
-      for (const [dayKey, record] of this.list(scopeKey)) {
-        if (!Number.isFinite(record?.values?.total)) {
-          delete this.getRole(scopeKey).days[dayKey];
-          removed += 1;
+      return this.commit({ reason: "cleanup", scopeKey }, () => {
+        let removed = 0;
+        for (const [dayKey, record] of this.list(scopeKey)) {
+          if (!Number.isFinite(record?.values?.total)) {
+            delete this.getRole(scopeKey).days[dayKey];
+            removed += 1;
+          }
         }
-      }
-      if (removed) this.save();
-      return removed;
+        return removed || NO_HISTORY_CHANGE;
+      });
     }
     detectAnomalies(scopeKey = this.scopeKey()) {
       const entries = this.list(scopeKey).filter(
@@ -12904,16 +13018,28 @@ ${values.map((item) => item.date).join("\n")}`
         }
         try {
           this.store.insertDay(dayKey, values, this.scopeKey);
-        } catch {
+        } catch (error) {
           return globalThis.alert?.(
-            this.t(
+            error instanceof RangeError || error instanceof TypeError ? this.t(
               "无法插入：日期已存在或数据无效。",
               "Could not insert: the date already exists or the data is invalid."
+            ) : this.t(
+              "资产记录保存失败，请检查浏览器存储空间后重试。",
+              "Could not save the asset record. Check browser storage and try again."
             )
           );
         }
       } else {
-        this.store.updateDay(dialog.dataset.date, values, this.scopeKey);
+        try {
+          this.store.updateDay(dialog.dataset.date, values, this.scopeKey);
+        } catch {
+          return globalThis.alert?.(
+            this.t(
+              "资产记录保存失败，请检查浏览器存储空间后重试。",
+              "Could not save the asset record. Check browser storage and try again."
+            )
+          );
+        }
       }
       dialog.close();
       this.changed();
@@ -13049,6 +13175,7 @@ ${values.map((item) => item.date).join("\n")}`
   var CENTER_ID = "mwitools-asset-center-modal";
   var STYLE_ID3 = "mwitools-asset-history-style";
   var ASSET_SHARE_TEMPLATE_COUNT = 12;
+  var ASSET_COMPONENT_SHARE_TEMPLATE_COUNT = 12;
   var ROWS = [
     ["total", "总计", "Total"],
     ["equipment", "装备", "Equipment"],
@@ -13178,6 +13305,112 @@ ${values.map((item) => item.date).join("\n")}`
     const normalizedIndex = ((Number(templateIndex) || 0) % templates.length + templates.length) % templates.length;
     return templates[normalizedIndex]();
   }
+  function componentSharePeriod(gapDays) {
+    const days = Math.max(1, Math.trunc(Number(gapDays) || 1));
+    if (runtime.config.isZH) return `相比 ${days} 天前`;
+    return `vs ${days} day${days === 1 ? "" : "s"} ago`;
+  }
+  function buildAssetComponentShareMessage({ key, current, change, percent, gapDays = 1 }, templateIndex = Math.floor(
+    Math.random() * ASSET_COMPONENT_SHARE_TEMPLATE_COUNT
+  )) {
+    if (!ASSET_COMPONENT_KEYS.includes(key) || !Number.isFinite(current) || !Number.isFinite(change)) {
+      return "";
+    }
+    const row = ROWS.find(([candidate]) => candidate === key);
+    if (!row) return "";
+    const component = runtime.config.isZH ? row[1] : row[2];
+    const period = componentSharePeriod(gapDays);
+    const currentText = formatNumber(current);
+    const amount = formatNumber(Math.abs(change));
+    const percentText = Number.isFinite(percent) ? `${Math.abs(percent).toFixed(2)}%` : runtime.config.isZH ? "由 0 起步（无可比百分比）" : "up from zero (no comparable percentage)";
+    const zhProfitTemplates = [
+      () => `📈 今日${component}结算：${period}上涨 ${amount}（${percentText}），当前 ${currentText}。`,
+      () => `${component}今日收官：当前 ${currentText}，${period}多了 ${amount}，涨幅 ${percentText}。`,
+      () => `晒一下${component}战绩：${period}增长 ${amount} / ${percentText}，现值 ${currentText}。`,
+      () => `牛棚分项财报｜${component}：当前 ${currentText}，${period}盈利 ${amount}（${percentText}）。`,
+      () => `今日${component}成绩单：现有 ${currentText}，${period}增加 ${amount}，提升 ${percentText}。`,
+      () => `${component}进度向上：${period}赚到 ${amount}，涨了 ${percentText}，目前 ${currentText}。`,
+      () => `MWITools ${component}盘点：当前 ${currentText}；${period} +${amount}（+${percentText}）。`,
+      () => `小小炫耀${component}：${period}进账 ${amount}，增长 ${percentText}，总计 ${currentText}。`,
+      () => `${component}账本飘绿：现值 ${currentText}，${period}上涨 ${amount}，比例 ${percentText}。`,
+      () => `🚀 ${component}里程碑：当前 ${currentText}，${period}净增 ${amount}（${percentText}）。`,
+      () => `今日分项播报：${component} ${currentText}，${period}收获 ${amount}，涨幅 ${percentText}。`,
+      () => `挤奶之余看了眼${component}：当前 ${currentText}，${period}多出 ${amount}（${percentText}）。`
+    ];
+    const zhLossTemplates = [
+      () => `📉 今日${component}结算：${period}下跌 ${amount}（${percentText}），当前 ${currentText}。`,
+      () => `${component}今日收官：当前 ${currentText}，${period}少了 ${amount}，跌幅 ${percentText}。`,
+      () => `汇报${component}战况：${period}回撤 ${amount} / ${percentText}，现值 ${currentText}。`,
+      () => `牛棚分项财报｜${component}：当前 ${currentText}，${period}亏损 ${amount}（${percentText}）。`,
+      () => `今日${component}成绩单：现有 ${currentText}，${period}减少 ${amount}，下降 ${percentText}。`,
+      () => `${component}进度回落：${period}损失 ${amount}，跌了 ${percentText}，目前 ${currentText}。`,
+      () => `MWITools ${component}盘点：当前 ${currentText}；${period} −${amount}（−${percentText}）。`,
+      () => `这次晒晒${component}回撤：${period}少了 ${amount}，下降 ${percentText}，总计 ${currentText}。`,
+      () => `${component}账本飘红：现值 ${currentText}，${period}下跌 ${amount}，比例 ${percentText}。`,
+      () => `🩹 ${component}暂时回调：当前 ${currentText}，${period}净减 ${amount}（${percentText}）。`,
+      () => `今日分项播报：${component} ${currentText}，${period}损失 ${amount}，跌幅 ${percentText}。`,
+      () => `挤奶之余看了眼${component}：当前 ${currentText}，${period}少了 ${amount}（${percentText}）。`
+    ];
+    const zhNeutralTemplates = [
+      () => `➖ 今日${component}结算：${period}持平，变化 0（0.00%），当前 ${currentText}。`,
+      () => `${component}今日收官：当前 ${currentText}，${period}没有变化，比例 0.00%。`,
+      () => `晒一下${component}战绩：${period}不增不减，现值 ${currentText}，变化 0 / 0.00%。`,
+      () => `牛棚分项财报｜${component}：当前 ${currentText}，${period}盈亏 0（0.00%）。`,
+      () => `今日${component}成绩单：现有 ${currentText}，${period}变化 0，涨跌 0.00%。`,
+      () => `${component}进度原地踏步：${period}变化 0，比例 0.00%，目前 ${currentText}。`,
+      () => `MWITools ${component}盘点：当前 ${currentText}；${period} ±0（0.00%）。`,
+      () => `低调晒晒${component}：${period}收支相抵，变化 0.00%，总计 ${currentText}。`,
+      () => `${component}账本很平静：现值 ${currentText}，${period}变化 0，比例 0.00%。`,
+      () => `📊 ${component}保持稳定：当前 ${currentText}，${period}净变化 0（0.00%）。`,
+      () => `今日分项播报：${component} ${currentText}，${period}盈亏 0，变化 0.00%。`,
+      () => `挤奶之余看了眼${component}：当前 ${currentText}，${period}一分没变（0.00%）。`
+    ];
+    const enProfitTemplates = [
+      () => `📈 Today's ${component} close: ${period}, up ${amount} (${percentText}) to ${currentText}.`,
+      () => `${component} finished at ${currentText}: ${period}, it gained ${amount}, up ${percentText}.`,
+      () => `${component} flex: ${period}, +${amount} / +${percentText}; current value ${currentText}.`,
+      () => `Cowshed component report — ${component}: ${currentText}, ${period}, profit ${amount} (${percentText}).`,
+      () => `Today's ${component} scorecard: ${currentText}; ${period}, +${amount}, a ${percentText} rise.`,
+      () => `${component} moved up: ${period}, I gained ${amount} (${percentText}); now ${currentText}.`,
+      () => `MWITools ${component} check: ${currentText}; ${period}, +${amount} (+${percentText}).`,
+      () => `Tiny ${component} flex: ${period}, +${amount}, up ${percentText}, total ${currentText}.`,
+      () => `${component} ledger is green: ${currentText}; ${period}, up ${amount} (${percentText}).`,
+      () => `🚀 ${component} milestone: ${currentText}; ${period}, net gain ${amount} (${percentText}).`,
+      () => `Component update: ${component} is ${currentText}; ${period}, +${amount}, up ${percentText}.`,
+      () => `Checked ${component} between milkings: ${currentText}; ${period}, +${amount} (${percentText}).`
+    ];
+    const enLossTemplates = [
+      () => `📉 Today's ${component} close: ${period}, down ${amount} (${percentText}) to ${currentText}.`,
+      () => `${component} finished at ${currentText}: ${period}, it lost ${amount}, down ${percentText}.`,
+      () => `${component} update: ${period}, -${amount} / -${percentText}; current value ${currentText}.`,
+      () => `Cowshed component report — ${component}: ${currentText}, ${period}, loss ${amount} (${percentText}).`,
+      () => `Today's ${component} scorecard: ${currentText}; ${period}, -${amount}, a ${percentText} drop.`,
+      () => `${component} pulled back: ${period}, I lost ${amount} (${percentText}); now ${currentText}.`,
+      () => `MWITools ${component} check: ${currentText}; ${period}, -${amount} (-${percentText}).`,
+      () => `A candid ${component} flex: ${period}, -${amount}, down ${percentText}, total ${currentText}.`,
+      () => `${component} ledger is red: ${currentText}; ${period}, down ${amount} (${percentText}).`,
+      () => `🩹 ${component} setback: ${currentText}; ${period}, net loss ${amount} (${percentText}).`,
+      () => `Component update: ${component} is ${currentText}; ${period}, -${amount}, down ${percentText}.`,
+      () => `Checked ${component} between milkings: ${currentText}; ${period}, -${amount} (${percentText}).`
+    ];
+    const enNeutralTemplates = [
+      () => `➖ Today's ${component} close: ${period}, flat by 0 (0.00%) at ${currentText}.`,
+      () => `${component} finished at ${currentText}: ${period}, no change, 0.00%.`,
+      () => `${component} flex: ${period}, neither up nor down; current ${currentText}, change 0 / 0.00%.`,
+      () => `Cowshed component report — ${component}: ${currentText}, ${period}, P/L 0 (0.00%).`,
+      () => `Today's ${component} scorecard: ${currentText}; ${period}, change 0, or 0.00%.`,
+      () => `${component} held steady: ${period}, change 0 (0.00%); now ${currentText}.`,
+      () => `MWITools ${component} check: ${currentText}; ${period}, ±0 (0.00%).`,
+      () => `A low-key ${component} flex: ${period}, break-even at ${currentText}, change 0.00%.`,
+      () => `${component} ledger stayed quiet: ${currentText}; ${period}, change 0 (0.00%).`,
+      () => `📊 ${component} stayed stable: ${currentText}; ${period}, net change 0 (0.00%).`,
+      () => `Component update: ${component} is ${currentText}; ${period}, P/L 0, change 0.00%.`,
+      () => `Checked ${component} between milkings: ${currentText}; ${period}, unchanged (0.00%).`
+    ];
+    const templates = runtime.config.isZH ? change > 0 ? zhProfitTemplates : change < 0 ? zhLossTemplates : zhNeutralTemplates : change > 0 ? enProfitTemplates : change < 0 ? enLossTemplates : enNeutralTemplates;
+    const normalizedIndex = ((Number(templateIndex) || 0) % templates.length + templates.length) % templates.length;
+    return templates[normalizedIndex]();
+  }
   function pasteAssetShareToChat(message, root = document) {
     const inputs = [
       ...root.querySelectorAll(
@@ -13231,6 +13464,10 @@ ${values.map((item) => item.date).join("\n")}`
     .mwi-asset-history-table th:last-child { width:38%; }
     .mwi-asset-table tr:last-child td { border-bottom:0; }
     .mwi-asset-table tr[data-key="total"] { font-weight:700; background:rgba(255,255,255,.035); }
+    .mwi-asset-component-share { max-width:100%; border:0; border-bottom:1px dashed currentColor; background:transparent; color:#7ddcff; padding:0; cursor:pointer; font:inherit; text-align:left; text-overflow:ellipsis; white-space:nowrap; overflow:hidden; }
+    .mwi-asset-component-share:hover { color:#b6ecff; }
+    .mwi-asset-component-share:focus-visible { outline:2px solid #00c6ff; outline-offset:2px; }
+    .mwi-asset-component-share:disabled { border-bottom-color:transparent; color:inherit; cursor:default; opacity:1; }
     .mwi-asset-chart-controls { display:flex; flex-wrap:wrap; gap:6px; padding:9px 10px 0; }
     .mwi-asset-chart-controls button,.mwi-asset-action { border:1px solid rgba(255,255,255,.13); border-radius:5px; background:rgba(255,255,255,.07); color:inherit; padding:5px 9px; cursor:pointer; font:inherit; }
     .mwi-asset-chart-controls button:hover,.mwi-asset-action:hover { background:#3f4655; transform:translateY(-1px); }
@@ -13438,6 +13675,11 @@ ${values.map((item) => item.date).join("\n")}`
     bind() {
       this.host.querySelector("#mwi-asset-open-center").addEventListener("click", () => this.center?.open());
       this.host.querySelector("#mwi-asset-share-chat").addEventListener("click", () => this.shareToChat());
+      this.host.querySelector("#mwi-asset-breakdown").addEventListener("click", (event) => {
+        const button = event.target.closest("[data-component-share]");
+        if (!button || button.disabled) return;
+        this.shareComponentToChat(button.dataset.componentShare);
+      });
       this.host.querySelectorAll("[data-mode]").forEach((button) => {
         button.addEventListener("click", () => {
           this.mode = button.dataset.mode;
@@ -13519,15 +13761,31 @@ ${preview}`
       this.host.querySelector("[data-edit-save]").addEventListener("click", () => this.saveEditor());
     }
     shareToChat() {
-      const status = this.host.querySelector(".mwi-asset-share-status");
       const message = buildAssetShareMessage(this.shareStats ?? {});
       if (!message) {
-        status.textContent = t3(
+        this.host.querySelector(".mwi-asset-share-status").textContent = t3(
           "暂无可对比的盈亏数据",
           "No comparable P/L data yet"
         );
         return;
       }
+      this.pasteShareMessage(message);
+    }
+    shareComponentToChat(key) {
+      const message = buildAssetComponentShareMessage(
+        this.componentShareStats?.get(key) ?? {}
+      );
+      if (!message) {
+        this.host.querySelector(".mwi-asset-share-status").textContent = t3(
+          "该分项暂无可对比数据",
+          "No comparable data for this component"
+        );
+        return;
+      }
+      this.pasteShareMessage(message);
+    }
+    pasteShareMessage(message) {
+      const status = this.host.querySelector(".mwi-asset-share-status");
       const input = pasteAssetShareToChat(message);
       status.dataset.pasted = String(Boolean(input));
       status.textContent = input ? t3("已放入聊天框，按回车发送", "Pasted into chat; press Enter to send") : t3(
@@ -13570,7 +13828,17 @@ ${preview}`
         );
         return;
       }
-      this.store.updateDay(dialog.dataset.dayKey, values, this.scopeKey);
+      try {
+        this.store.updateDay(dialog.dataset.dayKey, values, this.scopeKey);
+      } catch {
+        globalThis.alert?.(
+          t3(
+            "资产记录保存失败，请检查浏览器存储空间后重试。",
+            "Could not save the asset record. Check browser storage and try again."
+          )
+        );
+        return;
+      }
       this.closeEditor();
       this.update(this.snapshot);
     }
@@ -13644,6 +13912,7 @@ ${preview}`
       });
       this.host.querySelector("#mwi-asset-change-heading").textContent = comparison ? t3(`变化（较 ${comparison.date}）`, `Change (vs ${comparison.date})`) : t3("变化", "Change");
       const body = this.host.querySelector("#mwi-asset-breakdown");
+      this.componentShareStats = /* @__PURE__ */ new Map();
       body.replaceChildren(
         ...ROWS.map(([key, zh, en]) => {
           const row = document.createElement("tr");
@@ -13651,7 +13920,19 @@ ${preview}`
           const currentValue = current[key];
           const previousValue = previous[key];
           const change = Number.isFinite(currentValue) && Number.isFinite(previousValue) ? currentValue - previousValue : null;
-          row.innerHTML = `<td>${t3(zh, en)}</td><td title="${Number.isFinite(currentValue) ? runtime.api.formatExactNumber(currentValue, 0) : ""}">${formatNumber(currentValue)}</td><td class="${valueClass(change)}" title="${Number.isFinite(change) ? runtime.api.formatExactNumber(change, 0) : ""}">${formatNumber(change, true)}</td><td class="${valueClass(change)}">${formatPercent(currentValue, previousValue)}</td>`;
+          const percent = Number.isFinite(change) && Number.isFinite(previousValue) ? previousValue !== 0 ? change / previousValue * 100 : change === 0 ? 0 : null : null;
+          const canShare = key !== "total" && Boolean(comparison) && Number.isFinite(currentValue) && Number.isFinite(change);
+          if (canShare) {
+            this.componentShareStats.set(key, {
+              key,
+              current: currentValue,
+              change,
+              percent,
+              gapDays: comparison.gapDays
+            });
+          }
+          const label = key === "total" ? t3(zh, en) : `<button type="button" class="mwi-asset-component-share" data-component-share="${key}" title="${t3(`点击炫耀${zh}变化`, `Click to flex ${en} changes`)}"${canShare ? "" : " disabled"}>${t3(zh, en)}</button>`;
+          row.innerHTML = `<td>${label}</td><td title="${Number.isFinite(currentValue) ? runtime.api.formatExactNumber(currentValue, 0) : ""}">${formatNumber(currentValue)}</td><td class="${valueClass(change)}" title="${Number.isFinite(change) ? runtime.api.formatExactNumber(change, 0) : ""}">${formatNumber(change, true)}</td><td class="${valueClass(change)}">${formatPercent(currentValue, previousValue)}</td>`;
           return row;
         })
       );
@@ -14017,6 +14298,9 @@ ${preview}`
     deleteDay(dayKey, scopeKey = currentScopeKey()) {
       return assetHistoryStore.deleteDay(dayKey, scopeKey);
     },
+    subscribe(listener) {
+      return assetHistoryStore.subscribe(listener);
+    },
     cleanup(scopeKey = currentScopeKey()) {
       return assetHistoryStore.cleanupInvalid(scopeKey);
     },
@@ -14108,6 +14392,12 @@ ${preview}`
         ui.update(snapshot);
       };
       scope.add(onAssetSnapshot(consume));
+      scope.event(globalThis.window, "storage", (event) => {
+        if (event.key === assetHistoryApi.storageKey) {
+          assetHistoryStore.reloadFromStorage();
+          ui.update(getLatestAssetSnapshot());
+        }
+      });
       const latest = getLatestAssetSnapshot();
       if (latest) consume(latest);
       void refreshAssetSnapshot();
@@ -18050,6 +18340,7 @@ ${preview}`
     addInvSortButton,
     addGuildCreditConversionsSortButton
   });
+  runtime.api.assetHistory?.subscribe?.(() => scheduleNetworthRefresh());
 
   // src/features/guild-credit-advisor.js
   var CARD_ID = "mwitools-guild-credit-advisor";
@@ -20496,9 +20787,10 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
     const detail = runtime.state.initData_actionDetailMap?.[actionHrid];
     const duration = runtime.api.getProductionPanelDuration?.(panel);
     if (!detail || !Number.isFinite(duration) || duration <= 0) return false;
-    const exp = Number(
-      String(runtime.api.getOriTextFromElement(expElement) ?? "").replaceAll(runtime.config.THOUSAND_SEPERATOR, "").replaceAll(runtime.config.DECIMAL_SEPERATOR, ".")
-    );
+    const expToken = String(
+      runtime.api.getOriTextFromElement(expElement) ?? ""
+    ).match(/[-+]?\d[\d\s\u00a0\u202f.,]*/)?.[0];
+    const exp = runtime.api.parseGameNumber(expToken);
     if (!Number.isFinite(exp) || exp <= 0) return false;
     const efficiencyDetails = getActionEfficiencyDetails(actionHrid);
     const effBuff = 1 + efficiencyDetails.total / 100;
@@ -21244,16 +21536,7 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
   function parseProductionDurationSeconds(value) {
     const token = String(value ?? "").match(/[-+]?\d[\d\s\u00a0\u202f.,]*/)?.[0];
     if (!token) return null;
-    let normalized = token.replace(/[\s\u00a0\u202f]/g, "");
-    const dot = normalized.lastIndexOf(".");
-    const comma = normalized.lastIndexOf(",");
-    const decimalIndex = Math.max(dot, comma);
-    if (decimalIndex >= 0) {
-      const whole = normalized.slice(0, decimalIndex).replace(/[.,]/g, "");
-      const fraction = normalized.slice(decimalIndex + 1).replace(/[.,]/g, "");
-      normalized = fraction ? `${whole}.${fraction}` : whole;
-    }
-    const number3 = Number(normalized);
+    const number3 = runtime.api.parseGameNumber(token);
     return Number.isFinite(number3) && number3 > 0 ? number3 : null;
   }
   function parseProductionQuickPresets(value, { integer = false, fallback = [] } = {}) {
@@ -21375,9 +21658,7 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
   function renderActionDashboard() {
     addStyles6();
     const host = document.querySelector('div[class*="Header_actionName"]');
-    const actions = [...runtime.state.currentActionsHridList ?? []].sort(
-      (left2, right) => Number(left2?.ordinal ?? 0) - Number(right?.ordinal ?? 0)
-    );
+    const actions = orderCharacterActions(runtime.state.currentActionsHridList);
     const current = actions[0];
     if (!host || !current) {
       clearActionDashboard();
@@ -23447,12 +23728,23 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
     root.append(input, add);
   }
   function findMaterialHost(panel, itemHrid) {
-    const bare = procurement3.normalizeItemHrid(itemHrid).split("/").at(-1);
+    const normalizedItemHrid = procurement3.normalizeItemHrid(itemHrid);
     for (const node of panel.querySelectorAll('[class*="Item_itemContainer"]')) {
       const href = node.querySelector("svg use")?.getAttribute("href") ?? node.querySelector("svg use")?.getAttribute("xlink:href") ?? "";
-      if (href.includes(bare)) return node;
+      if (itemHridFromSpriteHref(href) === normalizedItemHrid) return node;
     }
     return null;
+  }
+  function itemHridFromSpriteHref(href) {
+    const source = String(href ?? "");
+    const hashIndex = source.lastIndexOf("#");
+    if (hashIndex < 0) return "";
+    let fragment = source.slice(hashIndex + 1).split(/[?&]/, 1)[0];
+    try {
+      fragment = decodeURIComponent(fragment);
+    } catch {
+    }
+    return procurement3.normalizeItemHrid(fragment);
   }
   function markRequirementCell(element, row, column) {
     if (!element) return;
@@ -24321,16 +24613,16 @@ ${locks}` : ""}`;
       return;
     }
     const pending = new Set(
-      pendingItems().map((item) => item.itemHrid.split("/").at(-1))
+      pendingItems().map((item) => procurement3.normalizeItemHrid(item.itemHrid))
     );
     let scrollTarget = null;
     for (const use of panel.querySelectorAll("svg use")) {
       const href = use.getAttribute("href") ?? use.getAttribute("xlink:href") ?? "";
-      const matched = [...pending].find((bare) => href.includes(bare));
-      if (!matched) continue;
+      const matched = itemHridFromSpriteHref(href);
+      if (!pending.has(matched)) continue;
       const host = use.closest('[class*="Item_itemContainer"]') ?? use.parentElement;
       host.classList.add("mwi-procurement-market-target");
-      if (currentMarketTarget && currentMarketTarget.endsWith(matched) && !scrollTarget) {
+      if (currentMarketTarget && procurement3.normalizeItemHrid(currentMarketTarget) === matched && !scrollTarget) {
         scrollTarget = host;
       }
     }
@@ -29331,7 +29623,12 @@ ${locks}` : ""}`;
           "每次真正打开生产制作页都会静默刷新一次仓库，首次取数失败会自动重试，手动刷新仍保留提示。公会信誉兑换同时显示物品数量、信用点数和每点成本。",
           "新增铁牛排行榜支持；铁牛榜现在会显示与标准榜相同样式的名次徽章和对应经验/小时。",
           "修复多个任务同时停留在刷新选择时锁定状态互相串联的问题，每个任务的牛铃和金币选择现在只跟随自身分类。战斗 Buff/Debuff 状态栏改为超过三个图标后单行循环滚动，并修复部分 Debuff 错误显示在施放者头上的问题。",
-          "补全正式服、测试服和国服域名的脚本连接权限，避免相关请求被脚本管理器拦截。"
+          "补全正式服、测试服和国服域名的脚本连接权限，避免相关请求被脚本管理器拦截。",
+          "目标等级、生产耗时和市场数值现在会同时兼容逗号与小数点互换及混合千位格式，修复英文界面把“90,3 XP”误读为“903 XP”、导致升级时间严重偏短的问题。",
+          "手动编辑的资产历史不再被自动快照或其他页面的旧数据覆盖；写入失败会明确提示并回滚，库存总资产旁的昨日浮动也会在历史变化后立即稳定刷新。",
+          "DPS 工具统一更名为 MWI DPS Tracker，历史缓存限制为 1 MB，超限时从最早记录开始清理，避免长期使用持续占用浏览器存储。",
+          "修复已执行过的无限任务被移到队列后方时错误显示为 0 秒的问题；购物车市场高亮改为精确匹配，咖啡、茶等物品不再误标记带前缀的其他变体。",
+          "盈亏的装备、库存、订单、房屋、技能、不可交易代币和神龛分项现在都可以点击炫耀；会按真实对比天数、当前价值、涨跌额和比例，随机生成上涨、下跌或持平的中文战报。"
         ]),
         en: Object.freeze([
           "Fixed task artwork remaining on the previous task after the first reroll and fixed the independent map-number switch. Train planning now validates real upgrade chains, so parallel branches such as Radiant Robes and Flame Robes are no longer merged incorrectly.",
@@ -29340,7 +29637,12 @@ ${locks}` : ""}`;
           "Opening a production page now silently refreshes inventory once, retries automatically when the first snapshot is unavailable, and keeps manual refresh notifications. Guild reputation exchanges now show the item quantity, credit-point return, and cost per point together.",
           "Added Iron Cow leaderboard support. Iron Cow rankings now show the same badge styles as Standard rankings together with the corresponding XP/hour data.",
           "Fixed lock state leaking between several tasks whose reroll choices were open at the same time; each task's Cowbell and coin choices now follow only its own category. Battle Buff/Debuff bars now loop left in a single row after the third icon, and some Debuffs no longer appear above the caster instead of the affected target.",
-          "Added script connection permissions for the live, test, and China game domains so related requests are not blocked by userscript managers."
+          "Added script connection permissions for the live, test, and China game domains so related requests are not blocked by userscript managers.",
+          "Target-level estimates, production durations, and market values now accept swapped comma/period decimals and mixed grouping formats. This fixes English panels reading “90,3 XP” as “903 XP” and severely underestimating level-up time.",
+          "Manually edited asset history is no longer overwritten by automatic snapshots or stale data from another page. Failed writes now report and roll back, and the yesterday change beside Total assets refreshes immediately when history changes.",
+          "The DPS tool is now branded MWI DPS Tracker throughout. Its history cache is capped at 1 MB and removes the oldest records first, preventing browser storage from growing indefinitely.",
+          "Fixed progressed infinite actions showing as zero seconds after being moved behind another queue item. Shopping highlights now use exact item matching, so coffee, tea, and similar items no longer mark prefixed variants.",
+          "Equipment, Inventory, Market listings, Houses, Abilities, Non-tradable tokens, and Shrine rows in P/L can now be clicked to flex. Each creates a randomized English rise, fall, or flat report using the real comparison period, current value, amount, and percentage."
         ])
       })
     }),
@@ -32370,9 +32672,7 @@ ${locks}` : ""}`;
     const actionDivList = added.querySelectorAll(
       "div.QueuedActions_action__r3HlD"
     );
-    const actions = [...runtime.state.currentActionsHridList ?? []].sort(
-      (left, right) => Number(left?.ordinal ?? 0) - Number(right?.ordinal ?? 0)
-    );
+    const actions = orderCharacterActions(runtime.state.currentActionsHridList);
     if (!actionDivList.length && actions.length > 1) return false;
     if (actionDivList.length !== Math.max(0, actions.length - 1)) {
       console.error(
@@ -32398,8 +32698,8 @@ ${locks}` : ""}`;
         continue;
       }
       const actionHrid = String(actionObj.actionHrid ?? "");
-      const count = actionObj.maxCount - actionObj.currentCount;
-      const isInfinite = count === 0 || actionHrid.includes("/combat/");
+      const count = runtime.api.getActionRemainingCount(actionObj);
+      const isInfinite = !Number.isFinite(count) || actionHrid.includes("/combat/");
       const detail = runtime.state.initData_actionDetailMap[actionHrid];
       const timing = detail ? runtime.api.projectActionTiming?.(
         actionHrid,
@@ -37035,7 +37335,7 @@ ${locks}` : ""}`;
           }))
         }));
         return [
-          `=== MWI DPS Meter | Class Diagnostics | ${VERSION} ===`,
+          `=== MWI DPS Tracker | Class Diagnostics | ${VERSION} ===`,
           `Generated at: ${(/* @__PURE__ */ new Date()).toLocaleString()}`,
           "Note: icons represent each class's signature weapon. The data below contains only class-identification fields.",
           `Recorded events: ${events.length}`,
@@ -37044,7 +37344,7 @@ ${locks}` : ""}`;
         ].join("\n");
       }
       const lines = [
-        `=== 银河奶牛DPS统计｜职业调试报告｜${VERSION} ===`,
+        `=== MWI DPS Tracker｜职业调试报告｜${VERSION} ===`,
         "生成时间：" + (/* @__PURE__ */ new Date()).toLocaleString(),
         "说明：图标为职业代表武器；以下内容仅包含职业识别字段。",
         "记录事件数：" + events.length,
@@ -37487,7 +37787,7 @@ ${locks}` : ""}`;
       save();
       bus.dispatchEvent(new Event("change"));
       console.info(
-        "[KikiMeter] 全量入站消息采集已开始；点击“结束采集”才会停止。"
+        "[MWI DPS Tracker] 全量入站消息采集已开始；点击“结束采集”才会停止。"
       );
       return status();
     }
@@ -37506,7 +37806,7 @@ ${locks}` : ""}`;
       save();
       bus.dispatchEvent(new Event("change"));
       console.info(
-        "[KikiMeter] 全量入站消息采集已结束，共 " + state.fullMessages.length + " 条消息。"
+        "[MWI DPS Tracker] 全量入站消息采集已结束，共 " + state.fullMessages.length + " 条消息。"
       );
       return status();
     }
@@ -37545,7 +37845,7 @@ ${locks}` : ""}`;
           exportedState.storageNotice = "Full message bodies are kept only in this page's memory. Download them before refreshing or closing the page.";
         }
         return [
-          `=== MWI DPS Meter | Manual Full Incoming-Message Probe | ${VERSION} ===`,
+          `=== MWI DPS Tracker | Manual Full Incoming-Message Probe | ${VERSION} ===`,
           `Generated at: ${(/* @__PURE__ */ new Date()).toLocaleString()}`,
           `Capture started: ${state.startedAt || "Not started"}`,
           `Capture ended: ${state.endedAt || (active ? "In progress" : "None")}`,
@@ -37561,7 +37861,7 @@ ${locks}` : ""}`;
         ].join("\n");
       }
       const lines = [
-        `=== 银河奶牛DPS统计｜手动全量入站消息探针｜${VERSION} ===`,
+        `=== MWI DPS Tracker｜手动全量入站消息探针｜${VERSION} ===`,
         "生成时间：" + (/* @__PURE__ */ new Date()).toLocaleString(),
         "采样开始：" + (state.startedAt || "未开始"),
         "采样结束：" + (state.endedAt || (active ? "进行中" : "无")),
@@ -37647,11 +37947,13 @@ ${locks}` : ""}`;
     }
     function download() {
       if (!state.startedAt) {
-        console.warn("[KikiMeter] 尚未开始全量消息采集，已取消空报告下载。");
+        console.warn(
+          "[MWI DPS Tracker] 尚未开始全量消息采集，已取消空报告下载。"
+        );
         return null;
       }
       if (active) {
-        console.warn("[KikiMeter] 请先点击“结束采集”，再下载全量 MSG。");
+        console.warn("[MWI DPS Tracker] 请先点击“结束采集”，再下载全量 MSG。");
         return null;
       }
       const stamp = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-");
@@ -38538,7 +38840,7 @@ ${locks}` : ""}`;
     let orphLog = 0;
     const w = (cnt, msg) => {
       if (cnt < MAX) {
-        console.warn("[KikiMeter] " + msg);
+        console.warn("[MWI DPS Tracker] " + msg);
         return cnt + 1;
       }
       return cnt;
@@ -38586,11 +38888,13 @@ ${locks}` : ""}`;
         active = true;
         log = [];
         counts = {};
-        console.info("[KikiMeter] 已开始抓取战斗消息。");
+        console.info("[MWI DPS Tracker] 已开始抓取战斗消息。");
       },
       stop() {
         active = false;
-        console.info("[KikiMeter] 已停止抓取，共 " + log.length + " 条消息。");
+        console.info(
+          "[MWI DPS Tracker] 已停止抓取，共 " + log.length + " 条消息。"
+        );
       },
       record(type, payload) {
         if (!active) return;
@@ -38851,7 +39155,7 @@ ${locks}` : ""}`;
       }
       if (guildSlotNames.size === 0 && Settings.getDebugMode()) {
         console.warn(
-          "[KikiMeter][Guild] 玩家姓名解析失败，页面选择器可能已经变化。请在试炼中运行 window.__MWI_DPS.scanGuildNames() 查看诊断。"
+          "[MWI DPS Tracker][Guild] 玩家姓名解析失败，页面选择器可能已经变化。请在试炼中运行 window.__MWI_DPS.scanGuildNames() 查看诊断。"
         );
       }
     }
@@ -38862,11 +39166,13 @@ ${locks}` : ""}`;
       const localName = [...keyToName.values()][0];
       if (!localName) {
         console.warn(
-          "[KikiMeter] 尚不知道本地玩家姓名。请在公会试炼进行中再次运行此命令。"
+          "[MWI DPS Tracker] 尚不知道本地玩家姓名。请在公会试炼进行中再次运行此命令。"
         );
         return [];
       }
-      console.log(`[KikiMeter] 正在精确搜索文本 "${localName}" （页面 DOM）…`);
+      console.log(
+        `[MWI DPS Tracker] 正在精确搜索文本 "${localName}" （页面 DOM）…`
+      );
       const matches = [];
       document.querySelectorAll("*").forEach((el2) => {
         if (isOwnUI(el2)) return;
@@ -38874,7 +39180,7 @@ ${locks}` : ""}`;
           matches.push(el2);
         }
       });
-      console.log(`[KikiMeter] ${matches.length} 个完全匹配项。`);
+      console.log(`[MWI DPS Tracker] ${matches.length} 个完全匹配项。`);
       console.log("=====================================================");
       matches.forEach((el2, i) => {
         console.log(`--- 匹配项 #${i} ---`);
@@ -38913,7 +39219,7 @@ ${locks}` : ""}`;
         }
       });
       console.log(
-        `[KikiMeter] 预计玩家数：约 ${target} 名；${out.length} 个候选容器：`
+        `[MWI DPS Tracker] 预计玩家数：约 ${target} 名；${out.length} 个候选容器：`
       );
       console.log("=====================================================");
       out.forEach((c, i) => {
@@ -38924,7 +39230,7 @@ ${locks}` : ""}`;
       console.log("=====================================================");
       if (out.length === 0) {
         console.warn(
-          "[KikiMeter] 没有找到子元素数量完全匹配的容器。请运行 window.__MWI_DPS.scanGuildNamesLoose() 执行宽松搜索。"
+          "[MWI DPS Tracker] 没有找到子元素数量完全匹配的容器。请运行 window.__MWI_DPS.scanGuildNamesLoose() 执行宽松搜索。"
         );
       }
       return out;
@@ -38958,7 +39264,7 @@ ${locks}` : ""}`;
       out.sort((a, b) => b.nameLikeCount - a.nameLikeCount);
       const top = out.slice(0, 15);
       console.log(
-        `[KikiMeter] 宽松搜索：${out.length} 个候选容器，显示前 15 个：`
+        `[MWI DPS Tracker] 宽松搜索：${out.length} 个候选容器，显示前 15 个：`
       );
       console.log("=====================================================");
       top.forEach((c, i) => {
@@ -38982,7 +39288,7 @@ ${locks}` : ""}`;
           });
         }
       });
-      console.log(`[KikiMeter] ${out.length} 个候选属性：`);
+      console.log(`[MWI DPS Tracker] ${out.length} 个候选属性：`);
       console.table(out.slice(0, 60));
       return out;
     }
@@ -40772,7 +41078,7 @@ ${locks}` : ""}`;
     function previewGuildNames() {
       resolveGuildNames(guildMaxSlot);
       console.log(
-        `[KikiMeter] ${guildSlotNames.size} 个姓名已解析（预计人数约 ${guildMaxSlot}) :`
+        `[MWI DPS Tracker] ${guildSlotNames.size} 个姓名已解析（预计人数约 ${guildMaxSlot}) :`
       );
       console.log("=====================================================");
       [...guildSlotNames.entries()].forEach(([slot, name]) => {
@@ -40781,7 +41087,7 @@ ${locks}` : ""}`;
       console.log("=====================================================");
       if (guildSlotNames.size !== guildMaxSlot) {
         console.warn(
-          `[KikiMeter] 注意：${guildSlotNames.size} 个姓名已解析，但预计有 ${guildMaxSlot}  个位置，映射可能发生偏移。请确认位置 0 对应本地角色且顺序正确。`
+          `[MWI DPS Tracker] 注意：${guildSlotNames.size} 个姓名已解析，但预计有 ${guildMaxSlot}  个位置，映射可能发生偏移。请确认位置 0 对应本地角色且顺序正确。`
         );
       }
       return Object.fromEntries(guildSlotNames);
@@ -40789,7 +41095,7 @@ ${locks}` : ""}`;
     function debugCombatUnitNames() {
       const els = [...document.querySelectorAll('[class*="CombatUnit_name"]')];
       console.log(
-        `[KikiMeter] ${els.length} 个元素 [class*="CombatUnit_name"]（原始、未过滤）：`
+        `[MWI DPS Tracker] ${els.length} 个元素 [class*="CombatUnit_name"]（原始、未过滤）：`
       );
       console.log("=====================================================");
       els.forEach((el2, i) => {
@@ -40800,7 +41106,7 @@ ${locks}` : ""}`;
       console.log("=====================================================");
       if (els.length === 0) {
         console.warn(
-          "[KikiMeter] 没有找到元素：可能已离开试炼页面，或者游戏 CSS 类名已变化。请停留在试炼进行中页面并再次运行命令。"
+          "[MWI DPS Tracker] 没有找到元素：可能已离开试炼页面，或者游戏 CSS 类名已变化。请停留在试炼进行中页面并再次运行命令。"
         );
       }
       return els;
@@ -40826,7 +41132,7 @@ ${locks}` : ""}`;
         }
       });
       console.log(
-        `[KikiMeter] ${out.length} 个被省略显示的元素（文本省略号或 CSS ellipsis）：`
+        `[MWI DPS Tracker] ${out.length} 个被省略显示的元素（文本省略号或 CSS ellipsis）：`
       );
       console.log("=====================================================");
       out.forEach(({ el: el2, mode }, i) => {
@@ -40841,7 +41147,7 @@ ${locks}` : ""}`;
     function countMiniUnitNames() {
       const els = [...document.querySelectorAll('[class*="MiniUnit_name"]')];
       console.log(
-        `[KikiMeter] ${els.length} 个元素 [class*="MiniUnit_name"]（预计人数约 ${guildMaxSlot || "?"}) :`
+        `[MWI DPS Tracker] ${els.length} 个元素 [class*="MiniUnit_name"]（预计人数约 ${guildMaxSlot || "?"}) :`
       );
       console.log("=====================================================");
       els.forEach((el2, i) => {
@@ -40854,7 +41160,7 @@ ${locks}` : ""}`;
       const nameEls = [...document.querySelectorAll('[class*="MiniUnit_name"]')];
       if (nameEls.length === 0) {
         console.warn(
-          "[KikiMeter] 没有找到 MiniUnit 单元，请确认公会试炼正在进行。"
+          "[MWI DPS Tracker] 没有找到 MiniUnit 单元，请确认公会试炼正在进行。"
         );
         return [];
       }
@@ -40878,10 +41184,10 @@ ${locks}` : ""}`;
         }
       });
       console.log(
-        `[KikiMeter] 主流类名（${counts[majority]}/${cells.length} 个单元） : "${majority}"`
+        `[MWI DPS Tracker] 主流类名（${counts[majority]}/${cells.length} 个单元） : "${majority}"`
       );
       console.log(
-        `[KikiMeter] ${outliers.length} 个异常单元（可能是本地玩家）：`
+        `[MWI DPS Tracker] ${outliers.length} 个异常单元（可能是本地玩家）：`
       );
       console.log("=====================================================");
       outliers.forEach((o) => {
@@ -40890,11 +41196,11 @@ ${locks}` : ""}`;
       console.log("=====================================================");
       if (outliers.length === 0) {
         console.warn(
-          "[KikiMeter] 未发现异常单元；当前服务器可能没有本地玩家高亮，或者所有单元的样式完全相同。请观察角色单元是否存在边框或高亮。"
+          "[MWI DPS Tracker] 未发现异常单元；当前服务器可能没有本地玩家高亮，或者所有单元的样式完全相同。请观察角色单元是否存在边框或高亮。"
         );
       } else if (outliers.length > 1) {
         console.warn(
-          "[KikiMeter] 发现多个异常单元，仅凭类名无法确定本地玩家，请与页面显示进行比对。"
+          "[MWI DPS Tracker] 发现多个异常单元，仅凭类名无法确定本地玩家，请与页面显示进行比对。"
         );
       }
       return outliers;
@@ -40954,7 +41260,53 @@ ${locks}` : ""}`;
   var HistoryStore = /* @__PURE__ */ (() => {
     const KEY = "kikimeter:history:v2", LEGACY_KEY = "kikimeter:history:v1", ACTIVE_KEY = "kikimeter:active:v2";
     const MAX_PER_TYPE = 10;
+    const MAX_HISTORY_BYTES = 1e6;
     let revision = 0;
+    function utf8ByteLength(value) {
+      const text = String(value ?? "");
+      if (typeof globalThis.TextEncoder === "function") {
+        return new globalThis.TextEncoder().encode(text).byteLength;
+      }
+      let bytes = 0;
+      for (let index = 0; index < text.length; index += 1) {
+        const code = text.charCodeAt(index);
+        if (code <= 127) bytes += 1;
+        else if (code <= 2047) bytes += 2;
+        else if (code >= 55296 && code <= 56319) {
+          bytes += 4;
+          index += 1;
+        } else bytes += 3;
+      }
+      return bytes;
+    }
+    function serializedBytes(entries) {
+      return utf8ByteLength(JSON.stringify(entries));
+    }
+    function entryTimestamp(entry) {
+      const timestamp = Date.parse(
+        entry?.endedAt ?? entry?.date ?? entry?.startedAt ?? ""
+      );
+      return Number.isFinite(timestamp) ? timestamp : Number.NEGATIVE_INFINITY;
+    }
+    function oldestEntryIndex(entries) {
+      let oldestIndex = -1;
+      let oldestTime = Infinity;
+      for (let index = 0; index < entries.length; index += 1) {
+        const timestamp = entryTimestamp(entries[index]);
+        if (timestamp < oldestTime || timestamp === oldestTime) {
+          oldestTime = timestamp;
+          oldestIndex = index;
+        }
+      }
+      return oldestIndex;
+    }
+    function trimToByteLimit(entries) {
+      const data = [...entries];
+      while (data.length && serializedBytes(data) > MAX_HISTORY_BYTES) {
+        data.splice(oldestEntryIndex(data), 1);
+      }
+      return data;
+    }
     function validArray(raw) {
       try {
         const v = JSON.parse(raw || "[]");
@@ -40987,10 +41339,7 @@ ${locks}` : ""}`;
           ]
         })
       );
-      try {
-        localStorage.setItem(KEY, JSON.stringify(migrated));
-      } catch (e) {
-      }
+      writeWithQuotaRetry(migrated);
     }
     function entryKey(entry, index = 0) {
       return String(
@@ -41008,7 +41357,7 @@ ${locks}` : ""}`;
     }
     function load() {
       migrateLegacy();
-      const raw = validArray(localStorage.getItem(KEY)), data = trim(raw);
+      const raw = validArray(localStorage.getItem(KEY)), data = trimToByteLimit(trim(raw));
       if (data.length !== raw.length) {
         try {
           localStorage.setItem(KEY, JSON.stringify(data));
@@ -41018,15 +41367,15 @@ ${locks}` : ""}`;
       return data;
     }
     function writeWithQuotaRetry(entries) {
-      let data = trim(entries);
+      const data = trimToByteLimit(trim(entries));
       while (data.length >= 0) {
         try {
           localStorage.setItem(KEY, JSON.stringify(data));
           return true;
         } catch (e) {
-          const idx = [...data].reverse().findIndex((x) => x && x.favorite !== true);
+          const idx = oldestEntryIndex(data);
           if (idx < 0) return false;
-          data.splice(data.length - 1 - idx, 1);
+          data.splice(idx, 1);
         }
       }
       return false;
@@ -41117,6 +41466,8 @@ ${locks}` : ""}`;
         }
       },
       getRevision: () => revision,
+      getStoredByteSize: () => serializedBytes(validArray(localStorage.getItem(KEY))),
+      maxHistoryBytes: MAX_HISTORY_BYTES,
       keys: { history: KEY, active: ACTIVE_KEY }
     };
   })();
@@ -43984,9 +44335,9 @@ ${langText2("理论命中率", "Theoretical hit chance")}: ${pct.toFixed(2)}%`;
       const dur = formatDuration2(entry.durationSeconds);
       const total = entry.teamDamage;
       let out = langText4(
-        `=== KikiMeter 战斗记录｜${dateStr}｜${dur} ===
+        `=== MWI DPS Tracker 战斗记录｜${dateStr}｜${dur} ===
 `,
-        `=== KikiMeter Combat Record | ${dateStr} | ${dur} ===
+        `=== MWI DPS Tracker Combat Record | ${dateStr} | ${dur} ===
 `
       );
       out += langText4(
@@ -44501,7 +44852,7 @@ ${langText2("理论命中率", "Theoretical hit chance")}: ${pct.toFixed(2)}%`;
         hasConfirmedCombat = true;
       } catch (e) {
         HistoryStore.clearActive();
-        console.warn("[KikiMeter] 已忽略损坏的活动战斗缓存。");
+        console.warn("[MWI DPS Tracker] 已忽略损坏的活动战斗缓存。");
       }
     }
     function buildHistoryEntry() {
@@ -44630,7 +44981,7 @@ ${langText2("理论命中率", "Theoretical hit chance")}: ${pct.toFixed(2)}%`;
       hasConfirmedCombat = true;
       currentPlayerNames = Session.getAllPlayerNames();
       persistActive(true);
-      console.info("[KikiMeter] 已结束当前记录并新建记录：" + reason);
+      console.info("[MWI DPS Tracker] 已结束当前记录并新建记录：" + reason);
     }
     function buildClipboardText() {
       const view = ViewData.get(), total = view.teamDamage;
@@ -44639,7 +44990,7 @@ ${langText2("理论命中率", "Theoretical hit chance")}: ${pct.toFixed(2)}%`;
       let out = langText3(
         `=== 银河奶牛 DPS 统计｜${view.label}｜${dateStr}｜${formatDuration2(view.elapsed)} ===
 `,
-        `=== MWI DPS Meter | ${view.label} | ${dateStr} | ${formatDuration2(view.elapsed)} ===
+        `=== MWI DPS Tracker | ${view.label} | ${dateStr} | ${formatDuration2(view.elapsed)} ===
 `
       );
       out += langText3(
@@ -44700,7 +45051,7 @@ ${langText2("理论命中率", "Theoretical hit chance")}: ${pct.toFixed(2)}%`;
       persistActive(true);
       hasConfirmedCombat = true;
       console.info(
-        "[KikiMeter] 公会试炼阶段已结束；当天进入下一关时将继续累计。"
+        "[MWI DPS Tracker] 公会试炼阶段已结束；当天进入下一关时将继续累计。"
       );
     });
     scope.event(SocketHook.bus, "guildSlotRenamed", (ev) => {

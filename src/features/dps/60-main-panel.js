@@ -1560,8 +1560,8 @@ const KikiMeter = (() => {
     const dur = formatDuration(entry.durationSeconds);
     const total = entry.teamDamage;
     let out = langText(
-      `=== KikiMeter 战斗记录｜${dateStr}｜${dur} ===\n`,
-      `=== KikiMeter Combat Record | ${dateStr} | ${dur} ===\n`,
+      `=== MWI DPS Tracker 战斗记录｜${dateStr}｜${dur} ===\n`,
+      `=== MWI DPS Tracker Combat Record | ${dateStr} | ${dur} ===\n`,
     );
     out += langText(
       `团队：${formatRate(entry.teamDps || 0)} DPS｜总伤害 ${formatDamage(total || 0)}`,

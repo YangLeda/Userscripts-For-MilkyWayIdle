@@ -52,6 +52,21 @@ test("number parsing and formatting follow the game locale instead of the system
   localStorage.setItem("i18nextLng", "en-US");
 });
 
+test("number parsing tolerates decimal separators that disagree with the UI locale", () => {
+  localStorage.setItem("i18nextLng", "en-US");
+  assert.equal(runtime.api.parseGameNumber("90,3"), 90.3);
+  assert.equal(runtime.api.parseGameNumber("90.3"), 90.3);
+  assert.equal(runtime.api.parseCompactNumber("1.234,56K"), 1_234_560);
+  assert.equal(runtime.api.parseCompactNumber("1,234.56K"), 1_234_560);
+  assert.equal(runtime.api.parseCompactNumber("1\u202f234,5K"), 1_234_500);
+  assert.equal(runtime.api.parseCompactNumber("1,234K"), 1_234_000);
+
+  localStorage.setItem("i18nextLng", "pt");
+  assert.equal(runtime.api.parseCompactNumber("1.234K"), 1_234_000);
+  assert.equal(runtime.api.parseGameNumber("1,234"), 1.234);
+  localStorage.setItem("i18nextLng", "en-US");
+});
+
 test("optional million cap keeps billion and trillion values in M", () => {
   runtime.settings.settingsMap.displayCapMM.isTrue = true;
   assert.equal(runtime.api.numberFormatter(1_200_000_000), "1,200M");

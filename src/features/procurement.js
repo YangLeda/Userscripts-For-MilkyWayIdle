@@ -1309,15 +1309,28 @@ function appendSunnyEnhancingCompatibility(root) {
 }
 
 function findMaterialHost(panel, itemHrid) {
-  const bare = procurement.normalizeItemHrid(itemHrid).split("/").at(-1);
+  const normalizedItemHrid = procurement.normalizeItemHrid(itemHrid);
   for (const node of panel.querySelectorAll('[class*="Item_itemContainer"]')) {
     const href =
       node.querySelector("svg use")?.getAttribute("href") ??
       node.querySelector("svg use")?.getAttribute("xlink:href") ??
       "";
-    if (href.includes(bare)) return node;
+    if (itemHridFromSpriteHref(href) === normalizedItemHrid) return node;
   }
   return null;
+}
+
+function itemHridFromSpriteHref(href) {
+  const source = String(href ?? "");
+  const hashIndex = source.lastIndexOf("#");
+  if (hashIndex < 0) return "";
+  let fragment = source.slice(hashIndex + 1).split(/[?&]/, 1)[0];
+  try {
+    fragment = decodeURIComponent(fragment);
+  } catch {
+    // Keep the original fragment when a third-party sprite URL is malformed.
+  }
+  return procurement.normalizeItemHrid(fragment);
 }
 
 function markRequirementCell(element, row, column) {
@@ -2367,20 +2380,20 @@ function highlightMarketItems(panel, scroll = false) {
     return;
   }
   const pending = new Set(
-    pendingItems().map((item) => item.itemHrid.split("/").at(-1)),
+    pendingItems().map((item) => procurement.normalizeItemHrid(item.itemHrid)),
   );
   let scrollTarget = null;
   for (const use of panel.querySelectorAll("svg use")) {
     const href =
       use.getAttribute("href") ?? use.getAttribute("xlink:href") ?? "";
-    const matched = [...pending].find((bare) => href.includes(bare));
-    if (!matched) continue;
+    const matched = itemHridFromSpriteHref(href);
+    if (!pending.has(matched)) continue;
     const host =
       use.closest('[class*="Item_itemContainer"]') ?? use.parentElement;
     host.classList.add("mwi-procurement-market-target");
     if (
       currentMarketTarget &&
-      currentMarketTarget.endsWith(matched) &&
+      procurement.normalizeItemHrid(currentMarketTarget) === matched &&
       !scrollTarget
     ) {
       scrollTarget = host;

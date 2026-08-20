@@ -752,16 +752,30 @@ export class AssetCenter {
       }
       try {
         this.store.insertDay(dayKey, values, this.scopeKey);
-      } catch {
+      } catch (error) {
         return globalThis.alert?.(
-          this.t(
-            "无法插入：日期已存在或数据无效。",
-            "Could not insert: the date already exists or the data is invalid.",
-          ),
+          error instanceof RangeError || error instanceof TypeError
+            ? this.t(
+                "无法插入：日期已存在或数据无效。",
+                "Could not insert: the date already exists or the data is invalid.",
+              )
+            : this.t(
+                "资产记录保存失败，请检查浏览器存储空间后重试。",
+                "Could not save the asset record. Check browser storage and try again.",
+              ),
         );
       }
     } else {
-      this.store.updateDay(dialog.dataset.date, values, this.scopeKey);
+      try {
+        this.store.updateDay(dialog.dataset.date, values, this.scopeKey);
+      } catch {
+        return globalThis.alert?.(
+          this.t(
+            "资产记录保存失败，请检查浏览器存储空间后重试。",
+            "Could not save the asset record. Check browser storage and try again.",
+          ),
+        );
+      }
     }
     dialog.close();
     this.changed();

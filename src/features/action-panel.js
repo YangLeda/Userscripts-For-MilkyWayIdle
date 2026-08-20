@@ -54,11 +54,10 @@ async function handleActionPanel(panel) {
   const duration = runtime.api.getProductionPanelDuration?.(panel);
   if (!detail || !Number.isFinite(duration) || duration <= 0) return false;
 
-  const exp = Number(
-    String(runtime.api.getOriTextFromElement(expElement) ?? "")
-      .replaceAll(runtime.config.THOUSAND_SEPERATOR, "")
-      .replaceAll(runtime.config.DECIMAL_SEPERATOR, "."),
-  );
+  const expToken = String(
+    runtime.api.getOriTextFromElement(expElement) ?? "",
+  ).match(/[-+]?\d[\d\s\u00a0\u202f.,]*/)?.[0];
+  const exp = runtime.api.parseGameNumber(expToken);
   if (!Number.isFinite(exp) || exp <= 0) return false;
 
   const efficiencyDetails = getActionEfficiencyDetails(actionHrid);

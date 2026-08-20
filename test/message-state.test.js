@@ -263,6 +263,23 @@ test("action updates merge by string id, deduplicate, and follow ordinal order",
   );
 });
 
+test("an action without an ordinal remains the active queue head", () => {
+  runtime.api.applyGameMessage({
+    type: "init_character_data",
+    characterID: "queue-active-character",
+    characterSkills: [],
+    characterItems: [],
+    characterActions: [
+      { id: "queued", actionHrid: "/actions/queued", ordinal: 1 },
+      { id: "active", actionHrid: "/actions/active", currentCount: 5 },
+    ],
+  });
+  assert.deepEqual(
+    runtime.state.currentActionsHridList.map(({ id }) => id),
+    ["active", "queued"],
+  );
+});
+
 test("character game mode and labyrinth activity follow authoritative messages", () => {
   runtime.api.applyGameMessage({
     type: "init_character_data",

@@ -553,13 +553,14 @@ function getActionProductionProfile(actionOrHrid, context = {}) {
 
 function getActionCount(action) {
   if (action?.hasMaxCount === false) return Infinity;
-  const target = Number(
+  const rawTarget =
     action?.targetCount ??
-      action?.maxCount ??
-      action?.count ??
-      action?.actionCount,
-  );
-  if (!Number.isFinite(target) || target < 0) return Infinity;
+    action?.maxCount ??
+    action?.count ??
+    action?.actionCount;
+  const target = Number(rawTarget);
+  if (rawTarget === null || rawTarget === undefined) return Infinity;
+  if (!Number.isFinite(target) || target <= 0) return Infinity;
   const current = Number(action?.currentCount ?? action?.completedCount ?? 0);
   return Math.max(0, target - (Number.isFinite(current) ? current : 0));
 }

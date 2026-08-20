@@ -425,10 +425,10 @@ test("announcement history preserves each release separately through 26.4.16", (
   assert.match(release16.title.zh, /26\.4\.16 更新公告/);
   assert.match(release16.title.en, /Version 26\.4\.16 update/);
   assert.equal(release16.body.zh.length, release16.body.en.length);
-  assert.equal(release16.body.zh.length, 7);
+  assert.equal(release16.body.zh.length, 12);
   assert.match(
     release16.body.zh.join("\n"),
-    /任务首次刷新[\s\S]*地图编号[\s\S]*光辉袍服[\s\S]*烈焰袍服[\s\S]*DPS 命中率[\s\S]*五人队[\s\S]*q7\.nainai\.eu\.org[\s\S]*任务代币[\s\S]*生产制作页[\s\S]*公会信誉[\s\S]*铁牛排行榜支持[\s\S]*多个任务[\s\S]*单行循环滚动[\s\S]*连接权限/,
+    /任务首次刷新[\s\S]*地图编号[\s\S]*光辉袍服[\s\S]*烈焰袍服[\s\S]*DPS 命中率[\s\S]*五人队[\s\S]*q7\.nainai\.eu\.org[\s\S]*任务代币[\s\S]*生产制作页[\s\S]*公会信誉[\s\S]*铁牛排行榜支持[\s\S]*多个任务[\s\S]*单行循环滚动[\s\S]*连接权限[\s\S]*90,3 XP[\s\S]*手动编辑[\s\S]*MWI DPS Tracker[\s\S]*1 MB[\s\S]*无限任务[\s\S]*精确匹配[\s\S]*分项现在都可以点击炫耀/,
   );
   assert.doesNotMatch(release16.body.zh.join("\n"), /前 1 万|公开 JSON/);
   assert.doesNotMatch(
