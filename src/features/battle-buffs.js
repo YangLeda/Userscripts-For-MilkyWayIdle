@@ -417,7 +417,9 @@ function createBuffTracker(scope) {
   }
 
   function applyAuthoritativeCombatBuffMaps(payload, units) {
-    const authoritativeAbilities = new Set();
+    const authoritativeEffects = new Set();
+    const effectKey = (mapName, unitIndex, kind, abilityHrid) =>
+      `${mapName}:${unitIndex}:${kind}:${abilityHrid}`;
     for (const [mapName, unitList] of [
       ["pMap", units.players],
       ["mMap", units.monsters],
@@ -460,7 +462,9 @@ function createBuffTracker(scope) {
             : Date.now();
           const expiresAt = startedAt + durationSec * 1000;
           if (expiresAt <= Date.now()) continue;
-          authoritativeAbilities.add(abilityHrid);
+          authoritativeEffects.add(
+            effectKey(mapName, Number(key), kind, abilityHrid),
+          );
           updateUnitEffect(unitEl, kind, abilityHrid, durationSec, {
             startedAt,
             expiresAt,
@@ -468,7 +472,13 @@ function createBuffTracker(scope) {
         }
       }
     }
-    return authoritativeAbilities;
+    return {
+      has(mapName, unitIndex, kind, abilityHrid) {
+        return authoritativeEffects.has(
+          effectKey(mapName, unitIndex, kind, abilityHrid),
+        );
+      },
+    };
   }
 
   function effectKey(kind, abilityHrid) {
@@ -621,7 +631,7 @@ function createBuffTracker(scope) {
     if (units.players.length === 0 && units.monsters.length === 0) return;
     ensureBuffStyles(scope);
     updateBattleState(payload);
-    const authoritativeAbilities = applyAuthoritativeCombatBuffMaps(
+    const authoritativeEffects = applyAuthoritativeCombatBuffMaps(
       payload,
       units,
     );
@@ -630,20 +640,38 @@ function createBuffTracker(scope) {
       const pending = PENDING_BUFFS.splice(0, PENDING_BUFFS.length);
       for (const item of pending) {
         if (!BUFFS.has(item.abilityHrid)) continue;
-        if (authoritativeAbilities.has(item.abilityHrid)) continue;
         const duration = BUFFS.get(item.abilityHrid);
         const isTeamBuff = TEAM_BUFFS.has(item.abilityHrid);
         const unitList =
           item.mapName === "pMap" ? units.players : units.monsters;
         if (isTeamBuff) {
-          for (const unitEl of unitList) {
-            if (unitEl)
+          for (let unitIndex = 0; unitIndex < unitList.length; unitIndex += 1) {
+            const unitEl = unitList[unitIndex];
+            if (
+              unitEl &&
+              !authoritativeEffects.has(
+                item.mapName,
+                unitIndex,
+                "buff",
+                item.abilityHrid,
+              )
+            ) {
               updateUnitEffect(unitEl, "buff", item.abilityHrid, duration);
+            }
           }
         } else {
           const unitEl = unitList[item.casterIndex];
-          if (unitEl)
+          if (
+            unitEl &&
+            !authoritativeEffects.has(
+              item.mapName,
+              item.casterIndex,
+              "buff",
+              item.abilityHrid,
+            )
+          ) {
             updateUnitEffect(unitEl, "buff", item.abilityHrid, duration);
+          }
         }
       }
     }
@@ -652,10 +680,10 @@ function createBuffTracker(scope) {
       const pending = PENDING_DEBUFFS.splice(0, PENDING_DEBUFFS.length);
       for (const item of pending) {
         if (!DEBUFFS.has(item.abilityHrid)) continue;
-        if (authoritativeAbilities.has(item.abilityHrid)) continue;
         const duration = DEBUFFS.get(item.abilityHrid);
         const applyList =
           item.targetSide === "monsters" ? units.monsters : units.players;
+        const targetMapName = item.targetSide === "monsters" ? "mMap" : "pMap";
         // Single-target debuffs land on the first confirmed hit; others mark
         // every target that took damage this frame.
         const targets = SINGLE_TARGET_DEBUFFS.has(item.abilityHrid)
@@ -663,8 +691,17 @@ function createBuffTracker(scope) {
           : item.targets;
         for (const target of targets) {
           const unitEl = applyList[target];
-          if (unitEl)
+          if (
+            unitEl &&
+            !authoritativeEffects.has(
+              targetMapName,
+              target,
+              "debuff",
+              item.abilityHrid,
+            )
+          ) {
             updateUnitEffect(unitEl, "debuff", item.abilityHrid, duration);
+          }
         }
       }
     }
@@ -687,18 +724,27 @@ function createBuffTracker(scope) {
         if (typeof abilityHrid !== "string" || abilityHrid.length === 0)
           continue;
         if (!BUFFS.has(abilityHrid)) continue;
-        if (authoritativeAbilities.has(abilityHrid)) continue;
-
         const duration = BUFFS.get(abilityHrid);
         const keyIndex = Number.isInteger(Number(key)) ? Number(key) : idx;
 
         if (TEAM_BUFFS.has(abilityHrid)) {
-          for (const unitEl of unitList) {
-            if (unitEl) updateUnitEffect(unitEl, "buff", abilityHrid, duration);
+          for (let unitIndex = 0; unitIndex < unitList.length; unitIndex += 1) {
+            const unitEl = unitList[unitIndex];
+            if (
+              unitEl &&
+              !authoritativeEffects.has(mapName, unitIndex, "buff", abilityHrid)
+            ) {
+              updateUnitEffect(unitEl, "buff", abilityHrid, duration);
+            }
           }
         } else {
           const unitEl = unitList[keyIndex];
-          if (unitEl) updateUnitEffect(unitEl, "buff", abilityHrid, duration);
+          if (
+            unitEl &&
+            !authoritativeEffects.has(mapName, keyIndex, "buff", abilityHrid)
+          ) {
+            updateUnitEffect(unitEl, "buff", abilityHrid, duration);
+          }
         }
       }
     };

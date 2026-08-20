@@ -20,7 +20,57 @@ runtime.config.isZH = true;
 let battleBuffsEnabled = false;
 runtime.settings.get = (id) =>
   id === "battleBuffs" ? battleBuffsEnabled : false;
+const OFFICIAL_PERSISTENT_DEBUFFS = Object.freeze([
+  ["/abilities/crippling_slash", "allEnemies", ["crippling_slash"]],
+  ["/abilities/fracturing_impact", "allEnemies", ["fracturing_impact"]],
+  ["/abilities/frost_surge", "allEnemies", ["frost_surge"]],
+  ["/abilities/ice_spear", "enemy", ["ice_spear"]],
+  ["/abilities/maim", "enemy", ["maim"]],
+  [
+    "/abilities/pestilent_shot",
+    "enemy",
+    [
+      "pestilent_shot_armor",
+      "pestilent_shot_water_resistance",
+      "pestilent_shot_nature_resistance",
+      "pestilent_shot_fire_resistance",
+    ],
+  ],
+  ["/abilities/puncture", "enemy", ["puncture"]],
+  [
+    "/abilities/smoke_burst",
+    "enemy",
+    ["smoke_burst_accuracy", "smoke_burst_evasion"],
+  ],
+  [
+    "/abilities/toxic_pollen",
+    "allEnemies",
+    [
+      "toxic_pollen_armor",
+      "toxic_pollen_water_resistance",
+      "toxic_pollen_nature_resistance",
+      "toxic_pollen_fire_resistance",
+    ],
+  ],
+]);
 runtime.state.initData_abilityDetailMap = {
+  ...Object.fromEntries(
+    OFFICIAL_PERSISTENT_DEBUFFS.map(([abilityHrid, targetType, buffHrids]) => [
+      abilityHrid,
+      {
+        abilityEffects: [
+          {
+            effectType: "/ability_effect_types/damage",
+            targetType,
+            buffs: buffHrids.map((buffHrid) => ({
+              uniqueHrid: `/buff_uniques/${buffHrid}`,
+              duration: 10_000_000_000,
+            })),
+          },
+        ],
+      },
+    ]),
+  ),
   "/abilities/berserk": {
     abilityEffects: [
       { targetType: "self", buffs: [{ duration: 8_000_000_000 }] },
@@ -29,16 +79,6 @@ runtime.state.initData_abilityDetailMap = {
   "/abilities/fierce_aura": {
     abilityEffects: [
       { targetType: "all_allies", buffs: [{ duration: 10_000_000_000 }] },
-    ],
-  },
-  "/abilities/maim": {
-    abilityEffects: [
-      { targetType: "enemy", buffs: [{ duration: 9_000_000_000 }] },
-    ],
-  },
-  "/abilities/puncture": {
-    abilityEffects: [
-      { targetType: "enemy", buffs: [{ duration: 12_000_000_000 }] },
     ],
   },
   "/abilities/toughness": {
@@ -166,10 +206,29 @@ test("battle buff catalog stays consistent", () => {
   // Team buffs and single-target debuffs must reference known abilities.
   for (const hrid of TEAM_BUFFS) assert.ok(BUFFS.has(hrid), hrid);
   for (const hrid of SINGLE_TARGET_DEBUFFS) assert.ok(DEBUFFS.has(hrid), hrid);
-  assert.equal(DEBUFFS.get("/abilities/puncture"), 12);
+  assert.equal(DEBUFFS.get("/abilities/puncture"), 10);
   assert.ok(DEBUFFS.has("/abilities/withering_field"));
   assert.ok(ALL_TARGET_DEBUFFS.has("/abilities/withering_field"));
   assert.equal(SINGLE_TARGET_DEBUFFS.has("/abilities/withering_field"), false);
+
+  for (const [abilityHrid, targetType] of OFFICIAL_PERSISTENT_DEBUFFS) {
+    assert.ok(DEBUFFS.has(abilityHrid), `${abilityHrid} is a debuff`);
+    assert.equal(
+      BUFFS.has(abilityHrid),
+      false,
+      `${abilityHrid} must never render as a caster buff`,
+    );
+    assert.equal(
+      ALL_TARGET_DEBUFFS.has(abilityHrid),
+      targetType === "allEnemies",
+      `${abilityHrid} has the correct all-target classification`,
+    );
+    assert.equal(
+      SINGLE_TARGET_DEBUFFS.has(abilityHrid),
+      targetType === "enemy",
+      `${abilityHrid} has the correct single-target classification`,
+    );
+  }
 });
 
 test("a cast buff renders an icon chip below the caster", async () => {
@@ -455,6 +514,53 @@ test("combatBuffMap authoritatively places a status on its owning unit", async (
     /#marked_hex$/,
   );
   assert.equal(playerUnits()[0].querySelectorAll(".mwi-chip").length, 0);
+
+  await runtime.features.disable("battleBuffs");
+  battleBuffsEnabled = false;
+});
+
+test("partial authoritative maps do not hide an all-target debuff from other hit units", async () => {
+  battleBuffsEnabled = true;
+  battleMarkup(1, 2);
+  await runtime.features.enable("battleBuffs");
+
+  runtime.dispatchMessage({
+    type: "battle_updated",
+    pMap: { 0: { abilityHrid: "/abilities/toxic_pollen", cHP: 100 } },
+    mMap: { 0: { cHP: 100 }, 1: { cHP: 100 } },
+  });
+  runtime.dispatchMessage({
+    type: "battle_updated",
+    pMap: { 0: { isAutoAtk: true } },
+    mMap: {
+      0: {
+        cHP: 80,
+        combatBuffMap: {
+          "/buff_uniques/toxic_pollen_armor": {
+            uniqueHrid: "/buff_uniques/toxic_pollen_armor",
+            startTime: new Date().toISOString(),
+            duration: 10_000_000_000,
+          },
+        },
+      },
+      1: { cHP: 75 },
+    },
+  });
+
+  for (const monster of monsterUnits()) {
+    assert.match(
+      monster
+        .querySelector("use[href$='#toxic_pollen']")
+        ?.getAttribute("href") ?? "",
+      /#toxic_pollen$/,
+      "every affected monster receives Toxic Pollen",
+    );
+  }
+  assert.equal(
+    playerUnits()[0].querySelector("use[href$='#toxic_pollen']"),
+    null,
+    "Toxic Pollen never appears on its caster",
+  );
 
   await runtime.features.disable("battleBuffs");
   battleBuffsEnabled = false;

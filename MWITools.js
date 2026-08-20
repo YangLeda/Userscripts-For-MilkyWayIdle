@@ -17022,7 +17022,8 @@ ${preview}`
       return duration;
     }
     function applyAuthoritativeCombatBuffMaps(payload, units) {
-      const authoritativeAbilities = /* @__PURE__ */ new Set();
+      const authoritativeEffects = /* @__PURE__ */ new Set();
+      const effectKey2 = (mapName, unitIndex, kind, abilityHrid) => `${mapName}:${unitIndex}:${kind}:${abilityHrid}`;
       for (const [mapName, unitList] of [
         ["pMap", units.players],
         ["mMap", units.monsters]
@@ -17052,7 +17053,9 @@ ${preview}`
             const startedAt = Number.isFinite(parsedStart) ? parsedStart : Date.now();
             const expiresAt = startedAt + durationSec * 1e3;
             if (expiresAt <= Date.now()) continue;
-            authoritativeAbilities.add(abilityHrid);
+            authoritativeEffects.add(
+              effectKey2(mapName, Number(key), kind, abilityHrid)
+            );
             updateUnitEffect(unitEl, kind, abilityHrid, durationSec, {
               startedAt,
               expiresAt
@@ -17060,7 +17063,13 @@ ${preview}`
           }
         }
       }
-      return authoritativeAbilities;
+      return {
+        has(mapName, unitIndex, kind, abilityHrid) {
+          return authoritativeEffects.has(
+            effectKey2(mapName, unitIndex, kind, abilityHrid)
+          );
+        }
+      };
     }
     function effectKey(kind, abilityHrid) {
       return `${kind}${abilityHrid}`;
@@ -17189,7 +17198,7 @@ ${preview}`
       if (units.players.length === 0 && units.monsters.length === 0) return;
       ensureBuffStyles(scope);
       updateBattleState(payload);
-      const authoritativeAbilities = applyAuthoritativeCombatBuffMaps(
+      const authoritativeEffects = applyAuthoritativeCombatBuffMaps(
         payload,
         units
       );
@@ -17197,19 +17206,31 @@ ${preview}`
         const pending = PENDING_BUFFS.splice(0, PENDING_BUFFS.length);
         for (const item of pending) {
           if (!BUFFS.has(item.abilityHrid)) continue;
-          if (authoritativeAbilities.has(item.abilityHrid)) continue;
           const duration = BUFFS.get(item.abilityHrid);
           const isTeamBuff = TEAM_BUFFS.has(item.abilityHrid);
           const unitList = item.mapName === "pMap" ? units.players : units.monsters;
           if (isTeamBuff) {
-            for (const unitEl of unitList) {
-              if (unitEl)
+            for (let unitIndex = 0; unitIndex < unitList.length; unitIndex += 1) {
+              const unitEl = unitList[unitIndex];
+              if (unitEl && !authoritativeEffects.has(
+                item.mapName,
+                unitIndex,
+                "buff",
+                item.abilityHrid
+              )) {
                 updateUnitEffect(unitEl, "buff", item.abilityHrid, duration);
+              }
             }
           } else {
             const unitEl = unitList[item.casterIndex];
-            if (unitEl)
+            if (unitEl && !authoritativeEffects.has(
+              item.mapName,
+              item.casterIndex,
+              "buff",
+              item.abilityHrid
+            )) {
               updateUnitEffect(unitEl, "buff", item.abilityHrid, duration);
+            }
           }
         }
       }
@@ -17217,14 +17238,20 @@ ${preview}`
         const pending = PENDING_DEBUFFS.splice(0, PENDING_DEBUFFS.length);
         for (const item of pending) {
           if (!DEBUFFS.has(item.abilityHrid)) continue;
-          if (authoritativeAbilities.has(item.abilityHrid)) continue;
           const duration = DEBUFFS.get(item.abilityHrid);
           const applyList = item.targetSide === "monsters" ? units.monsters : units.players;
+          const targetMapName = item.targetSide === "monsters" ? "mMap" : "pMap";
           const targets = SINGLE_TARGET_DEBUFFS.has(item.abilityHrid) ? item.targets.slice(0, 1) : item.targets;
           for (const target of targets) {
             const unitEl = applyList[target];
-            if (unitEl)
+            if (unitEl && !authoritativeEffects.has(
+              targetMapName,
+              target,
+              "debuff",
+              item.abilityHrid
+            )) {
               updateUnitEffect(unitEl, "debuff", item.abilityHrid, duration);
+            }
           }
         }
       }
@@ -17240,16 +17267,20 @@ ${preview}`
           if (typeof abilityHrid !== "string" || abilityHrid.length === 0)
             continue;
           if (!BUFFS.has(abilityHrid)) continue;
-          if (authoritativeAbilities.has(abilityHrid)) continue;
           const duration = BUFFS.get(abilityHrid);
           const keyIndex = Number.isInteger(Number(key)) ? Number(key) : idx;
           if (TEAM_BUFFS.has(abilityHrid)) {
-            for (const unitEl of unitList) {
-              if (unitEl) updateUnitEffect(unitEl, "buff", abilityHrid, duration);
+            for (let unitIndex = 0; unitIndex < unitList.length; unitIndex += 1) {
+              const unitEl = unitList[unitIndex];
+              if (unitEl && !authoritativeEffects.has(mapName, unitIndex, "buff", abilityHrid)) {
+                updateUnitEffect(unitEl, "buff", abilityHrid, duration);
+              }
             }
           } else {
             const unitEl = unitList[keyIndex];
-            if (unitEl) updateUnitEffect(unitEl, "buff", abilityHrid, duration);
+            if (unitEl && !authoritativeEffects.has(mapName, keyIndex, "buff", abilityHrid)) {
+              updateUnitEffect(unitEl, "buff", abilityHrid, duration);
+            }
           }
         }
       };
@@ -29622,7 +29653,7 @@ ${locks}` : ""}`;
           "市场主接口失败时会自动切换到 q7.nainai.eu.org 备用接口，再按过期缓存与内置备份降级。新增默认关闭的“任务代币计入资产”开关，可独立控制资产、历史和价值排序。",
           "每次真正打开生产制作页都会静默刷新一次仓库，首次取数失败会自动重试，手动刷新仍保留提示。公会信誉兑换同时显示物品数量、信用点数和每点成本。",
           "新增铁牛排行榜支持；铁牛榜现在会显示与标准榜相同样式的名次徽章和对应经验/小时。",
-          "修复多个任务同时停留在刷新选择时锁定状态互相串联的问题，每个任务的牛铃和金币选择现在只跟随自身分类。战斗 Buff/Debuff 状态栏改为超过三个图标后单行循环滚动，并修复部分 Debuff 错误显示在施放者头上的问题。",
+          "修复多个任务同时停留在刷新选择时锁定状态互相串联的问题，每个任务的牛铃和金币选择现在只跟随自身分类。战斗 Buff/Debuff 状态栏改为超过三个图标后单行循环滚动且不再显示折叠开关；包括花粉在内的全部持续型 Debuff 都会按实际受影响单位显示，不再错误挂在施放者头上。",
           "补全正式服、测试服和国服域名的脚本连接权限，避免相关请求被脚本管理器拦截。",
           "目标等级、生产耗时和市场数值现在会同时兼容逗号与小数点互换及混合千位格式，修复英文界面把“90,3 XP”误读为“903 XP”、导致升级时间严重偏短的问题。",
           "手动编辑的资产历史不再被自动快照或其他页面的旧数据覆盖；写入失败会明确提示并回滚，库存总资产旁的昨日浮动也会在历史变化后立即稳定刷新。",
@@ -29636,7 +29667,7 @@ ${locks}` : ""}`;
           "Marketplace requests automatically fall back to q7.nainai.eu.org when the primary endpoint fails, followed by stale cache and the built-in backup. A new Task Tokens in assets switch defaults off and independently controls assets, history, and value sorting.",
           "Opening a production page now silently refreshes inventory once, retries automatically when the first snapshot is unavailable, and keeps manual refresh notifications. Guild reputation exchanges now show the item quantity, credit-point return, and cost per point together.",
           "Added Iron Cow leaderboard support. Iron Cow rankings now show the same badge styles as Standard rankings together with the corresponding XP/hour data.",
-          "Fixed lock state leaking between several tasks whose reroll choices were open at the same time; each task's Cowbell and coin choices now follow only its own category. Battle Buff/Debuff bars now loop left in a single row after the third icon, and some Debuffs no longer appear above the caster instead of the affected target.",
+          "Fixed lock state leaking between several tasks whose reroll choices were open at the same time; each task's Cowbell and coin choices now follow only its own category. Battle Buff/Debuff bars now loop left in a single row after the third icon with no expand toggle, and every persistent Debuff, including Toxic Pollen, follows the affected unit instead of appearing above the caster.",
           "Added script connection permissions for the live, test, and China game domains so related requests are not blocked by userscript managers.",
           "Target-level estimates, production durations, and market values now accept swapped comma/period decimals and mixed grouping formats. This fixes English panels reading “90,3 XP” as “903 XP” and severely underestimating level-up time.",
           "Manually edited asset history is no longer overwritten by automatic snapshots or stale data from another page. Failed writes now report and roll back, and the yesterday change beside Total assets refreshes immediately when history changes.",
