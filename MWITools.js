@@ -23,6 +23,10 @@
 // @grant        GM_setValue
 // @grant        GM_info
 // @grant        unsafeWindow
+// @connect      www.milkywayidle.com
+// @connect      test.milkywayidle.com
+// @connect      www.milkywayidlecn.com
+// @connect      test.milkywayidlecn.com
 // @connect      raw.githubusercontent.com
 // @connect      feedback.43.167.210.211.sslip.io
 // @connect      mwi-guild.43.167.210.211.sslip.io
@@ -16405,11 +16409,16 @@ ${preview}`
 
   // src/features/battle-buffs.js
   var STYLE_ID6 = "mwi-buff-style";
-  var EXPANSION_STORAGE_KEY = "MWITools_battle_buff_expansion_v1";
-  var COLLAPSED_CAPACITY = 3;
-  var EXPANDED_CAPACITY = 6;
+  var STATIC_EFFECT_CAPACITY = 3;
+  var MARQUEE_SPEED_PX_PER_SECOND = 24;
   var abilityEffectIndexSource = null;
   var abilityEffectIndex = null;
+  function normalizedEffectToken(value) {
+    return String(value ?? "").toLowerCase().replaceAll(/[^a-z]/g, "");
+  }
+  function targetsEnemy(targetType) {
+    return /enem(?:y|ies)/.test(targetType);
+  }
   function buildAbilityEffectIndex() {
     const source = runtime.state.initData_abilityDetailMap ?? {};
     if (source === abilityEffectIndexSource && abilityEffectIndex) {
@@ -16419,26 +16428,50 @@ ${preview}`
       buffs: /* @__PURE__ */ new Map(),
       debuffs: /* @__PURE__ */ new Map(),
       teamBuffs: /* @__PURE__ */ new Set(),
-      singleTargetDebuffs: /* @__PURE__ */ new Set()
+      singleTargetDebuffs: /* @__PURE__ */ new Set(),
+      allTargetDebuffs: /* @__PURE__ */ new Set(),
+      buffSources: /* @__PURE__ */ new Map()
     };
     const entries = source instanceof Map ? source.entries() : Object.entries(source);
     for (const [abilityHrid, detail] of entries) {
-      for (const effect of detail?.abilityEffects ?? []) {
+      const effects = detail?.abilityEffects ?? [];
+      const inheritedEnemyTarget = effects.map((effect) => normalizedEffectToken(effect?.targetType)).find(targetsEnemy);
+      for (const effect of effects) {
         const durations = (effect?.buffs ?? []).map((buff) => Number(buff?.duration) / 1e9).filter((duration2) => Number.isFinite(duration2) && duration2 > 0);
         if (!durations.length) continue;
         const duration = Math.max(...durations);
-        const targetType = String(effect?.targetType ?? "").toLowerCase().replaceAll(/[^a-z]/g, "");
-        const targetsEnemy = targetType.includes("enemy");
-        const durationsByAbility = targetsEnemy ? index.debuffs : index.buffs;
+        const effectType = normalizedEffectToken(effect?.effectType);
+        const explicitDebuff = effectType.includes("debuff");
+        const explicitBuff = !explicitDebuff && effectType.includes("buff");
+        let targetType = normalizedEffectToken(effect?.targetType);
+        const inferredDebuff = !explicitBuff && targetsEnemy(targetType);
+        const kind = explicitDebuff || inferredDebuff ? "debuff" : "buff";
+        if (!targetType && kind === "debuff") {
+          targetType = inheritedEnemyTarget || "enemy";
+        }
+        const durationsByAbility = kind === "debuff" ? index.debuffs : index.buffs;
         durationsByAbility.set(
           abilityHrid,
           Math.max(duration, durationsByAbility.get(abilityHrid) ?? 0)
         );
-        if (!targetsEnemy && targetType.includes("allallies")) {
+        if (kind === "buff" && targetType.includes("allallies")) {
           index.teamBuffs.add(abilityHrid);
         }
-        if (targetsEnemy && !targetType.includes("allenemies")) {
-          index.singleTargetDebuffs.add(abilityHrid);
+        if (kind === "debuff") {
+          if (targetType.includes("allenemies")) {
+            index.allTargetDebuffs.add(abilityHrid);
+          } else {
+            index.singleTargetDebuffs.add(abilityHrid);
+          }
+        }
+        for (const buff of effect?.buffs ?? []) {
+          const uniqueHrid = String(buff?.uniqueHrid ?? "");
+          if (!uniqueHrid) continue;
+          index.buffSources.set(uniqueHrid, {
+            abilityHrid,
+            duration,
+            kind
+          });
         }
       }
     }
@@ -16463,26 +16496,29 @@ ${preview}`
   var DEBUFFS = dynamicCollection("debuffs");
   var TEAM_BUFFS = dynamicCollection("teamBuffs");
   var SINGLE_TARGET_DEBUFFS = dynamicCollection("singleTargetDebuffs");
+  var ALL_TARGET_DEBUFFS = dynamicCollection("allTargetDebuffs");
   function ensureBuffStyles(scope) {
     if (document.getElementById(STYLE_ID6)) return;
     const style = document.createElement("style");
     style.id = STYLE_ID6;
     style.textContent = `
-.mwi-has-buffbar{height:auto!important;min-height:0;overflow:visible!important}
-.mwi-buff-shell{width:100%;box-sizing:border-box;display:grid;grid-template-rows:21px 18px;margin-top:4px}
-.mwi-buff-shell[data-expanded="true"]{grid-template-rows:46px 18px}
-.mwi-buffbar{width:100%;height:21px;max-height:21px;box-sizing:border-box;display:flex;flex-wrap:wrap;gap:4px;overflow:hidden;align-content:flex-start;align-items:center;justify-content:center}
-.mwi-buff-shell[data-expanded="true"] .mwi-buffbar{height:46px;max-height:46px;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin}
-.mwi-buff-toggle{width:100%;height:18px;box-sizing:border-box;padding:0;border:0;background:transparent;color:inherit;font:700 10px/18px "Trebuchet MS",Verdana,Arial,sans-serif;cursor:pointer;opacity:.7;text-align:center}
-.mwi-buff-toggle:hover,.mwi-buff-toggle:focus-visible{opacity:1;background:rgba(127,127,127,.12);outline:none}
-.mwi-chip{font:11px/1.2 "Trebuchet MS", Verdana, Arial, sans-serif;padding:2px 6px;border-radius:10px;white-space:nowrap;display:inline-flex;align-items:center;gap:4px;position:relative}
+	.mwi-has-buffbar{height:auto!important;min-height:0;overflow:visible!important}
+	.mwi-buff-shell{width:100%;height:21px;box-sizing:border-box;margin-top:4px}
+	.mwi-buffbar{position:relative;width:100%;height:21px;box-sizing:border-box;overflow:hidden}
+	.mwi-buff-track{width:100%;height:21px;display:flex;align-items:center}
+	.mwi-buff-sequence{width:100%;height:21px;display:flex;flex:none;gap:4px;align-items:center;justify-content:center}
+	.mwi-buffbar[data-scrolling="true"] .mwi-buff-track{width:max-content;animation:mwi-buff-marquee var(--mwi-marquee-duration,8s) linear infinite;will-change:transform}
+	.mwi-buffbar[data-scrolling="true"] .mwi-buff-sequence{width:max-content;justify-content:flex-start}
+	.mwi-chip{font:11px/1.2 "Trebuchet MS", Verdana, Arial, sans-serif;padding:2px 6px;border-radius:10px;white-space:nowrap;display:inline-flex;align-items:center;gap:4px;position:relative}
 .mwi-icon-wrap{position:relative;width:15px;height:15px;display:inline-block}
 .mwi-icon{width:15px;height:15px;display:block}
 .mwi-progress-ring{position:absolute;inset:-3px;border-radius:14px;pointer-events:none;mask:linear-gradient(#000 0 0);-webkit-mask:linear-gradient(#000 0 0)}
 .mwi-progress-ring::before{content:"";position:absolute;inset:0;border-radius:inherit;padding:3px;background:conic-gradient(var(--mwi-ring-color) 0deg var(--mwi-ring-deg), transparent var(--mwi-ring-deg) 360deg);-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude}
-.mwi-buff{background:#e7f4e4;color:#1e4d1a;border:1px solid #7fbf7a}
-.mwi-debuff{background:#fbe3e3;color:#6b1a1a;border:1px solid #d17b7b}
-`;
+	.mwi-buff{background:#e7f4e4;color:#1e4d1a;border:1px solid #7fbf7a}
+	.mwi-debuff{background:#fbe3e3;color:#6b1a1a;border:1px solid #d17b7b}
+	@keyframes mwi-buff-marquee{to{transform:translate3d(calc(-1 * var(--mwi-marquee-distance,0px)),0,0)}}
+	@media (prefers-reduced-motion:reduce){.mwi-buffbar[data-scrolling="true"]{overflow-x:auto}.mwi-buffbar[data-scrolling="true"] .mwi-buff-track{animation:none;will-change:auto}.mwi-buffbar[data-scrolling="true"] .mwi-buff-sequence[aria-hidden="true"]{display:none}}
+	`;
     (document.head || document.documentElement).appendChild(style);
     scope.add(() => style.remove());
   }
@@ -16491,27 +16527,6 @@ ${preview}`
     const BATTLE_STATE = { players: /* @__PURE__ */ new Map(), monsters: /* @__PURE__ */ new Map() };
     const PENDING_BUFFS = [];
     const PENDING_DEBUFFS = [];
-    const expandedUnitKeys = (() => {
-      try {
-        const stored = JSON.parse(
-          localStorage.getItem(EXPANSION_STORAGE_KEY) || "[]"
-        );
-        return new Set(
-          Array.isArray(stored) ? stored.filter((value) => typeof value === "string" && value) : []
-        );
-      } catch {
-        return /* @__PURE__ */ new Set();
-      }
-    })();
-    function persistExpandedUnitKeys() {
-      try {
-        localStorage.setItem(
-          EXPANSION_STORAGE_KEY,
-          JSON.stringify([...expandedUnitKeys].sort())
-        );
-      } catch {
-      }
-    }
     function getUnitElements(areaClass) {
       const area = document.querySelector(`[class*="${areaClass}"]`);
       if (!area) return [];
@@ -16527,45 +16542,7 @@ ${preview}`
         monsters: getUnitElements("BattlePanel_monstersArea")
       };
     }
-    function unitStorageKeys(side, units) {
-      const occurrences = /* @__PURE__ */ new Map();
-      return units.map((unitEl, index) => {
-        const name = String(
-          unitEl.querySelector('[class*="CombatUnit_name"]')?.textContent ?? ""
-        ).replaceAll(/\s+/g, " ").trim().toLocaleLowerCase();
-        if (!name) return `${side}:slot:${index}`;
-        const occurrence = occurrences.get(name) ?? 0;
-        occurrences.set(name, occurrence + 1);
-        return `${side}:name:${name}:${occurrence}`;
-      });
-    }
-    function updateBuffToggle(shell2, effectCount) {
-      const expanded = shell2.dataset.expanded === "true";
-      const capacity = expanded ? EXPANDED_CAPACITY : COLLAPSED_CAPACITY;
-      const hiddenCount = Math.max(0, effectCount - capacity);
-      const toggle = shell2.querySelector(".mwi-buff-toggle");
-      if (!toggle) return;
-      toggle.setAttribute("aria-expanded", String(expanded));
-      const direction = expanded ? "▴" : "▾";
-      toggle.textContent = hiddenCount ? `+${hiddenCount} ${direction}` : direction;
-      const action = expanded ? runtime.config.isZH ? "折叠 Buff" : "Collapse buffs" : runtime.config.isZH ? "展开 Buff" : "Expand buffs";
-      const overflow = hiddenCount ? runtime.config.isZH ? `，另有 ${hiddenCount} 个` : `, ${hiddenCount} more` : "";
-      toggle.setAttribute("aria-label", `${action}${overflow}`);
-      toggle.title = `${action}${overflow}`;
-    }
-    function setBuffShellExpanded(shell2, expanded, { persist = false } = {}) {
-      shell2.dataset.expanded = String(expanded);
-      const bar = shell2.querySelector(".mwi-buffbar");
-      if (!expanded && bar) bar.scrollTop = 0;
-      updateBuffToggle(shell2, bar?.childElementCount ?? 0);
-      if (!persist) return;
-      const storageKey = shell2.dataset.storageKey;
-      if (!storageKey) return;
-      if (expanded) expandedUnitKeys.add(storageKey);
-      else expandedUnitKeys.delete(storageKey);
-      persistExpandedUnitKeys();
-    }
-    function ensureBuffBar(unitEl, storageKey = "") {
+    function ensureBuffBar(unitEl) {
       let shell2 = unitEl.querySelector(".mwi-buff-shell");
       let bar = shell2?.querySelector(".mwi-buffbar");
       if (!shell2 || !bar) {
@@ -16573,36 +16550,17 @@ ${preview}`
         shell2.className = "mwi-buff-shell";
         bar = document.createElement("div");
         bar.className = "mwi-buffbar";
-        const toggle = document.createElement("button");
-        toggle.type = "button";
-        toggle.className = "mwi-buff-toggle";
-        toggle.addEventListener("click", () => {
-          setBuffShellExpanded(shell2, shell2.dataset.expanded !== "true", {
-            persist: true
-          });
-        });
-        shell2.append(bar, toggle);
+        shell2.append(bar);
         const statusHost = unitEl.querySelector('[class*="CombatUnit_status"]') ?? unitEl;
         statusHost.classList.add("mwi-has-buffbar");
         statusHost.appendChild(shell2);
       }
-      const resolvedStorageKey = storageKey || unitEl.dataset.mwiBuffStorageKey || "";
-      if (resolvedStorageKey) {
-        unitEl.dataset.mwiBuffStorageKey = resolvedStorageKey;
-        if (shell2.dataset.storageKey !== resolvedStorageKey) {
-          shell2.dataset.storageKey = resolvedStorageKey;
-          setBuffShellExpanded(shell2, expandedUnitKeys.has(resolvedStorageKey));
-        }
-      } else if (!shell2.hasAttribute("data-expanded")) {
-        setBuffShellExpanded(shell2, false);
-      }
       return bar;
     }
     function ensureBattleBuffBars(units = getBattleUnits()) {
-      for (const [side, unitList] of Object.entries(units)) {
-        const storageKeys = unitStorageKeys(side, unitList);
-        unitList.forEach((unitEl, index) => {
-          if (unitEl) ensureBuffBar(unitEl, storageKeys[index]);
+      for (const unitList of Object.values(units)) {
+        unitList.forEach((unitEl) => {
+          if (unitEl) ensureBuffBar(unitEl);
         });
       }
       return units;
@@ -16652,8 +16610,7 @@ ${preview}`
         const bar = unitEl.querySelector(".mwi-buffbar");
         if (bar) {
           bar.replaceChildren();
-          const shell2 = bar.closest(".mwi-buff-shell");
-          if (shell2) updateBuffToggle(shell2, 0);
+          delete bar.dataset.scrolling;
         }
       }
     }
@@ -16728,15 +16685,17 @@ ${preview}`
             });
         }
         if (!DEBUFFS.has(change.prevAction)) continue;
-        if (monsterHits.length === 0) continue;
         const casterIndex = Number(change.key);
         if (!Number.isInteger(casterIndex)) continue;
+        const livingTargets = [...BATTLE_STATE.monsters.entries()].filter(([, state]) => Number(state?.cHP) > 0).map(([key]) => Number(key)).filter(Number.isInteger);
+        const targets = monsterHits.length ? monsterHits : buildAbilityEffectIndex().allTargetDebuffs.has(change.prevAction) ? livingTargets : livingTargets.length === 1 ? livingTargets : [];
+        if (!targets.length) continue;
         PENDING_DEBUFFS.push({
           casterMap: "pMap",
           casterIndex,
           abilityHrid: change.prevAction,
           targetSide: "monsters",
-          targets: monsterHits
+          targets
         });
       }
       const playerHits = playerResult.hpChanges.filter((h) => h.delta < 0).map((h) => Number(h.key));
@@ -16751,87 +16710,185 @@ ${preview}`
             });
         }
         if (!DEBUFFS.has(change.prevAction)) continue;
-        if (playerHits.length === 0) continue;
         const casterIndex = Number(change.key);
         if (!Number.isInteger(casterIndex)) continue;
+        const livingTargets = [...BATTLE_STATE.players.entries()].filter(([, state]) => Number(state?.cHP) > 0).map(([key]) => Number(key)).filter(Number.isInteger);
+        const targets = playerHits.length ? playerHits : buildAbilityEffectIndex().allTargetDebuffs.has(change.prevAction) ? livingTargets : livingTargets.length === 1 ? livingTargets : [];
+        if (!targets.length) continue;
         PENDING_DEBUFFS.push({
           casterMap: "mMap",
           casterIndex,
           abilityHrid: change.prevAction,
           targetSide: "players",
-          targets: playerHits
+          targets
         });
+      }
+    }
+    function durationSeconds2(value, fallback) {
+      const duration = Number(value);
+      if (!Number.isFinite(duration) || duration <= 0) return fallback;
+      if (duration > 864e5) return duration / 1e9;
+      if (duration > 1e3) return duration / 1e3;
+      return duration;
+    }
+    function applyAuthoritativeCombatBuffMaps(payload, units) {
+      const authoritativeAbilities = /* @__PURE__ */ new Set();
+      for (const [mapName, unitList] of [
+        ["pMap", units.players],
+        ["mMap", units.monsters]
+      ]) {
+        const map = payload?.[mapName];
+        if (!map || typeof map !== "object") continue;
+        for (const [key, entity] of Object.entries(map)) {
+          if (!entity?.combatBuffMap || typeof entity.combatBuffMap !== "object") {
+            continue;
+          }
+          const unitEl = unitList[Number(key)];
+          if (!unitEl) continue;
+          for (const buff of Object.values(entity.combatBuffMap)) {
+            if (!buff || typeof buff !== "object") continue;
+            const uniqueHrid = String(buff.uniqueHrid ?? "");
+            const source = buildAbilityEffectIndex().buffSources.get(uniqueHrid);
+            const abilityHrid = String(
+              buff.sourceAbilityHrid ?? buff.abilityHrid ?? source?.abilityHrid ?? ""
+            );
+            if (!abilityHrid) continue;
+            const kind = source?.kind ?? (DEBUFFS.has(abilityHrid) ? "debuff" : "buff");
+            const durationSec = durationSeconds2(
+              buff.duration,
+              source?.duration ?? (kind === "debuff" ? DEBUFFS.get(abilityHrid) : BUFFS.get(abilityHrid)) ?? 1
+            );
+            const parsedStart = Date.parse(String(buff.startTime ?? ""));
+            const startedAt = Number.isFinite(parsedStart) ? parsedStart : Date.now();
+            const expiresAt = startedAt + durationSec * 1e3;
+            if (expiresAt <= Date.now()) continue;
+            authoritativeAbilities.add(abilityHrid);
+            updateUnitEffect(unitEl, kind, abilityHrid, durationSec, {
+              startedAt,
+              expiresAt
+            });
+          }
+        }
+      }
+      return authoritativeAbilities;
+    }
+    function effectKey(kind, abilityHrid) {
+      return `${kind}${abilityHrid}`;
+    }
+    function createEffectChip(effect) {
+      const chip = document.createElement("span");
+      chip.className = `mwi-chip ${effect.kind === "buff" ? "mwi-buff" : "mwi-debuff"}`;
+      chip.dataset.effectKey = effectKey(effect.kind, effect.abilityHrid);
+      const iconWrap = document.createElement("span");
+      iconWrap.className = "mwi-icon-wrap";
+      const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      icon.setAttribute("role", "img");
+      icon.setAttribute("aria-label", runtime.config.isZH ? "技能" : "Ability");
+      icon.setAttribute("class", "Icon_icon__2LtL_ mwi-icon");
+      icon.setAttribute("width", "100%");
+      icon.setAttribute("height", "100%");
+      const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+      const spriteRef = getGameSpriteHref("abilities", effect.abilityHrid);
+      if (spriteRef) {
+        use.setAttribute("href", spriteRef);
+        use.setAttribute("xlink:href", spriteRef);
+        icon.appendChild(use);
+        iconWrap.appendChild(icon);
+      } else {
+        iconWrap.textContent = "?";
+      }
+      const ring = document.createElement("span");
+      ring.className = "mwi-progress-ring";
+      ring.style.setProperty(
+        "--mwi-ring-color",
+        effect.kind === "buff" ? "rgba(60,140,60,0.7)" : "rgba(180,60,60,0.7)"
+      );
+      chip.append(iconWrap, ring);
+      return chip;
+    }
+    function updateMarqueeMetrics(bar, effectCount) {
+      if (effectCount <= STATIC_EFFECT_CAPACITY) return;
+      const sequence = bar.querySelector(
+        '.mwi-buff-sequence:not([aria-hidden="true"])'
+      );
+      if (!sequence) return;
+      const distance = Math.max(sequence.scrollWidth || effectCount * 31, 1) + 4;
+      const duration = Math.max(4, distance / MARQUEE_SPEED_PX_PER_SECOND);
+      const distanceValue = `${distance}px`;
+      const durationValue = `${duration}s`;
+      if (bar.style.getPropertyValue("--mwi-marquee-distance") !== distanceValue) {
+        bar.style.setProperty("--mwi-marquee-distance", distanceValue);
+      }
+      if (bar.style.getPropertyValue("--mwi-marquee-duration") !== durationValue) {
+        bar.style.setProperty("--mwi-marquee-duration", durationValue);
+      }
+    }
+    function rebuildEffectTrack(bar, entries) {
+      const track = document.createElement("div");
+      track.className = "mwi-buff-track";
+      const sequence = document.createElement("div");
+      sequence.className = "mwi-buff-sequence";
+      for (const effect of entries) sequence.append(createEffectChip(effect));
+      track.append(sequence);
+      if (entries.length > STATIC_EFFECT_CAPACITY) {
+        const duplicate = sequence.cloneNode(true);
+        duplicate.setAttribute("aria-hidden", "true");
+        track.append(duplicate);
+        bar.dataset.scrolling = "true";
+      } else {
+        delete bar.dataset.scrolling;
+        bar.style.removeProperty("--mwi-marquee-distance");
+        bar.style.removeProperty("--mwi-marquee-duration");
+      }
+      bar.replaceChildren(track);
+      updateMarqueeMetrics(bar, entries.length);
+    }
+    function updateCountdownRings(bar, entries, now) {
+      for (const effect of entries) {
+        const total = Math.max(1, effect.durationSec);
+        const elapsed = Math.max(
+          0,
+          Math.min(total, (now - effect.startedAt) / 1e3)
+        );
+        const degrees = Math.min(1, Math.max(0, elapsed / total)) * 360;
+        const key = effectKey(effect.kind, effect.abilityHrid);
+        for (const chip of bar.querySelectorAll(".mwi-chip")) {
+          if (chip.dataset.effectKey !== key) continue;
+          chip.querySelector(".mwi-progress-ring")?.style.setProperty("--mwi-ring-deg", `${degrees}deg`);
+        }
       }
     }
     function renderUnit(unitEl) {
       const state = getState2(unitEl);
       const bar = ensureBuffBar(unitEl);
       const now = Date.now();
-      const entries = Array.from(state.effects.values()).filter(
-        (effect) => effect.expiresAt > now
-      );
+      const entries = Array.from(state.effects.values()).filter((effect) => effect.expiresAt > now).sort((a, b) => a.expiresAt - b.expiresAt);
       state.effects = new Map(
-        entries.map((effect) => [effect.abilityHrid, effect])
+        entries.map((effect) => [
+          effectKey(effect.kind, effect.abilityHrid),
+          effect
+        ])
       );
-      const scrollTop = bar.scrollTop;
-      bar.replaceChildren();
-      for (const effect of entries.sort((a, b) => a.expiresAt - b.expiresAt)) {
-        const chip = document.createElement("span");
-        chip.className = `mwi-chip ${effect.kind === "buff" ? "mwi-buff" : "mwi-debuff"}`;
-        const iconWrap = document.createElement("span");
-        iconWrap.className = "mwi-icon-wrap";
-        const icon = document.createElementNS(
-          "http://www.w3.org/2000/svg",
-          "svg"
-        );
-        icon.setAttribute("role", "img");
-        icon.setAttribute("aria-label", runtime.config.isZH ? "技能" : "Ability");
-        icon.setAttribute("class", "Icon_icon__2LtL_ mwi-icon");
-        icon.setAttribute("width", "100%");
-        icon.setAttribute("height", "100%");
-        const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
-        const spriteRef = getGameSpriteHref("abilities", effect.abilityHrid);
-        if (spriteRef) {
-          use.setAttribute("href", spriteRef);
-          use.setAttribute("xlink:href", spriteRef);
-          icon.appendChild(use);
-          iconWrap.appendChild(icon);
-        } else {
-          iconWrap.textContent = "?";
-        }
-        const total = Math.max(1, effect.durationSec);
-        const elapsed = Math.max(
-          0,
-          Math.min(total, (now - effect.startedAt) / 1e3)
-        );
-        const progress = Math.min(1, Math.max(0, elapsed / total));
-        const degrees = progress * 360;
-        chip.appendChild(iconWrap);
-        const ring = document.createElement("span");
-        ring.className = "mwi-progress-ring";
-        ring.style.setProperty("--mwi-ring-deg", `${degrees}deg`);
-        ring.style.setProperty(
-          "--mwi-ring-color",
-          effect.kind === "buff" ? "rgba(60,140,60,0.7)" : "rgba(180,60,60,0.7)"
-        );
-        chip.appendChild(ring);
-        bar.appendChild(chip);
+      const signature = entries.map((effect) => effectKey(effect.kind, effect.abilityHrid)).join("");
+      if (state.renderSignature !== signature) {
+        rebuildEffectTrack(bar, entries);
+        state.renderSignature = signature;
+      } else {
+        updateMarqueeMetrics(bar, entries.length);
       }
-      if (bar.closest(".mwi-buff-shell")?.dataset.expanded === "true") {
-        bar.scrollTop = scrollTop;
-      }
-      const shell2 = bar.closest(".mwi-buff-shell");
-      if (shell2) updateBuffToggle(shell2, entries.length);
+      updateCountdownRings(bar, entries, now);
     }
-    function updateUnitEffect(unitEl, kind, abilityHrid, durationSec) {
+    function updateUnitEffect(unitEl, kind, abilityHrid, durationSec, timing = {}) {
       const state = getState2(unitEl);
       const now = Date.now();
-      state.effects.set(abilityHrid, {
+      const startedAt = Number(timing.startedAt) || now;
+      const expiresAt = Number(timing.expiresAt) || now + durationSec * 1e3;
+      state.effects.set(effectKey(kind, abilityHrid), {
         abilityHrid,
         kind,
         durationSec,
-        startedAt: now,
-        expiresAt: now + durationSec * 1e3
+        startedAt,
+        expiresAt
       });
       renderUnit(unitEl);
     }
@@ -16842,10 +16899,15 @@ ${preview}`
       if (units.players.length === 0 && units.monsters.length === 0) return;
       ensureBuffStyles(scope);
       updateBattleState(payload);
+      const authoritativeAbilities = applyAuthoritativeCombatBuffMaps(
+        payload,
+        units
+      );
       if (PENDING_BUFFS.length > 0) {
         const pending = PENDING_BUFFS.splice(0, PENDING_BUFFS.length);
         for (const item of pending) {
           if (!BUFFS.has(item.abilityHrid)) continue;
+          if (authoritativeAbilities.has(item.abilityHrid)) continue;
           const duration = BUFFS.get(item.abilityHrid);
           const isTeamBuff = TEAM_BUFFS.has(item.abilityHrid);
           const unitList = item.mapName === "pMap" ? units.players : units.monsters;
@@ -16865,6 +16927,7 @@ ${preview}`
         const pending = PENDING_DEBUFFS.splice(0, PENDING_DEBUFFS.length);
         for (const item of pending) {
           if (!DEBUFFS.has(item.abilityHrid)) continue;
+          if (authoritativeAbilities.has(item.abilityHrid)) continue;
           const duration = DEBUFFS.get(item.abilityHrid);
           const applyList = item.targetSide === "monsters" ? units.monsters : units.players;
           const targets = SINGLE_TARGET_DEBUFFS.has(item.abilityHrid) ? item.targets.slice(0, 1) : item.targets;
@@ -16887,6 +16950,7 @@ ${preview}`
           if (typeof abilityHrid !== "string" || abilityHrid.length === 0)
             continue;
           if (!BUFFS.has(abilityHrid)) continue;
+          if (authoritativeAbilities.has(abilityHrid)) continue;
           const duration = BUFFS.get(abilityHrid);
           const keyIndex = Number.isInteger(Number(key)) ? Number(key) : idx;
           if (TEAM_BUFFS.has(abilityHrid)) {
@@ -16929,7 +16993,6 @@ ${preview}`
         if (shell2 || bar) {
           (shell2 ?? bar).closest(".mwi-has-buffbar")?.classList.remove("mwi-has-buffbar");
           (shell2 ?? bar).remove();
-          delete unitEl.dataset.mwiBuffStorageKey;
         }
       }
     }
@@ -16980,7 +17043,13 @@ ${preview}`
     }
   });
   Object.assign(runtime.api, {
-    battleBuffs: { BUFFS, DEBUFFS, TEAM_BUFFS, SINGLE_TARGET_DEBUFFS }
+    battleBuffs: {
+      BUFFS,
+      DEBUFFS,
+      TEAM_BUFFS,
+      SINGLE_TARGET_DEBUFFS,
+      ALL_TARGET_DEBUFFS
+    }
   });
 
   // src/features/inventory.js
@@ -25816,9 +25885,12 @@ ${locks}` : ""}`;
   var taskFilterLockStorageKey = "";
   var stickyVisibleSlots = /* @__PURE__ */ new Set();
   var pendingStickyResetSlots = /* @__PURE__ */ new Map();
-  var activeRerollContext = null;
+  var rerollContextsBySlot = /* @__PURE__ */ new Map();
+  var pendingRerollContexts = [];
   var warnedUnexpectedRerollButtons = false;
   var rerollButtonSnapshots = /* @__PURE__ */ new WeakMap();
+  var rerollContainerContexts = /* @__PURE__ */ new WeakMap();
+  var rerollButtonContexts = /* @__PURE__ */ new WeakMap();
   var PROFESSIONS = [
     ["milking", "挤奶", "Milking"],
     ["foraging", "采摘", "Foraging"],
@@ -27342,6 +27414,49 @@ ${locks}` : ""}`;
       clearPendingStickyReset(slot);
     }
   }
+  function removePendingRerollContext(context) {
+    pendingRerollContexts = pendingRerollContexts.filter(
+      (candidate) => candidate !== context
+    );
+  }
+  function clearRerollContext(context, { cancelled = false } = {}) {
+    if (!context) return;
+    removePendingRerollContext(context);
+    if (rerollContextsBySlot.get(context.slot) === context) {
+      rerollContextsBySlot.delete(context.slot);
+    }
+    if (context.timeout) clearTimeout(context.timeout);
+    context.timeout = null;
+    if (cancelled) {
+      clearPendingStickyReset(context.slot);
+      pendingResetSlots.delete(context.slot);
+    } else if (context.confirmed) {
+      nativeResetChoiceUntil = 0;
+    }
+  }
+  function clearAllRerollContexts({ cancelled = false } = {}) {
+    for (const context of [...rerollContextsBySlot.values()]) {
+      clearRerollContext(context, { cancelled });
+    }
+    pendingRerollContexts = [];
+  }
+  function createRerollContext(slot) {
+    clearRerollContext(rerollContextsBySlot.get(slot));
+    const context = {
+      slot,
+      optionsSeen: false,
+      confirmed: false,
+      container: null,
+      timeout: null
+    };
+    context.timeout = setTimeout(() => {
+      clearRerollContext(context, { cancelled: !context.confirmed });
+    }, 3e4);
+    context.timeout?.unref?.();
+    rerollContextsBySlot.set(slot, context);
+    pendingRerollContexts.push(context);
+    return context;
+  }
   function finalizeStickyResetSlots(cards, tasks) {
     cards.forEach((card, index) => {
       const slot = Number(card.dataset.mwitoolsOriginalIndex ?? index);
@@ -27376,11 +27491,7 @@ ${locks}` : ""}`;
           nativeResetChoiceUntil = Date.now() + 1e4;
           const slot = Number(card.dataset.mwitoolsOriginalIndex ?? index);
           pendingResetSlots.add(slot);
-          activeRerollContext = {
-            slot,
-            optionsSeen: false,
-            confirmed: false
-          };
+          createRerollContext(slot);
           clearPendingStickyReset(slot);
           if (runtime.settings.get("taskStatistics") && hasActiveTaskFilters() && card.dataset.mwitoolsFiltered !== "true") {
             const task = liveTaskForCard(
@@ -27515,17 +27626,21 @@ ${locks}` : ""}`;
     const native = [...container.querySelectorAll("button")];
     return native.length === 2 ? native : [];
   }
-  function wireRerollChoiceButton(button) {
+  function wireRerollChoiceButton(button, context) {
+    rerollButtonContexts.set(button, context ?? null);
     if (button[REROLL_CHOICE_HANDLER]) return;
     const handler = () => {
       if (button.dataset.mwitoolsTaskLockDisabled === "true") return;
-      if (activeRerollContext) activeRerollContext.confirmed = true;
+      const currentContext = rerollButtonContexts.get(button);
+      if (!currentContext) return;
+      currentContext.confirmed = true;
+      removePendingRerollContext(currentContext);
     };
     button[REROLL_CHOICE_HANDLER] = handler;
     button.addEventListener("click", handler, true);
   }
-  function lockRerollButton(button) {
-    wireRerollChoiceButton(button);
+  function lockRerollButton(button, context) {
+    wireRerollChoiceButton(button, context);
     if (!rerollButtonSnapshots.has(button)) {
       rerollButtonSnapshots.set(button, {
         disabled: button.disabled,
@@ -27577,6 +27692,64 @@ ${locks}` : ""}`;
     delete button[REROLL_LOCK_HANDLER];
     rerollButtonSnapshots.delete(button);
   }
+  function rerollContextForContainer(container) {
+    const bound = rerollContainerContexts.get(container);
+    if (bound && rerollContextsBySlot.get(bound.slot) === bound) return bound;
+    const card = container.closest?.(TASK_SELECTOR);
+    if (card) {
+      const cards = [...document.querySelectorAll(TASK_SELECTOR)].filter(
+        (candidate) => candidate.parentElement === card.parentElement
+      );
+      const fallbackIndex = Math.max(0, cards.indexOf(card));
+      const slot = Number(card.dataset.mwitoolsOriginalIndex ?? fallbackIndex);
+      const direct = rerollContextsBySlot.get(slot);
+      if (direct) {
+        direct.container = container;
+        direct.optionsSeen = true;
+        removePendingRerollContext(direct);
+        rerollContainerContexts.set(container, direct);
+        return direct;
+      }
+    }
+    const queued = pendingRerollContexts.find(
+      (context) => rerollContextsBySlot.get(context.slot) === context && !context.container && !context.confirmed
+    );
+    if (!queued) return null;
+    queued.container = container;
+    queued.optionsSeen = true;
+    removePendingRerollContext(queued);
+    rerollContainerContexts.set(container, queued);
+    return queued;
+  }
+  function liveLockClassificationForSlot(slot) {
+    const card = [...document.querySelectorAll(TASK_SELECTOR)].find(
+      (candidate, index) => Number(candidate.dataset.mwitoolsOriginalIndex ?? index) === slot
+    );
+    if (!card) return pageClassifications.get(slot) ?? null;
+    const task = liveTaskForCard(card, runtime.state.characterQuests ?? []);
+    if (!task) return pageClassifications.get(slot) ?? null;
+    const title = visibleTaskTitle(card);
+    const profession = professionForCard(card, task, title);
+    return {
+      profession,
+      dungeonLocations: profession.key === "combat" ? dungeonLocationsForCard(card, task, { title }) : []
+    };
+  }
+  function cleanupClosedRerollContexts(containers) {
+    const liveContainers = new Set(containers);
+    for (const context of [...rerollContextsBySlot.values()]) {
+      if (!context.optionsSeen || !context.container) continue;
+      if (context.container.isConnected && liveContainers.has(context.container)) {
+        continue;
+      }
+      clearRerollContext(context, { cancelled: !context.confirmed });
+    }
+  }
+  function hasUnconfirmedRerollContext() {
+    return [...rerollContextsBySlot.values()].some(
+      (context) => context.optionsSeen && !context.confirmed
+    );
+  }
   function syncTaskRerollLocks(root = document) {
     ensureTaskFilterLockState();
     const containers = [
@@ -27588,25 +27761,22 @@ ${locks}` : ""}`;
       ) ?? []) {
         restoreRerollButton(button);
       }
-      if (activeRerollContext?.optionsSeen) {
-        if (!activeRerollContext.confirmed) {
-          clearPendingStickyReset(activeRerollContext.slot);
-          pendingResetSlots.delete(activeRerollContext.slot);
-        } else {
-          nativeResetChoiceUntil = 0;
-        }
-        activeRerollContext = null;
+      for (const context of [...rerollContextsBySlot.values()]) {
+        if (!context.optionsSeen) continue;
+        clearRerollContext(context, { cancelled: !context.confirmed });
       }
       return 0;
     }
-    if (activeRerollContext) activeRerollContext.optionsSeen = true;
-    const classification = activeRerollContext ? pageClassifications.get(activeRerollContext.slot) : null;
-    const locked = taskMatchesLockedFilters(classification);
+    cleanupClosedRerollContexts(containers);
     let changed = 0;
     for (const container of containers) {
+      const context = rerollContextForContainer(container);
+      const locked = taskMatchesLockedFilters(
+        context ? liveLockClassificationForSlot(context.slot) : null
+      );
       const buttons = rerollChoiceButtons(container);
       if (buttons.length !== 2) {
-        if (activeRerollContext && container.querySelector("button") && !warnedUnexpectedRerollButtons) {
+        if (context && container.querySelector("button") && !warnedUnexpectedRerollButtons) {
           warnedUnexpectedRerollButtons = true;
           console.warn(
             "[MWITools] Task reroll choices were not recognized; filter locks were left unchanged."
@@ -27615,9 +27785,9 @@ ${locks}` : ""}`;
         continue;
       }
       for (const button of buttons) {
-        wireRerollChoiceButton(button);
+        wireRerollChoiceButton(button, context);
         if (locked) {
-          lockRerollButton(button);
+          lockRerollButton(button, context);
           changed += 1;
         } else {
           restoreRerollButton(button);
@@ -27694,7 +27864,7 @@ ${locks}` : ""}`;
     if (!runtime.settings.get("taskStatistics")) clearTaskFilterLocks();
     syncTaskRerollLocks();
     repairRangedWayIdleRerollButtons();
-    if (document.querySelector(REROLL_OPTIONS_SELECTOR) && !activeRerollContext?.confirmed) {
+    if (document.querySelector(REROLL_OPTIONS_SELECTOR) && hasUnconfirmedRerollContext()) {
       return true;
     }
     let cards = [...document.querySelectorAll(TASK_SELECTOR)];
@@ -27739,7 +27909,7 @@ ${locks}` : ""}`;
       if (!resumedResetPage) {
         stickyVisibleSlots = /* @__PURE__ */ new Set();
         clearAllPendingStickyResets();
-        activeRerollContext = null;
+        clearAllRerollContexts({ cancelled: true });
         pageOrderBySlot = /* @__PURE__ */ new Map();
         resetTaskFilters();
       }
@@ -27839,7 +28009,7 @@ ${locks}` : ""}`;
     pendingResetSlots = /* @__PURE__ */ new Set();
     stickyVisibleSlots = /* @__PURE__ */ new Set();
     clearAllPendingStickyResets();
-    activeRerollContext = null;
+    clearAllRerollContexts({ cancelled: true });
     nativeResetChoiceUntil = 0;
     temporaryTaskReturn = null;
     runtime.state.mwitoolsPageNewTaskIds = /* @__PURE__ */ new Set();
@@ -29159,14 +29329,18 @@ ${locks}` : ""}`;
           "DPS 命中率改为保存全队与怪物面板快照后计算理论命中率；五人队每位玩家都有独立子标签，每只怪物显示命中等级、闪避等级与结果，旧实战次数不会冒充理论数据。",
           "市场主接口失败时会自动切换到 q7.nainai.eu.org 备用接口，再按过期缓存与内置备份降级。新增默认关闭的“任务代币计入资产”开关，可独立控制资产、历史和价值排序。",
           "每次真正打开生产制作页都会静默刷新一次仓库，首次取数失败会自动重试，手动刷新仍保留提示。公会信誉兑换同时显示物品数量、信用点数和每点成本。",
-          "排行榜服务端现在仅从官方前 1 万公开 JSON 同步标准榜与铁牛榜，两类快照、经验速度和缓存完全隔离；插件为铁牛榜增加了与标准榜相同样式的徽章和对应经验/小时。"
+          "新增铁牛排行榜支持；铁牛榜现在会显示与标准榜相同样式的名次徽章和对应经验/小时。",
+          "修复多个任务同时停留在刷新选择时锁定状态互相串联的问题，每个任务的牛铃和金币选择现在只跟随自身分类。战斗 Buff/Debuff 状态栏改为超过三个图标后单行循环滚动，并修复部分 Debuff 错误显示在施放者头上的问题。",
+          "补全正式服、测试服和国服域名的脚本连接权限，避免相关请求被脚本管理器拦截。"
         ]),
         en: Object.freeze([
           "Fixed task artwork remaining on the previous task after the first reroll and fixed the independent map-number switch. Train planning now validates real upgrade chains, so parallel branches such as Radiant Robes and Flame Robes are no longer merged incorrectly.",
           "DPS accuracy now uses saved panel snapshots for the full party and monsters to calculate theoretical hit chance. Every member of a five-player party has a subtab, each monster shows accuracy, evasion, and the result, and legacy observed attempts are never presented as theoretical data.",
           "Marketplace requests automatically fall back to q7.nainai.eu.org when the primary endpoint fails, followed by stale cache and the built-in backup. A new Task Tokens in assets switch defaults off and independently controls assets, history, and value sorting.",
           "Opening a production page now silently refreshes inventory once, retries automatically when the first snapshot is unavailable, and keeps manual refresh notifications. Guild reputation exchanges now show the item quantity, credit-point return, and cost per point together.",
-          "The leaderboard server now synchronizes Standard and Iron Cow data exclusively from the official public top-10,000 JSON, with isolated snapshots, XP rates, and caches. The plugin adds matching Iron Cow badges and the corresponding XP/hour data using the same visual standard as regular rankings."
+          "Added Iron Cow leaderboard support. Iron Cow rankings now show the same badge styles as Standard rankings together with the corresponding XP/hour data.",
+          "Fixed lock state leaking between several tasks whose reroll choices were open at the same time; each task's Cowbell and coin choices now follow only its own category. Battle Buff/Debuff bars now loop left in a single row after the third icon, and some Debuffs no longer appear above the caster instead of the affected target.",
+          "Added script connection permissions for the live, test, and China game domains so related requests are not blocked by userscript managers."
         ])
       })
     }),

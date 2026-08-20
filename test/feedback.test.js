@@ -425,10 +425,15 @@ test("announcement history preserves each release separately through 26.4.16", (
   assert.match(release16.title.zh, /26\.4\.16 更新公告/);
   assert.match(release16.title.en, /Version 26\.4\.16 update/);
   assert.equal(release16.body.zh.length, release16.body.en.length);
-  assert.equal(release16.body.zh.length, 5);
+  assert.equal(release16.body.zh.length, 7);
   assert.match(
     release16.body.zh.join("\n"),
-    /任务首次刷新[\s\S]*地图编号[\s\S]*光辉袍服[\s\S]*烈焰袍服[\s\S]*DPS 命中率[\s\S]*五人队[\s\S]*q7\.nainai\.eu\.org[\s\S]*任务代币[\s\S]*生产制作页[\s\S]*公会信誉[\s\S]*官方前 1 万[\s\S]*铁牛榜/,
+    /任务首次刷新[\s\S]*地图编号[\s\S]*光辉袍服[\s\S]*烈焰袍服[\s\S]*DPS 命中率[\s\S]*五人队[\s\S]*q7\.nainai\.eu\.org[\s\S]*任务代币[\s\S]*生产制作页[\s\S]*公会信誉[\s\S]*铁牛排行榜支持[\s\S]*多个任务[\s\S]*单行循环滚动[\s\S]*连接权限/,
+  );
+  assert.doesNotMatch(release16.body.zh.join("\n"), /前 1 万|公开 JSON/);
+  assert.doesNotMatch(
+    release16.body.en.join("\n"),
+    /top-10,000|public JSON|synchronizes/i,
   );
   assert.equal(release15.version, "26.4.15");
   assert.equal(release15.publishedAt, "2026-08-17");

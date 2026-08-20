@@ -2553,6 +2553,99 @@ test("a rerolled task that becomes a locked type is protected next time", () => 
   localStorage.removeItem(storageKey);
 });
 
+test("simultaneous reroll choices keep lock state isolated per task", () => {
+  const originalCharacterId = runtime.state.currentCharacterId;
+  const characterId = "task-filter-parallel-reroll-role";
+  const storageKey = taskFilterLocksStorageKey(characterId);
+  writeTaskFilterLocks(storageKey, new Set(["profession:crafting"]));
+  runtime.state.currentCharacterId = characterId;
+  document.querySelector('[class*="TasksPanel_taskList"]')?.remove();
+  document.body.insertAdjacentHTML(
+    "beforeend",
+    `<div class="TasksPanel_taskList__parallel-rerolls">
+      ${card("挤奶 - 奶牛", "0 / 5")}
+      ${card("采摘 - 绿草", "0 / 5")}
+    </div>`,
+  );
+  runtime.state.characterQuests = [
+    { id: "parallel-milking", actionHrid: "/actions/milking/cow" },
+    { id: "parallel-foraging", actionHrid: "/actions/foraging/grass" },
+  ];
+  runtime.api.renderTasks();
+
+  const taskCards = [
+    ...document.querySelectorAll(
+      ".TasksPanel_taskList__parallel-rerolls " + TASK_SELECTOR,
+    ),
+  ];
+  const resetButton = (taskCard) =>
+    [...taskCard.querySelectorAll("button")].find(
+      (button) => button.textContent === "重置",
+    );
+  const addOptions = (suffix) => {
+    const options = document.createElement("div");
+    options.className = `RandomTask_rerollOptionsContainer__${suffix}`;
+    options.innerHTML = "<button>牛铃</button><button>金币</button>";
+    document.body.append(options);
+    return options;
+  };
+
+  resetButton(taskCards[0]).click();
+  const firstOptions = addOptions("parallel-first");
+  runtime.api.renderTasks();
+  resetButton(taskCards[1]).click();
+  const secondOptions = addOptions("parallel-second");
+  runtime.api.renderTasks();
+  assert.ok(
+    [...firstOptions.querySelectorAll("button")].every(
+      (button) => !button.disabled,
+    ),
+  );
+  assert.ok(
+    [...secondOptions.querySelectorAll("button")].every(
+      (button) => !button.disabled,
+    ),
+  );
+
+  firstOptions.querySelector("button").click();
+  taskCards[0].querySelector('[class*="RandomTask_name"]').textContent =
+    "制作 - 新木板";
+  runtime.state.characterQuests = [
+    { id: "parallel-crafting", actionHrid: "/actions/crafting/lumber" },
+    { id: "parallel-foraging", actionHrid: "/actions/foraging/grass" },
+  ];
+  runtime.api.renderTasks();
+
+  assert.ok(
+    [...firstOptions.querySelectorAll("button")].every(
+      (button) =>
+        button.disabled && button.dataset.mwitoolsTaskLockDisabled === "true",
+    ),
+    "the rerolled task is protected after entering a locked category",
+  );
+  assert.ok(
+    [...secondOptions.querySelectorAll("button")].every(
+      (button) =>
+        !button.disabled &&
+        button.dataset.mwitoolsTaskLockDisabled === undefined,
+    ),
+    "an unrelated open reroll keeps its own unlocked classification",
+  );
+
+  firstOptions.remove();
+  runtime.api.renderTasks();
+  assert.ok(
+    [...secondOptions.querySelectorAll("button")].every(
+      (button) => !button.disabled,
+    ),
+    "closing one reroll context does not cancel or lock another",
+  );
+  secondOptions.remove();
+  runtime.api.renderTasks();
+  runtime.state.currentCharacterId = originalCharacterId;
+  localStorage.removeItem(storageKey);
+});
+
 test("a filtered reroll stays visible until the task page is re-entered", () => {
   const originalCharacterId = runtime.state.currentCharacterId;
   const characterId = "task-filter-sticky-role";

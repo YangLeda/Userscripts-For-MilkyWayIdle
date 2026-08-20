@@ -23,6 +23,10 @@
 // @grant        GM_setValue
 // @grant        GM_info
 // @grant        unsafeWindow
+// @connect      www.milkywayidle.com
+// @connect      test.milkywayidle.com
+// @connect      www.milkywayidlecn.com
+// @connect      test.milkywayidlecn.com
 // @connect      raw.githubusercontent.com
 // @connect      feedback.43.167.210.211.sslip.io
 // @connect      mwi-guild.43.167.210.211.sslip.io

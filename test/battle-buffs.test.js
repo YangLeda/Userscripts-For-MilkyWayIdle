@@ -71,6 +71,55 @@ runtime.state.initData_abilityDetailMap = {
       { targetType: "self", buffs: [{ duration: 30_000_000_000 }] },
     ],
   },
+  "/abilities/withering_field": {
+    abilityEffects: [
+      {
+        effectType: "/ability_effect_types/damage",
+        targetType: "allEnemies",
+      },
+      {
+        effectType: "/ability_effect_types/debuff",
+        buffs: [{ duration: 11_000_000_000 }],
+      },
+    ],
+  },
+  "/abilities/hybrid_ward": {
+    abilityEffects: [
+      {
+        effectType: "/ability_effect_types/buff",
+        targetType: "self",
+        buffs: [{ duration: 15_000_000_000 }],
+      },
+      {
+        effectType: "/ability_effect_types/debuff",
+        targetType: "enemy",
+        buffs: [{ duration: 7_000_000_000 }],
+      },
+    ],
+  },
+  "/abilities/monster_hex": {
+    abilityEffects: [
+      {
+        effectType: "/ability_effect_types/debuff",
+        targetType: "enemy",
+        buffs: [{ duration: 6_000_000_000 }],
+      },
+    ],
+  },
+  "/abilities/marked_hex": {
+    abilityEffects: [
+      {
+        effectType: "/ability_effect_types/debuff",
+        targetType: "enemy",
+        buffs: [
+          {
+            uniqueHrid: "/buff_uniques/marked_hex",
+            duration: 13_000_000_000,
+          },
+        ],
+      },
+    ],
+  },
 };
 
 await import("../src/features/battle-buffs.js");
@@ -107,12 +156,20 @@ function monsterUnits() {
 }
 
 test("battle buff catalog stays consistent", () => {
-  const { BUFFS, DEBUFFS, TEAM_BUFFS, SINGLE_TARGET_DEBUFFS } =
-    runtime.api.battleBuffs;
+  const {
+    BUFFS,
+    DEBUFFS,
+    TEAM_BUFFS,
+    SINGLE_TARGET_DEBUFFS,
+    ALL_TARGET_DEBUFFS,
+  } = runtime.api.battleBuffs;
   // Team buffs and single-target debuffs must reference known abilities.
   for (const hrid of TEAM_BUFFS) assert.ok(BUFFS.has(hrid), hrid);
   for (const hrid of SINGLE_TARGET_DEBUFFS) assert.ok(DEBUFFS.has(hrid), hrid);
   assert.equal(DEBUFFS.get("/abilities/puncture"), 12);
+  assert.ok(DEBUFFS.has("/abilities/withering_field"));
+  assert.ok(ALL_TARGET_DEBUFFS.has("/abilities/withering_field"));
+  assert.equal(SINGLE_TARGET_DEBUFFS.has("/abilities/withering_field"), false);
 });
 
 test("a cast buff renders an icon chip below the caster", async () => {
@@ -146,8 +203,8 @@ test("a cast buff renders an icon chip below the caster", async () => {
   battleBuffsEnabled = false;
 });
 
-test("buff cards keep fixed rows and remember independent expansion", async () => {
-  localStorage.removeItem(EXPANSION_STORAGE_KEY);
+test("status bars stay single-row and marquee after the third icon", async () => {
+  localStorage.setItem(EXPANSION_STORAGE_KEY, JSON.stringify(["legacy"]));
   battleBuffsEnabled = true;
   battleMarkup(2, 1);
   await runtime.features.enable("battleBuffs");
@@ -156,17 +213,14 @@ test("buff cards keep fixed rows and remember independent expansion", async () =
   const secondShell = playerUnits()[1].querySelector(".mwi-buff-shell");
   assert.ok(firstShell, "empty cards reserve their buff space immediately");
   assert.ok(secondShell, "every visible unit receives an independent shell");
-  assert.equal(firstShell.dataset.expanded, "false");
-  assert.equal(secondShell.dataset.expanded, "false");
+  assert.equal(firstShell.querySelector(".mwi-buff-toggle"), null);
+  assert.equal(secondShell.querySelector(".mwi-buff-toggle"), null);
 
   const styles = document.querySelector("#mwi-buff-style").textContent;
-  assert.match(styles, /grid-template-rows:21px 18px/);
-  assert.match(styles, /data-expanded="true"[^}]*grid-template-rows:46px 18px/);
-  assert.match(
-    styles,
-    /data-expanded="true"[^}]*\.mwi-buffbar[^}]*overflow-y:auto/,
-  );
-  assert.doesNotMatch(styles, /\.mwi-buffbar[^}]*height:auto/);
+  assert.match(styles, /mwi-buff-shell\{[^}]*height:21px/);
+  assert.match(styles, /@keyframes mwi-buff-marquee/);
+  assert.match(styles, /prefers-reduced-motion:reduce/);
+  assert.doesNotMatch(styles, /data-expanded|mwi-buff-toggle/);
 
   const abilities = [
     "/abilities/berserk",
@@ -186,55 +240,42 @@ test("buff cards keep fixed rows and remember independent expansion", async () =
   };
 
   const firstBar = firstShell.querySelector(".mwi-buffbar");
-  const firstToggle = firstShell.querySelector(".mwi-buff-toggle");
   abilities.slice(0, 3).forEach(applyBuff);
   assert.equal(firstBar.querySelectorAll(".mwi-chip").length, 3);
-  assert.doesNotMatch(firstToggle.textContent, /\+/);
+  assert.equal(firstBar.dataset.scrolling, undefined);
+  assert.equal(firstBar.querySelectorAll(".mwi-buff-sequence").length, 1);
   applyBuff(abilities[3]);
-  assert.equal(firstBar.querySelectorAll(".mwi-chip").length, 4);
-  assert.match(firstToggle.textContent, /\+1/);
-  assert.equal(firstToggle.getAttribute("aria-expanded"), "false");
+  assert.equal(firstBar.dataset.scrolling, "true");
+  assert.equal(firstBar.querySelectorAll(".mwi-buff-sequence").length, 2);
+  assert.equal(firstBar.querySelectorAll(".mwi-chip").length, 8);
+  assert.equal(
+    firstBar
+      .querySelector('.mwi-buff-sequence[aria-hidden="true"]')
+      ?.getAttribute("aria-hidden"),
+    "true",
+  );
+  assert.match(
+    firstBar.style.getPropertyValue("--mwi-marquee-distance"),
+    /px$/,
+  );
+  assert.match(firstBar.style.getPropertyValue("--mwi-marquee-duration"), /s$/);
   assert.equal(secondShell.querySelectorAll(".mwi-chip").length, 0);
 
-  firstToggle.click();
-  assert.equal(firstShell.dataset.expanded, "true");
-  assert.equal(firstToggle.getAttribute("aria-expanded"), "true");
-  assert.doesNotMatch(firstToggle.textContent, /\+/);
-  assert.equal(secondShell.dataset.expanded, "false");
-  assert.equal(
-    JSON.parse(localStorage.getItem(EXPANSION_STORAGE_KEY)).length,
-    1,
-  );
-
-  abilities.slice(4, 6).forEach(applyBuff);
-  assert.equal(firstBar.querySelectorAll(".mwi-chip").length, 6);
-  assert.doesNotMatch(firstToggle.textContent, /\+/);
-  applyBuff(abilities[6]);
-  assert.equal(firstBar.querySelectorAll(".mwi-chip").length, 7);
-  assert.match(firstToggle.textContent, /\+1/);
-
-  firstBar.scrollTop = 12;
+  const stableTrack = firstBar.querySelector(".mwi-buff-track");
   runtime.dispatchMessage({
     type: "battle_updated",
-    pMap: { 0: { abilityHrid: "/abilities/spike_shell" } },
+    pMap: { 0: { abilityHrid: abilities[3] } },
     mMap: {},
   });
   assert.equal(
-    firstBar.scrollTop,
-    12,
-    "countdown redraws preserve inner scroll",
-  );
-
-  await runtime.features.disable("battleBuffs");
-  battleMarkup(2, 1);
-  await runtime.features.enable("battleBuffs");
-  assert.equal(
-    playerUnits()[0].querySelector(".mwi-buff-shell").dataset.expanded,
-    "true",
+    firstBar.querySelector(".mwi-buff-track"),
+    stableTrack,
+    "countdown and repeated effects update in place without restarting marquee",
   );
   assert.equal(
-    playerUnits()[1].querySelector(".mwi-buff-shell").dataset.expanded,
-    "false",
+    localStorage.getItem(EXPANSION_STORAGE_KEY),
+    JSON.stringify(["legacy"]),
+    "the retired expansion preference is ignored without deleting user storage",
   );
 
   await runtime.features.disable("battleBuffs");
@@ -306,6 +347,119 @@ test("a cast debuff lands on the damaged monster the following frame", async () 
   battleBuffsEnabled = false;
 });
 
+test("explicit and hybrid debuffs stay on affected targets", async () => {
+  battleBuffsEnabled = true;
+  battleMarkup(2, 2);
+  await runtime.features.enable("battleBuffs");
+
+  runtime.dispatchMessage({
+    type: "battle_updated",
+    pMap: {
+      0: { abilityHrid: "/abilities/withering_field", cHP: 100 },
+      1: { cHP: 100 },
+    },
+    mMap: { 0: { cHP: 100 }, 1: { cHP: 100 } },
+  });
+  assert.equal(
+    playerUnits()[0].querySelectorAll(".mwi-chip.mwi-debuff").length,
+    0,
+    "a debuff without its own targetType is never downgraded to a caster buff",
+  );
+  runtime.dispatchMessage({
+    type: "battle_updated",
+    pMap: { 0: { isAutoAtk: true } },
+    mMap: {},
+  });
+  for (const monster of monsterUnits()) {
+    assert.equal(monster.querySelectorAll(".mwi-chip.mwi-debuff").length, 1);
+  }
+
+  runtime.dispatchMessage({
+    type: "battle_updated",
+    pMap: { 1: { abilityHrid: "/abilities/hybrid_ward" } },
+    mMap: {},
+  });
+  assert.equal(
+    playerUnits()[1].querySelectorAll(".mwi-chip.mwi-buff").length,
+    1,
+    "the friendly half of a hybrid skill remains on its caster",
+  );
+  runtime.dispatchMessage({
+    type: "battle_updated",
+    pMap: { 1: { isAutoAtk: true } },
+    mMap: { 1: { cHP: 80 } },
+  });
+  assert.match(
+    monsterUnits()[1]
+      .querySelector("use[href$='#hybrid_ward']")
+      ?.getAttribute("href") ?? "",
+    /#hybrid_ward$/,
+  );
+  assert.equal(
+    playerUnits()[1].querySelectorAll(".mwi-chip.mwi-debuff").length,
+    0,
+  );
+
+  runtime.dispatchMessage({
+    type: "battle_updated",
+    pMap: {},
+    mMap: { 0: { abilityHrid: "/abilities/monster_hex" } },
+  });
+  runtime.dispatchMessage({
+    type: "battle_updated",
+    pMap: { 1: { cHP: 70 } },
+    mMap: { 0: { isAutoAtk: true } },
+  });
+  assert.match(
+    playerUnits()[1]
+      .querySelector("use[href$='#monster_hex']")
+      ?.getAttribute("href") ?? "",
+    /#monster_hex$/,
+    "monster debuffs land on the damaged player",
+  );
+  assert.equal(
+    monsterUnits()[0].querySelector("use[href$='#monster_hex']"),
+    null,
+  );
+
+  await runtime.features.disable("battleBuffs");
+  battleBuffsEnabled = false;
+});
+
+test("combatBuffMap authoritatively places a status on its owning unit", async () => {
+  battleBuffsEnabled = true;
+  battleMarkup(1, 2);
+  await runtime.features.enable("battleBuffs");
+
+  runtime.dispatchMessage({
+    type: "battle_updated",
+    pMap: { 0: { abilityHrid: "/abilities/marked_hex", cHP: 100 } },
+    mMap: {
+      0: { cHP: 100 },
+      1: {
+        cHP: 100,
+        combatBuffMap: {
+          "/buff_uniques/marked_hex": {
+            uniqueHrid: "/buff_uniques/marked_hex",
+            startTime: new Date().toISOString(),
+            duration: 13_000_000_000,
+          },
+        },
+      },
+    },
+  });
+
+  assert.equal(monsterUnits()[0].querySelectorAll(".mwi-chip").length, 0);
+  assert.match(
+    monsterUnits()[1].querySelector("use")?.getAttribute("href") ?? "",
+    /#marked_hex$/,
+  );
+  assert.equal(playerUnits()[0].querySelectorAll(".mwi-chip").length, 0);
+
+  await runtime.features.disable("battleBuffs");
+  battleBuffsEnabled = false;
+});
+
 test("disabling the feature removes all buff bars", async () => {
   battleBuffsEnabled = true;
   battleMarkup(1, 1);
@@ -317,7 +471,7 @@ test("disabling the feature removes all buff bars", async () => {
   });
   assert.ok(playerUnits()[0].querySelector(".mwi-buffbar"));
   assert.ok(playerUnits()[0].querySelector(".mwi-buff-shell"));
-  assert.ok(playerUnits()[0].querySelector(".mwi-buff-toggle"));
+  assert.equal(playerUnits()[0].querySelector(".mwi-buff-toggle"), null);
   assert.ok(playerUnits()[0].querySelector(".mwi-has-buffbar"));
   assert.ok(document.querySelector("#mwi-buff-style"));
 
