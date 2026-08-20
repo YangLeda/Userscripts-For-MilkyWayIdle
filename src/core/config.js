@@ -123,6 +123,11 @@ let settingsMap = {
       : "Include guild and dungeon tokens in total assets.",
     isTrue: true,
   },
+  includeTaskTokensInAssets: {
+    id: "includeTaskTokensInAssets",
+    desc: isZH ? "总资产计入任务代币" : "Include task tokens in total assets.",
+    isTrue: false,
+  },
   valueBackEquipmentWithProtectionMirror: {
     id: "valueBackEquipmentWithProtectionMirror",
     desc: isZH
@@ -778,6 +783,14 @@ const catalogRows = [
     "Include guild & dungeon tokens",
     "开启后，公会代币以及奇幻、阴森、秘法、海盗代币计入不可交易代币和总资产；默认开启。",
     "Include Guild, Chimerical, Sinister, Enchanted, and Pirate Tokens under non-tradable tokens and total assets. On by default.",
+  ],
+  [
+    "includeTaskTokensInAssets",
+    "inventory",
+    "任务代币计入总资产",
+    "Include task tokens in assets",
+    "开启后，任务代币按任务商店兑换价值计入总资产和物品价值排序；默认关闭。",
+    "Include task tokens at their task-shop redemption value in total assets and inventory value sorting. Off by default.",
   ],
   [
     "valueBackEquipmentWithProtectionMirror",

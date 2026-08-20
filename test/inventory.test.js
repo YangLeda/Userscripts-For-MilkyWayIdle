@@ -150,6 +150,40 @@ test("inventory sorting uses derived values when an item has no order-book price
   runtime.api.getBidPrice = originalGetBidPrice;
 });
 
+test("task token value sorting follows its independent asset switch", () => {
+  const originalGetAssetValue = runtime.api.getAssetValue;
+  const originalGetFairValue = runtime.api.getFairValue;
+  const originalGetAskPrice = runtime.api.getAskPrice;
+  const originalGetBidPrice = runtime.api.getBidPrice;
+  runtime.api.getAssetValue = () => 5_000;
+  runtime.api.getFairValue = () => 4_000;
+  runtime.api.getAskPrice = () => 6_000;
+  runtime.api.getBidPrice = () => 3_000;
+
+  runtime.settings.settingsMap.includeTaskTokensInAssets.isTrue = false;
+  for (const order of ["fair", "ask", "bid"]) {
+    assert.equal(
+      runtime.api.getInventorySortUnitValue("/items/task_token", 0, order),
+      0,
+    );
+  }
+  runtime.settings.settingsMap.includeTaskTokensInAssets.isTrue = true;
+  assert.equal(
+    runtime.api.getInventorySortUnitValue("/items/task_token", 0, "fair"),
+    5_000,
+  );
+  assert.equal(
+    runtime.api.getInventorySortUnitValue("/items/task_token", 0, "ask"),
+    6_000,
+  );
+  runtime.settings.settingsMap.includeTaskTokensInAssets.isTrue = false;
+
+  runtime.api.getAssetValue = originalGetAssetValue;
+  runtime.api.getFairValue = originalGetFairValue;
+  runtime.api.getAskPrice = originalGetAskPrice;
+  runtime.api.getBidPrice = originalGetBidPrice;
+});
+
 test("inventory sorting reads the enhancement level displayed on the item", () => {
   const enhanced = document.createElement("div");
   enhanced.innerHTML = '<span class="Item_enhancementLevel__test">+11</span>';
@@ -577,7 +611,7 @@ test("listing values use explicit balances and never infer buy reserves", () => 
   assert.deepEqual(totals, { fair: 15_890, ask: 16_960, bid: 14_820 });
 });
 
-test("guild currencies move to fixed assets while task tokens stay inventory", async () => {
+test("task tokens join inventory assets only when their switch is enabled", async () => {
   const originalCharacterId = runtime.state.currentCharacterId;
   runtime.state.currentCharacterId = "guild-currency-display";
   runtime.state.initData_itemDetailMap = {
@@ -658,6 +692,9 @@ test("guild currencies move to fixed assets while task tokens stay inventory", a
   };
   runtime.state.guildBuffLevels = { "/guild_buffs/test": 1 };
   runtime.state.guildDataLoaded = true;
+  await runtime.settings.set("includeTaskTokensInAssets", false, {
+    persist: false,
+  });
   runtime.api.invalidateAssetValueCache();
 
   await runtime.api.calculateNetworth({ force: true });
@@ -665,7 +702,7 @@ test("guild currencies move to fixed assets while task tokens stay inventory", a
 
   assert.match(
     document.querySelector("#currentAssets").textContent,
-    /库存：10\.4K/,
+    /库存：10K/,
   );
   assert.match(
     document.querySelector("#nonCurrentAssets").textContent,
@@ -674,6 +711,16 @@ test("guild currencies move to fixed assets while task tokens stay inventory", a
   assert.match(
     document.querySelector("#nonCurrentAssets").textContent,
     /神龛：150/,
+  );
+
+  await runtime.settings.set("includeTaskTokensInAssets", true, {
+    persist: false,
+  });
+  runtime.api.invalidateAssetValueCache();
+  await runtime.api.calculateNetworth({ force: true });
+  assert.match(
+    document.querySelector("#currentAssets").textContent,
+    /库存：10\.4K/,
   );
 
   await runtime.settings.set("includeCowbellsInAssets", true);
@@ -685,6 +732,9 @@ test("guild currencies move to fixed assets while task tokens stay inventory", a
   assert.equal(freshSnapshot.values.nonTradableTokens, 450);
 
   await runtime.settings.set("includeCowbellsInAssets", false);
+  await runtime.settings.set("includeTaskTokensInAssets", false, {
+    persist: false,
+  });
   runtime.state.currentCharacterId = originalCharacterId;
 });
 
@@ -721,6 +771,10 @@ test("optional token setting excludes the same stacks from inventory category va
   );
   runtime.api.getAssetValue = () => 10;
 
+  await runtime.settings.set("includeTaskTokensInAssets", true, {
+    persist: false,
+  });
+
   await runtime.settings.set("includeGuildDungeonTokensInAssets", true, {
     persist: false,
   });
@@ -740,6 +794,9 @@ test("optional token setting excludes the same stacks from inventory category va
     10,
   );
   await runtime.settings.set("includeGuildDungeonTokensInAssets", true, {
+    persist: false,
+  });
+  await runtime.settings.set("includeTaskTokensInAssets", false, {
     persist: false,
   });
   runtime.state.initData_characterItems = previousItems;

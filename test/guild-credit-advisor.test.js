@@ -240,6 +240,7 @@ test("advisor is a Shadow DOM external panel with a compact top three", async ()
     shadow(host, ".ranking .rank-row:nth-child(2) .tag").textContent,
     "当前",
   );
+  assert.match(shadowText(host), /10 个物品 → 2 点信用/);
   assert.equal(host.shadowRoot.querySelector(".meta"), null);
   assert.match(
     host.shadowRoot.querySelector("style").textContent,

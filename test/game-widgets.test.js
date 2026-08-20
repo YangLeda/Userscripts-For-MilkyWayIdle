@@ -123,11 +123,11 @@ test("map decorations scan on interaction without a background poll", async () =
 
 test("task map labels reuse the task page classification without name lookup", () => {
   document.body.innerHTML = `
-    <div class="RandomTask_randomTask__3B9fA" data-mwitools-map-index="7">
-      <div class="RandomTask_name__1hl1b">Crafting - Not a monster</div>
+    <div class="RandomTask_randomTask__newHash" data-mwitools-map-index="7">
+      <div class="RandomTask_name__newHash">Crafting - Not a monster</div>
     </div>
-    <div class="RandomTask_randomTask__3B9fA" data-mwitools-map-index="">
-      <div class="RandomTask_name__1hl1b">Tailoring - Still not a monster</div>
+    <div class="RandomTask_randomTask__newHash" data-mwitools-map-index="">
+      <div class="RandomTask_name__newHash">Tailoring - Still not a monster</div>
     </div>`;
   runtime.api.handleTaskCard();
   const labels = document.querySelectorAll(".script_taskMapIndex");

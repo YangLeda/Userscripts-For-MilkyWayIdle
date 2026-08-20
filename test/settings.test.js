@@ -63,6 +63,10 @@ test("legacy settings merge into current defaults", () => {
     true,
   );
   assert.equal(
+    runtime.settings.settingsMap.includeTaskTokensInAssets.isTrue,
+    false,
+  );
+  assert.equal(
     runtime.settings.settingsMap.hideReadyProductionShortage.isTrue,
     false,
   );

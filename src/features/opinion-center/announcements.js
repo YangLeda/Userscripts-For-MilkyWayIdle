@@ -2,6 +2,31 @@ const STORAGE_KEY = "MWITools_opinion_center_seen_announcements_v1";
 
 export const ANNOUNCEMENTS = Object.freeze([
   Object.freeze({
+    id: "26.4.16",
+    version: "26.4.16",
+    publishedAt: "2026-08-20",
+    title: Object.freeze({
+      zh: "26.4.16 更新公告",
+      en: "Version 26.4.16 update",
+    }),
+    body: Object.freeze({
+      zh: Object.freeze([
+        "修复任务首次刷新后图标仍停留在旧任务、地图编号独立开关不生效的问题；火车规划现在会核对真实升级链，光辉袍服与烈焰袍服等平行分支不再误合并。",
+        "DPS 命中率改为保存全队与怪物面板快照后计算理论命中率；五人队每位玩家都有独立子标签，每只怪物显示命中等级、闪避等级与结果，旧实战次数不会冒充理论数据。",
+        "市场主接口失败时会自动切换到 q7.nainai.eu.org 备用接口，再按过期缓存与内置备份降级。新增默认关闭的“任务代币计入资产”开关，可独立控制资产、历史和价值排序。",
+        "每次真正打开生产制作页都会静默刷新一次仓库，首次取数失败会自动重试，手动刷新仍保留提示。公会信誉兑换同时显示物品数量、信用点数和每点成本。",
+        "排行榜服务端现在仅从官方前 1 万公开 JSON 同步标准榜与铁牛榜，两类快照、经验速度和缓存完全隔离；插件为铁牛榜增加了与标准榜相同样式的徽章和对应经验/小时。",
+      ]),
+      en: Object.freeze([
+        "Fixed task artwork remaining on the previous task after the first reroll and fixed the independent map-number switch. Train planning now validates real upgrade chains, so parallel branches such as Radiant Robes and Flame Robes are no longer merged incorrectly.",
+        "DPS accuracy now uses saved panel snapshots for the full party and monsters to calculate theoretical hit chance. Every member of a five-player party has a subtab, each monster shows accuracy, evasion, and the result, and legacy observed attempts are never presented as theoretical data.",
+        "Marketplace requests automatically fall back to q7.nainai.eu.org when the primary endpoint fails, followed by stale cache and the built-in backup. A new Task Tokens in assets switch defaults off and independently controls assets, history, and value sorting.",
+        "Opening a production page now silently refreshes inventory once, retries automatically when the first snapshot is unavailable, and keeps manual refresh notifications. Guild reputation exchanges now show the item quantity, credit-point return, and cost per point together.",
+        "The leaderboard server now synchronizes Standard and Iron Cow data exclusively from the official public top-10,000 JSON, with isolated snapshots, XP rates, and caches. The plugin adds matching Iron Cow badges and the corresponding XP/hour data using the same visual standard as regular rankings.",
+      ]),
+    }),
+  }),
+  Object.freeze({
     id: "26.4.15",
     version: "26.4.15",
     publishedAt: "2026-08-17",

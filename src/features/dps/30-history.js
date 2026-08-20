@@ -810,45 +810,47 @@ const ViewData = (() => {
       }));
   }
   function accuracyBreakdown(raw) {
-    const attempts = Number(raw && raw.attempts) || 0;
-    if (!(attempts > 0)) return null;
-    const hits = Math.max(0, Math.min(attempts, Number(raw && raw.hits) || 0));
+    if (!raw?.theoretical) return null;
     const monsters = Object.values((raw && raw.monsters) || {})
       .map((monster) => {
-        const monsterAttempts = Number(monster && monster.attempts) || 0,
-          monsterHits = Math.max(
-            0,
-            Math.min(monsterAttempts, Number(monster && monster.hits) || 0),
-          ),
-          monsterHrid = String((monster && monster.monsterHrid) || ""),
+        const monsterHrid = String((monster && monster.monsterHrid) || ""),
           monsterName = String((monster && monster.monsterName) || ""),
           localized = monsterHrid
             ? getLocalizedEntityName("monster", monsterHrid)
-            : "";
+            : "",
+          suffix = monsterName.match(/\s+#\d+$/)?.[0] || "",
+          hitChance = Number(monster && monster.hitChance),
+          pct = Number.isFinite(hitChance) ? hitChance * 100 : 0;
         return {
           monsterName:
-            localized ||
+            (localized ? localized + suffix : "") ||
             monsterName ||
             (Settings.getLanguage() === "en" ? "Unknown Monster" : "未知怪物"),
           monsterHrid,
-          attempts: monsterAttempts,
-          hits: monsterHits,
-          pct: monsterAttempts > 0 ? (monsterHits * 100) / monsterAttempts : 0,
+          evasionRating: Number(monster && monster.evasionRating) || 0,
+          pct,
         };
       })
-      .filter((monster) => monster.attempts > 0)
+      .filter((monster) => Number.isFinite(monster.pct))
       .sort(
-        (a, b) =>
-          b.attempts - a.attempts ||
-          b.pct - a.pct ||
-          a.monsterName.localeCompare(b.monsterName),
+        (a, b) => b.pct - a.pct || a.monsterName.localeCompare(b.monsterName),
       );
-    return { attempts, hits, pct: (hits * 100) / attempts, monsters };
+    return {
+      theoretical: true,
+      combatStyle: String(raw.combatStyle || ""),
+      accuracyRating: Number(raw.accuracyRating) || 0,
+      pct: monsters.length
+        ? monsters.reduce((sum, monster) => sum + monster.pct, 0) /
+          monsters.length
+        : 0,
+      monsters,
+    };
   }
   function current() {
     const elapsed = Session.getElapsedSeconds(),
       names = Session.getAllPlayerNames(),
       teamDamage = Session.getTeamDamage(),
+      accuracyProfiles = Session.getMeta().accuracyProfiles || {},
       players = names.map((name) => ({
         name,
         classId: ClassSystem.classFor(name),
@@ -859,7 +861,7 @@ const ViewData = (() => {
         taken: Session.getPlayerTaken(name),
         takenPs: Session.getPlayerTakenPs(name),
         kills: Session.getPlayerKills(name),
-        accuracy: accuracyBreakdown(Session.getPlayerAccuracy(name)),
+        accuracy: accuracyBreakdown(accuracyProfiles[name]),
         breakdown: damageBreakdown(
           Session.getPlayerDamageSources(name),
           Session.getPlayerDamage(name),
@@ -898,15 +900,14 @@ const ViewData = (() => {
         damage = maps.damage || {},
         healing = maps.healing || {},
         taken = maps.taken || {},
-        kills = maps.kills || {},
-        accuracy = maps.accuracy || {};
+        kills = maps.kills || {};
       const names = [
         ...new Set([
           ...Object.keys(damage),
           ...Object.keys(healing),
           ...Object.keys(taken),
           ...Object.keys(kills),
-          ...Object.keys(accuracy),
+          ...Object.keys(entry.accuracyProfiles || {}),
         ]),
       ];
       const sources = maps.sources || {},
@@ -918,7 +919,7 @@ const ViewData = (() => {
         healing: Number(healing[name]) || 0,
         taken: Number(taken[name]) || 0,
         kills: Number(kills[name]) || 0,
-        accuracy: accuracyBreakdown(accuracy[name]),
+        accuracy: accuracyBreakdown(entry.accuracyProfiles?.[name]),
         dps: elapsed > 0 ? (Number(damage[name]) || 0) / elapsed : 0,
         hps: elapsed > 0 ? (Number(healing[name]) || 0) / elapsed : 0,
         takenPs: elapsed > 0 ? (Number(taken[name]) || 0) / elapsed : 0,
@@ -937,7 +938,7 @@ const ViewData = (() => {
     } else {
       players = (entry.players || []).map((p) => ({
         ...p,
-        accuracy: accuracyBreakdown(p.accuracy),
+        accuracy: accuracyBreakdown(entry.accuracyProfiles?.[p.name]),
         takenPs: elapsed > 0 ? (Number(p.taken) || 0) / elapsed : 0,
         breakdown: damageBreakdown(
           p.sources,

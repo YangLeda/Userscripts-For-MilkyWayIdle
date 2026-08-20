@@ -25,6 +25,7 @@ runtime.state.initData_itemDetailMap = {
   "/items/middle": { name: "Middle" },
   "/items/top": { name: "Top" },
   "/items/other": { name: "Other" },
+  "/items/branch": { name: "Branch" },
 };
 runtime.state.initData_actionDetailMap = {
   "/actions/crafting/base": {
@@ -44,6 +45,11 @@ runtime.state.initData_actionDetailMap = {
   "/actions/crafting/other": {
     hrid: "/actions/crafting/other",
     outputItems: [{ itemHrid: "/items/other", count: 1 }],
+  },
+  "/actions/crafting/branch": {
+    hrid: "/actions/crafting/branch",
+    upgradeItemHrid: "/items/base",
+    outputItems: [{ itemHrid: "/items/branch", count: 1 }],
   },
 };
 runtime.state.initData_characterItems = [];
@@ -109,6 +115,28 @@ test("a lone base-production task does not create an empty train", () => {
   ]);
   assert.equal(entries[0].state, "isolated");
   assert.equal(groups.size, 0);
+});
+
+test("sibling upgrade branches receive separate train plans", () => {
+  const siblingQuests = [
+    {
+      actionHrid: "/actions/crafting/middle",
+      goalCount: 2,
+      currentCount: 0,
+    },
+    {
+      actionHrid: "/actions/crafting/branch",
+      goalCount: 3,
+      currentCount: 0,
+    },
+  ];
+  const { entries, groups } = planner.collectTaskTrainGroups(siblingQuests);
+  assert.deepEqual(
+    entries.map(({ state }) => state),
+    ["top", "top"],
+  );
+  assert.equal(groups.size, 2);
+  assert.ok([...groups.values()].every((group) => group.length === 1));
 });
 
 test("task train mutation filtering ignores MWITools controls but sees native cards", () => {

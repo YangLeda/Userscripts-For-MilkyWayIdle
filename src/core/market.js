@@ -7,6 +7,8 @@ const COWBELL_TAX_RATE = 0.18;
 const MARKET_MAX_PRICE = 1_000_000_000_000;
 const TEST_MARKET_REFRESH_MS = 10 * 60 * 1000;
 const PRODUCTION_MARKET_REFRESH_MS = 6 * 60 * 60 * 1000;
+const MARKET_FALLBACK_URL =
+  "https://q7.nainai.eu.org/game_data/marketplace.json";
 
 let assetValuationMarketSnapshot = null;
 let assetValuationMarketDirty = false;
@@ -421,7 +423,7 @@ function setMarketFetchFailure(reasonZh, reasonEn) {
   );
 }
 
-function requestMarketJson() {
+function requestMarketJson(url = getMarketApiUrl()) {
   const sendRequest =
     typeof GM !== "undefined" && typeof GM.xmlHttpRequest === "function"
       ? GM.xmlHttpRequest
@@ -441,7 +443,7 @@ function requestMarketJson() {
     };
     watchdog = setTimeout(() => finish(null), 5_500);
     const options = {
-      url: getMarketApiUrl(),
+      url,
       method: "GET",
       timeout: 5000,
       onload: finish,
@@ -476,7 +478,10 @@ async function ensureMarketValueSource() {
   return Boolean(await fetchMarketJSON());
 }
 
-async function fetchMarketJSON(forceFetch = false) {
+async function fetchMarketJSON(
+  forceFetch = false,
+  hostname = globalThis.location?.hostname ?? "",
+) {
   const cacheTimestamp = Number(
     localStorage.getItem("MWITools_marketAPI_timestamp"),
   );
@@ -485,26 +490,42 @@ async function fetchMarketJSON(forceFetch = false) {
     !forceFetch &&
     cachedJson &&
     cacheTimestamp &&
-    Date.now() - cacheTimestamp < getMarketRefreshInterval()
+    Date.now() - cacheTimestamp < getMarketRefreshInterval(hostname)
   ) {
     return validateMarketJsonFetch(cachedJson, false);
   }
 
-  const response = await requestMarketJson();
+  const response = await requestMarketJson(getMarketApiUrl(hostname));
   const jsonObj = validateMarketJsonFetch(
-    response?.status === 200 ? response.responseText : null,
+    response?.status >= 200 && response?.status < 300
+      ? response.responseText
+      : null,
     true,
   );
   if (jsonObj) {
     return jsonObj;
   }
 
-  setMarketFetchFailure("市场 API 请求失败", "Market API request failed");
+  if (getMarketEnvironment(hostname) !== "test") {
+    const fallbackResponse = await requestMarketJson(MARKET_FALLBACK_URL);
+    const fallbackJson = validateMarketJsonFetch(
+      fallbackResponse?.status >= 200 && fallbackResponse?.status < 300
+        ? fallbackResponse.responseText
+        : null,
+      true,
+    );
+    if (fallbackJson) return fallbackJson;
+  }
+
+  setMarketFetchFailure(
+    "市场主接口和备用接口请求失败",
+    "Primary and fallback market API requests failed",
+  );
   if (cachedJson) {
     const cached = validateMarketJsonFetch(cachedJson, false);
     if (cached) return cached;
   }
-  if (getMarketEnvironment() === "test") return null;
+  if (getMarketEnvironment(hostname) === "test") return null;
   return validateMarketJsonFetch(getLocalMarketBackup(), false);
 }
 
@@ -578,6 +599,7 @@ Object.assign(runtime.api, {
   getMarketEnvironment,
   getMarketApiUrl,
   getMarketRefreshInterval,
+  getMarketFallbackUrl: () => MARKET_FALLBACK_URL,
   getAskPrice,
   getBidPrice,
   getFairValue,
@@ -602,6 +624,7 @@ Object.assign(runtime.api, {
   parseStoredMarketItemValues,
   loadMarketItemValuesFromStorage,
   validateMarketJsonFetch,
+  requestMarketJson,
   fetchMarketJSON,
   hasMarketValueSource,
   ensureMarketValueSource,

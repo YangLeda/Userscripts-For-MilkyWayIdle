@@ -22,6 +22,27 @@ import "./70-recount-compat.js";
 
 const langText = (zh, en) => (Settings.getLanguage() === "en" ? en : zh);
 
+function mergeAccuracyProfiles(previous = {}, incoming = {}) {
+  const merged = { ...(previous || {}) };
+  for (const [name, profile] of Object.entries(incoming || {})) {
+    const old = merged[name];
+    const sameRatings =
+      old?.theoretical &&
+      old.combatStyle === profile?.combatStyle &&
+      Number(old.accuracyRating) === Number(profile?.accuracyRating);
+    merged[name] = sameRatings
+      ? {
+          ...profile,
+          monsters: {
+            ...(old.monsters || {}),
+            ...(profile?.monsters || {}),
+          },
+        }
+      : profile;
+  }
+  return merged;
+}
+
 function start(scope) {
   installThemeFont();
   let currentPlayerNames = [];
@@ -76,6 +97,7 @@ function start(scope) {
       teamDamage: snap.teamDamage,
       teamKills: Session.getTeamKills(),
       classes: snap.classes,
+      accuracyProfiles: m.accuracyProfiles || {},
       fragments: snap.fragments,
       graph: snap.graph,
       players: names.map((n) => ({
@@ -161,6 +183,14 @@ function start(scope) {
           manualReset: false,
         });
     }
+    Session.setMeta({
+      accuracyProfiles: sameEncounter
+        ? mergeAccuracyProfiles(
+            old.accuracyProfiles,
+            detail.accuracyProfiles || {},
+          )
+        : detail.accuracyProfiles || {},
+    });
     ClassSystem.applyClasses(detail.classes);
     hasConfirmedCombat = true;
     pendingReconnect = false;
@@ -307,14 +337,6 @@ function start(scope) {
         ev.detail.name,
         ev.detail.amount,
         ev.detail.source,
-      );
-  });
-  scope.event(SocketHook.bus, "attackResolved", (ev) => {
-    if (acceptsCombatEvent(ev.detail))
-      Session.addPlayerAccuracy(
-        ev.detail.name,
-        ev.detail.hit,
-        ev.detail.targets,
       );
   });
   scope.event(SocketHook.bus, "healing", (ev) => {

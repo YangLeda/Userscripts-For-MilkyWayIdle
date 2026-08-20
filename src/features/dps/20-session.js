@@ -691,6 +691,7 @@ const Session = (() => {
           ...playerHealing.keys(),
           ...playerTaken.keys(),
           ...playerAccuracy.keys(),
+          ...Object.keys(meta.accuracyProfiles || {}),
         ]),
       );
     },

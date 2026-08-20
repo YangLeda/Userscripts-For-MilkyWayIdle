@@ -85,6 +85,14 @@ function shouldIncludeGuildDungeonTokensInAssets() {
   return settingEnabled("includeGuildDungeonTokensInAssets");
 }
 
+function shouldIncludeTaskTokensInAssets() {
+  return settingEnabled("includeTaskTokensInAssets");
+}
+
+function shouldExcludeItemFromAssets(itemHrid) {
+  return itemHrid === "/items/task_token" && !shouldIncludeTaskTokensInAssets();
+}
+
 function isOptionalTokenAsset(itemHrid) {
   return OPTIONAL_TOKEN_ASSET_HRIDS.has(itemHrid);
 }
@@ -1502,6 +1510,8 @@ Object.assign(runtime.api, {
   invalidateAssetValueCache,
   shouldIncludeCowbellsInAssets,
   shouldIncludeGuildDungeonTokensInAssets,
+  shouldIncludeTaskTokensInAssets,
+  shouldExcludeItemFromAssets,
 });
 
 function refreshConfiguredAssetValues() {
@@ -1518,6 +1528,10 @@ runtime.settings.onChange?.(
 );
 runtime.settings.onChange?.(
   "includeGuildDungeonTokensInAssets",
+  refreshConfiguredAssetValues,
+);
+runtime.settings.onChange?.(
+  "includeTaskTokensInAssets",
   refreshConfiguredAssetValues,
 );
 runtime.settings.onChange?.(

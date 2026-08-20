@@ -391,6 +391,7 @@ function calculateInventoryCategoryValues() {
   const categoryValues = new Map();
   for (const item of runtime.state.initData_characterItems ?? []) {
     if (item?.itemLocationHrid !== "/item_locations/inventory") continue;
+    if (runtime.api.shouldExcludeItemFromAssets?.(item.itemHrid)) continue;
     if (
       item.itemHrid === "/items/cowbell" &&
       !runtime.api.shouldIncludeCowbellsInAssets()
@@ -696,6 +697,7 @@ function getInventorySortUnitValue(
   enhancementLevel = 0,
   order = "fair",
 ) {
+  if (runtime.api.shouldExcludeItemFromAssets?.(itemHrid)) return 0;
   const derivedValue =
     Number(runtime.api.getAssetValue?.(itemHrid, enhancementLevel)) ||
     Number(runtime.api.getFairValue?.(itemHrid, enhancementLevel)) ||

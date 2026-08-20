@@ -5,10 +5,12 @@ import {
 } from "../core/game-assets.js";
 import { localize } from "../core/localization.js";
 
-const OVERLAY_VERSION = "1.3.0";
+const OVERLAY_VERSION = "1.4.0";
 const LEADERBOARD_API_URL =
   "https://mwi-guild.43.167.210.211.sslip.io/api/v1/leaderboards";
-const LEADERBOARD_CACHE_KEY = "MWITools_leaderboard_overlay_cache_v2";
+const LEADERBOARD_CACHE_KEY = "MWITools_leaderboard_overlay_cache_v3";
+const LEGACY_LEADERBOARD_CACHE_KEY = "MWITools_leaderboard_overlay_cache_v2";
+const LEADERBOARD_TYPES = ["standard", "ironcow"];
 const LEADERBOARD_REFRESH_INTERVAL = 15 * 60 * 1000;
 const STYLE_ID = "mwi-leaderboard-overlay-style";
 const BADGE_CONTAINER_ATTRIBUTE = "data-mwi-leaderboard-badges";
@@ -84,6 +86,15 @@ function normalizedName(value) {
     .normalize("NFKC")
     .trim()
     .toLocaleLowerCase();
+}
+
+function normalizedLeaderboardType(value) {
+  const type = String(value || "standard").toLowerCase();
+  return type === "ironcow" || type === "legacy_ironcow"
+    ? "ironcow"
+    : type === "standard"
+      ? "standard"
+      : "";
 }
 
 function badgeTier(rank) {
@@ -217,7 +228,7 @@ function createOverlay(options = {}) {
   const categoryLabels = Object.fromEntries(categoryEntries);
   const iconBaseUrl = String(options.iconBaseUrl || "").replace(/\/+$/, "");
   const state = {
-    categories: {},
+    leaderboards: { standard: {}, ironcow: {} },
     nameIndex: new Map(),
     currentLeaderboard: null,
     refreshPending: false,
@@ -231,20 +242,23 @@ function createOverlay(options = {}) {
 
   function rebuildNameIndex() {
     const index = new Map();
-    for (const category of categoryOrder) {
-      const snapshot = state.categories?.[category];
-      for (const row of Array.isArray(snapshot?.rows) ? snapshot.rows : []) {
-        const name = normalizedName(row.characterName || row.name);
-        const rank = Number(row.rank);
-        const tier = badgeTier(rank);
-        if (!name || !tier) continue;
-        if (!index.has(name)) index.set(name, []);
-        index.get(name).push({
-          category,
-          label: categoryLabels[category],
-          rank,
-          tier,
-        });
+    for (const leaderboardType of LEADERBOARD_TYPES) {
+      for (const category of categoryOrder) {
+        const snapshot = state.leaderboards?.[leaderboardType]?.[category];
+        for (const row of Array.isArray(snapshot?.rows) ? snapshot.rows : []) {
+          const name = normalizedName(row.characterName || row.name);
+          const rank = Number(row.rank);
+          const tier = badgeTier(rank);
+          if (!name || !tier) continue;
+          if (!index.has(name)) index.set(name, []);
+          index.get(name).push({
+            leaderboardType,
+            category,
+            label: categoryLabels[category],
+            rank,
+            tier,
+          });
+        }
       }
     }
     const categoryIndex = new Map(
@@ -262,7 +276,9 @@ function createOverlay(options = {}) {
   }
 
   function badgeSignature(badges) {
-    return badges.map((item) => `${item.category}:${item.rank}`).join("|");
+    return badges
+      .map((item) => `${item.leaderboardType}:${item.category}:${item.rank}`)
+      .join("|");
   }
 
   function renderNameBadges() {
@@ -368,9 +384,13 @@ function createOverlay(options = {}) {
           const icon = createBadgeIcon(documentRef, item.category, iconBaseUrl);
           badge.append(icon, documentRef.createTextNode(String(item.rank)));
           const label = categoryLabel(item.label, item.category);
+          const typeLabel =
+            item.leaderboardType === "ironcow"
+              ? t("铁牛排行榜", "Iron Cow leaderboard")
+              : t("标准排行榜", "Standard leaderboard");
           badge.title = runtime.config.isZH
-            ? `${label}排行榜第 ${item.rank} 名`
-            : `${label} leaderboard rank ${item.rank}`;
+            ? `${label}·${typeLabel}第 ${item.rank} 名`
+            : `${label} · ${typeLabel} rank ${item.rank}`;
           return badge;
         }),
       );
@@ -485,8 +505,7 @@ function createOverlay(options = {}) {
   activeInstances += 1;
   return {
     setRankings(categories) {
-      state.categories =
-        categories && typeof categories === "object" ? categories : {};
+      state.leaderboards = normalizeLeaderboardCollection(categories);
       rebuildNameIndex();
       scheduleRefresh();
     },
@@ -637,10 +656,8 @@ const leaderboardOverlayApi = {
 };
 
 function normalizeLeaderboardPayload(payload) {
-  if (
-    payload?.type !== "leaderboard_updated" ||
-    payload?.leaderboardType !== "standard"
-  ) {
+  const leaderboardType = normalizedLeaderboardType(payload?.leaderboardType);
+  if (payload?.type !== "leaderboard_updated" || !leaderboardType) {
     return null;
   }
   const leaderboard = payload.leaderboard;
@@ -648,7 +665,7 @@ function normalizeLeaderboardPayload(payload) {
     payload.leaderboardCategory ?? leaderboard?.category ?? "",
   );
   if (
-    leaderboard?.type !== "standard" ||
+    normalizedLeaderboardType(leaderboard?.type) !== leaderboardType ||
     leaderboard?.category !== category ||
     !DEFAULT_CATEGORIES.some(([key]) => key === category) ||
     !Array.isArray(leaderboard?.rows)
@@ -677,7 +694,7 @@ function normalizeLeaderboardPayload(payload) {
         row.rank >= 1 &&
         row.rank <= 100,
     );
-  return rows.length ? { category, rows } : null;
+  return rows.length ? { leaderboardType, category, rows } : null;
 }
 
 function normalizeCategories(value) {
@@ -697,24 +714,60 @@ function normalizeCategories(value) {
   );
 }
 
+function normalizeLeaderboardCollection(value) {
+  if (!value || typeof value !== "object") {
+    return { standard: {}, ironcow: {} };
+  }
+  const hasTypedShape = LEADERBOARD_TYPES.some(
+    (leaderboardType) => value[leaderboardType]?.categories,
+  );
+  if (hasTypedShape) {
+    return Object.fromEntries(
+      LEADERBOARD_TYPES.map((leaderboardType) => [
+        leaderboardType,
+        normalizeCategories(value[leaderboardType]?.categories),
+      ]),
+    );
+  }
+  if (LEADERBOARD_TYPES.some((leaderboardType) => value[leaderboardType])) {
+    return Object.fromEntries(
+      LEADERBOARD_TYPES.map((leaderboardType) => [
+        leaderboardType,
+        normalizeCategories(value[leaderboardType]),
+      ]),
+    );
+  }
+  return { standard: normalizeCategories(value), ironcow: {} };
+}
+
 function loadCachedCategories() {
   try {
     const cached = JSON.parse(
       globalThis.localStorage?.getItem(LEADERBOARD_CACHE_KEY) || "null",
     );
-    return cached?.schemaVersion === 1
-      ? normalizeCategories(cached.categories)
-      : {};
+    if (cached?.schemaVersion === 2) {
+      return normalizeLeaderboardCollection(cached.leaderboards);
+    }
+    const legacy = JSON.parse(
+      globalThis.localStorage?.getItem(LEGACY_LEADERBOARD_CACHE_KEY) || "null",
+    );
+    return legacy?.schemaVersion === 1
+      ? { standard: normalizeCategories(legacy.categories), ironcow: {} }
+      : { standard: {}, ironcow: {} };
   } catch {
-    return {};
+    return { standard: {}, ironcow: {} };
   }
 }
 
-function saveCachedCategories(categories) {
+function saveCachedCategories(leaderboards) {
   try {
     globalThis.localStorage?.setItem(
       LEADERBOARD_CACHE_KEY,
-      JSON.stringify({ schemaVersion: 1, cachedAt: Date.now(), categories }),
+      JSON.stringify({
+        schemaVersion: 2,
+        cachedAt: Date.now(),
+        leaderboards: normalizeLeaderboardCollection(leaderboards),
+      }),
     );
   } catch (error) {
     console.warn(
@@ -726,7 +779,9 @@ function saveCachedCategories(categories) {
   }
 }
 
-function requestLeaderboardCategories(onRequest) {
+function requestLeaderboardCategories(leaderboardType, onRequest) {
+  const normalizedType = normalizedLeaderboardType(leaderboardType);
+  if (!normalizedType) return Promise.resolve(null);
   const requestFn =
     typeof GM !== "undefined" && typeof GM.xmlHttpRequest === "function"
       ? GM.xmlHttpRequest
@@ -750,7 +805,8 @@ function requestLeaderboardCategories(onRequest) {
         const payload = typeof raw === "string" ? JSON.parse(raw) : raw;
         resolve(
           payload?.schemaVersion === 1 &&
-            payload?.leaderboardType === "standard"
+            normalizedLeaderboardType(payload?.leaderboardType) ===
+              normalizedType
             ? normalizeCategories(payload.categories)
             : null,
         );
@@ -762,7 +818,7 @@ function requestLeaderboardCategories(onRequest) {
     try {
       const request = requestFn({
         method: "GET",
-        url: LEADERBOARD_API_URL,
+        url: `${LEADERBOARD_API_URL}?leaderboardType=${encodeURIComponent(normalizedType)}`,
         timeout: 10_000,
         onload: finish,
         onabort: () => finish(null),
@@ -808,25 +864,35 @@ function startIntegratedService() {
   let categories = loadCachedCategories();
   let currentLeaderboard = null;
   let active = true;
-  let activeRequest = null;
+  const activeRequests = new Set();
   controller.setRankings(categories);
 
   const applyCurrentLeaderboard = () => {
     if (!currentLeaderboard) return;
+    const leaderboardType = currentLeaderboard.leaderboardType;
     controller.enhanceLeaderboard({
       category: currentLeaderboard.category,
       rows:
-        categories[currentLeaderboard.category]?.rows ??
+        categories[leaderboardType]?.[currentLeaderboard.category]?.rows ??
         currentLeaderboard.rows,
     });
   };
   const refreshRankings = async () => {
-    const response = await requestLeaderboardCategories((request) => {
-      activeRequest = request;
-    });
-    activeRequest = null;
-    if (!active || !response) return;
-    categories = response;
+    const responses = await Promise.all(
+      LEADERBOARD_TYPES.map((leaderboardType) =>
+        requestLeaderboardCategories(leaderboardType, (request) => {
+          if (request) activeRequests.add(request);
+        }).then((response) => [leaderboardType, response]),
+      ),
+    );
+    activeRequests.clear();
+    if (!active) return;
+    const successful = responses.filter(([, response]) => response);
+    if (!successful.length) return;
+    categories = {
+      ...categories,
+      ...Object.fromEntries(successful),
+    };
     saveCachedCategories(categories);
     controller.setRankings(categories);
     applyCurrentLeaderboard();
@@ -836,7 +902,7 @@ function startIntegratedService() {
     if (!normalized) {
       if (
         payload?.type === "leaderboard_updated" &&
-        payload?.leaderboardType === "standard"
+        normalizedLeaderboardType(payload?.leaderboardType)
       ) {
         currentLeaderboard = null;
         controller.clearLeaderboard();
@@ -849,12 +915,15 @@ function startIntegratedService() {
       controller.clearLeaderboard();
       return;
     }
-    if (!categories[normalized.category]) {
+    if (!categories[normalized.leaderboardType]?.[normalized.category]) {
       categories = {
         ...categories,
-        [normalized.category]: {
-          receivedAt: new Date().toISOString(),
-          rows: normalized.rows,
+        [normalized.leaderboardType]: {
+          ...categories[normalized.leaderboardType],
+          [normalized.category]: {
+            receivedAt: new Date().toISOString(),
+            rows: normalized.rows,
+          },
         },
       };
       controller.setRankings(categories);
@@ -873,7 +942,8 @@ function startIntegratedService() {
       active = false;
       clearInterval(interval);
       stopMessages();
-      activeRequest?.abort?.();
+      for (const request of activeRequests) request?.abort?.();
+      activeRequests.clear();
       controller.destroy();
     },
   };

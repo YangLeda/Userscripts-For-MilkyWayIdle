@@ -23,6 +23,10 @@ let marketSessionDone = new Map();
 let marketSessionActive = false;
 let marketSessionRequiresModal = false;
 let marketSessionStartedAt = 0;
+let autoInventoryRefreshHost = null;
+let autoInventoryRefreshDone = false;
+let autoInventoryRefreshInProgress = false;
+let autoInventoryRefreshRetry = null;
 let marketSessionModalSeen = false;
 let marketSessionHost = null;
 let marketSessionRestoreNavTarget = "";
@@ -1407,10 +1411,78 @@ function resolveInventoryRefreshHost(panel) {
   return activeModal ? { host: activeModal, sourcePanel: modalPanel } : null;
 }
 
+function resetAutoInventoryRefresh() {
+  autoInventoryRefreshHost = null;
+  autoInventoryRefreshDone = false;
+  autoInventoryRefreshInProgress = false;
+  if (autoInventoryRefreshRetry !== null) {
+    clearTimeout(autoInventoryRefreshRetry);
+    autoInventoryRefreshRetry = null;
+  }
+}
+
+function refreshInventorySnapshot(sourcePanel, { silent = false } = {}) {
+  const liveItems = resolveLiveCharacterItems(sourcePanel);
+  if (liveItems === null) {
+    if (!silent) {
+      showToast(
+        t(
+          "暂时无法读取游戏当前仓库，请稍后再试",
+          "Could not read the current game inventory; try again shortly",
+        ),
+      );
+    }
+    return null;
+  }
+  runtime.state.initData_characterItems = liveItems.map((item) => ({
+    ...item,
+  }));
+  const result = procurement.replaceInventorySnapshot(liveItems);
+  lastProductionSignature = "";
+  renderShell();
+  runtime.api.renderProductionPanel?.();
+  renderProductionProcurement();
+  if (!silent) {
+    showToast(
+      runtime.config.isZH
+        ? `仓库已更新：${result.changedItemCount} 种库存变化；购物车 ${result.cartItemCount} 项、项目 ${result.projectCount} 个已按最新库存重算`
+        : `Inventory updated: ${result.changedItemCount} item changes; ${result.cartItemCount} cart items and ${result.projectCount} projects recalculated`,
+    );
+  }
+  return result;
+}
+
+function maybeAutoRefreshInventory(host, sourcePanel) {
+  if (autoInventoryRefreshHost !== host) {
+    resetAutoInventoryRefresh();
+    autoInventoryRefreshHost = host;
+  }
+  if (
+    autoInventoryRefreshDone ||
+    autoInventoryRefreshInProgress ||
+    autoInventoryRefreshRetry !== null
+  )
+    return;
+  autoInventoryRefreshInProgress = true;
+  autoInventoryRefreshDone =
+    refreshInventorySnapshot(sourcePanel, { silent: true }) !== null;
+  autoInventoryRefreshInProgress = false;
+  if (autoInventoryRefreshDone) return;
+  autoInventoryRefreshRetry = setTimeout(() => {
+    autoInventoryRefreshRetry = null;
+    if (autoInventoryRefreshHost !== host || !host.isConnected) return;
+    autoInventoryRefreshInProgress = true;
+    autoInventoryRefreshDone =
+      refreshInventorySnapshot(sourcePanel, { silent: true }) !== null;
+    autoInventoryRefreshInProgress = false;
+  }, 180);
+}
+
 function ensureInventoryRefreshButton(panel) {
   const resolved = resolveInventoryRefreshHost(panel);
   if (!resolved) {
     removeInventoryRefreshButtons();
+    resetAutoInventoryRefresh();
     return null;
   }
   const { host, sourcePanel } = resolved;
@@ -1427,7 +1499,10 @@ function ensureInventoryRefreshButton(panel) {
     needsPositionAnchor,
   );
   let button = host.querySelector(`#${PRODUCTION_REFRESH_ID}`);
-  if (button) return button;
+  if (button) {
+    maybeAutoRefreshInventory(host, sourcePanel);
+    return button;
+  }
   button = document.createElement("button");
   button.id = PRODUCTION_REFRESH_ID;
   button.type = "button";
@@ -1445,33 +1520,11 @@ function ensureInventoryRefreshButton(panel) {
     event.stopPropagation();
     if (button.disabled) return;
     button.disabled = true;
-    const liveItems = resolveLiveCharacterItems(sourcePanel);
-    if (liveItems === null) {
-      button.disabled = false;
-      showToast(
-        t(
-          "暂时无法读取游戏当前仓库，请稍后再试",
-          "Could not read the current game inventory; try again shortly",
-        ),
-      );
-      return;
-    }
-    runtime.state.initData_characterItems = liveItems.map((item) => ({
-      ...item,
-    }));
-    const result = procurement.replaceInventorySnapshot(liveItems);
-    lastProductionSignature = "";
-    renderShell();
-    runtime.api.renderProductionPanel?.();
-    renderProductionProcurement();
-    showToast(
-      runtime.config.isZH
-        ? `仓库已更新：${result.changedItemCount} 种库存变化；购物车 ${result.cartItemCount} 项、项目 ${result.projectCount} 个已按最新库存重算`
-        : `Inventory updated: ${result.changedItemCount} item changes; ${result.cartItemCount} cart items and ${result.projectCount} projects recalculated`,
-    );
+    refreshInventorySnapshot(sourcePanel);
     if (button.isConnected) button.disabled = false;
   });
   host.append(button);
+  maybeAutoRefreshInventory(host, sourcePanel);
   return button;
 }
 
@@ -1502,6 +1555,7 @@ function renderProductionProcurement() {
   const context = resolveActionPanel();
   if (!context) {
     removeInventoryRefreshButtons();
+    resetAutoInventoryRefresh();
     const houseModal = findActiveHouseModal();
     if (!houseModal) {
       clearProductionUi();
@@ -2773,6 +2827,7 @@ runtime.features.register({
       renderScheduler.cancel();
       stopActiveHoldRepeat();
       removeInventoryRefreshButtons();
+      resetAutoInventoryRefresh();
       clearProductionUi();
       clearMarketUi();
       document.getElementById(STYLE_ID)?.remove();

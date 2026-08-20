@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWITools
 // @namespace    http://tampermonkey.net/
-// @version      26.4.15
+// @version      26.4.16
 // @updateURL    https://update.greasyfork.org/scripts/494467/MWITools.meta.js
 // @downloadURL  https://update.greasyfork.org/scripts/494467/MWITools.user.js
 // @description  Tools for MilkyWayIdle. Includes a feedback center, action projections, market insights, asset history, DPS/HPS statistics, inventory tools, tasks, and guild utilities.
@@ -26,6 +26,7 @@
 // @connect      raw.githubusercontent.com
 // @connect      feedback.43.167.210.211.sslip.io
 // @connect      mwi-guild.43.167.210.211.sslip.io
+// @connect      q7.nainai.eu.org
 // @require      https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.3.3/chart.umd.min.js#sha256-AaB6aVBgu9b1y80d/HEgMq4AnFJ7K/Y+9tzK1/MrvF4=
 // @require      https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-zoom/2.0.1/chartjs-plugin-zoom.min.js#sha256-UDxwmAK+KFxnav4Dab9fcgZtCwwjkpGIwxWPNcAyepw=
 // @require      https://cdnjs.cloudflare.com/ajax/libs/hammer.js/2.0.8/hammer.min.js#sha256-eVNjHw5UeU0jUqPPpZHAkU1z4U+QFBBY488WvueTm88=
@@ -1163,6 +1164,11 @@
       desc: isZH ? "总资产计入公会与地下城代币" : "Include guild and dungeon tokens in total assets.",
       isTrue: true
     },
+    includeTaskTokensInAssets: {
+      id: "includeTaskTokensInAssets",
+      desc: isZH ? "总资产计入任务代币" : "Include task tokens in total assets.",
+      isTrue: false
+    },
     valueBackEquipmentWithProtectionMirror: {
       id: "valueBackEquipmentWithProtectionMirror",
       desc: isZH ? "普通未强化背部装备按保护之镜价值估值" : "Value ordinary unenhanced back equipment using Mirrors of Protection.",
@@ -1726,6 +1732,14 @@
       "Include guild & dungeon tokens",
       "开启后，公会代币以及奇幻、阴森、秘法、海盗代币计入不可交易代币和总资产；默认开启。",
       "Include Guild, Chimerical, Sinister, Enchanted, and Pirate Tokens under non-tradable tokens and total assets. On by default."
+    ],
+    [
+      "includeTaskTokensInAssets",
+      "inventory",
+      "任务代币计入总资产",
+      "Include task tokens in assets",
+      "开启后，任务代币按任务商店兑换价值计入总资产和物品价值排序；默认关闭。",
+      "Include task tokens at their task-shop redemption value in total assets and inventory value sorting. Off by default."
     ],
     [
       "valueBackEquipmentWithProtectionMirror",
@@ -3489,6 +3503,7 @@
   var MARKET_MAX_PRICE = 1e12;
   var TEST_MARKET_REFRESH_MS = 10 * 60 * 1e3;
   var PRODUCTION_MARKET_REFRESH_MS = 6 * 60 * 60 * 1e3;
+  var MARKET_FALLBACK_URL = "https://q7.nainai.eu.org/game_data/marketplace.json";
   var assetValuationMarketSnapshot = null;
   var assetValuationMarketDirty = false;
   var decodedLocalMarketBackup;
@@ -3811,7 +3826,7 @@
       runtime.config.isZH ? `[MWITools] ${reasonZh}；将优先使用可用的市场缓存。` : `[MWITools] ${reasonEn}; using cached market data when available.`
     );
   }
-  function requestMarketJson() {
+  function requestMarketJson(url = getMarketApiUrl()) {
     const sendRequest = typeof GM !== "undefined" && typeof GM.xmlHttpRequest === "function" ? GM.xmlHttpRequest : typeof GM_xmlhttpRequest === "function" ? GM_xmlhttpRequest : null;
     if (!sendRequest) return Promise.resolve(null);
     return new Promise((resolve) => {
@@ -3825,7 +3840,7 @@
       };
       watchdog = setTimeout(() => finish(null), 5500);
       const options = {
-        url: getMarketApiUrl(),
+        url,
         method: "GET",
         timeout: 5e3,
         onload: finish,
@@ -3854,28 +3869,39 @@
     if (hasMarketValueSource()) return true;
     return Boolean(await fetchMarketJSON());
   }
-  async function fetchMarketJSON(forceFetch = false) {
+  async function fetchMarketJSON(forceFetch = false, hostname = globalThis.location?.hostname ?? "") {
     const cacheTimestamp = Number(
       localStorage.getItem("MWITools_marketAPI_timestamp")
     );
     const cachedJson = localStorage.getItem("MWITools_marketAPI_json");
-    if (!forceFetch && cachedJson && cacheTimestamp && Date.now() - cacheTimestamp < getMarketRefreshInterval()) {
+    if (!forceFetch && cachedJson && cacheTimestamp && Date.now() - cacheTimestamp < getMarketRefreshInterval(hostname)) {
       return validateMarketJsonFetch(cachedJson, false);
     }
-    const response = await requestMarketJson();
+    const response = await requestMarketJson(getMarketApiUrl(hostname));
     const jsonObj = validateMarketJsonFetch(
-      response?.status === 200 ? response.responseText : null,
+      response?.status >= 200 && response?.status < 300 ? response.responseText : null,
       true
     );
     if (jsonObj) {
       return jsonObj;
     }
-    setMarketFetchFailure("市场 API 请求失败", "Market API request failed");
+    if (getMarketEnvironment(hostname) !== "test") {
+      const fallbackResponse = await requestMarketJson(MARKET_FALLBACK_URL);
+      const fallbackJson = validateMarketJsonFetch(
+        fallbackResponse?.status >= 200 && fallbackResponse?.status < 300 ? fallbackResponse.responseText : null,
+        true
+      );
+      if (fallbackJson) return fallbackJson;
+    }
+    setMarketFetchFailure(
+      "市场主接口和备用接口请求失败",
+      "Primary and fallback market API requests failed"
+    );
     if (cachedJson) {
       const cached = validateMarketJsonFetch(cachedJson, false);
       if (cached) return cached;
     }
-    if (getMarketEnvironment() === "test") return null;
+    if (getMarketEnvironment(hostname) === "test") return null;
     return validateMarketJsonFetch(getLocalMarketBackup(), false);
   }
   function applyMarketItemValues(payload) {
@@ -3937,6 +3963,7 @@
     getMarketEnvironment,
     getMarketApiUrl,
     getMarketRefreshInterval,
+    getMarketFallbackUrl: () => MARKET_FALLBACK_URL,
     getAskPrice,
     getBidPrice,
     getFairValue,
@@ -3961,6 +3988,7 @@
     parseStoredMarketItemValues,
     loadMarketItemValuesFromStorage,
     validateMarketJsonFetch,
+    requestMarketJson,
     fetchMarketJSON,
     hasMarketValueSource,
     ensureMarketValueSource,
@@ -7959,6 +7987,12 @@
   function shouldIncludeGuildDungeonTokensInAssets() {
     return settingEnabled("includeGuildDungeonTokensInAssets");
   }
+  function shouldIncludeTaskTokensInAssets() {
+    return settingEnabled("includeTaskTokensInAssets");
+  }
+  function shouldExcludeItemFromAssets(itemHrid) {
+    return itemHrid === "/items/task_token" && !shouldIncludeTaskTokensInAssets();
+  }
   function isOptionalTokenAsset(itemHrid) {
     return OPTIONAL_TOKEN_ASSET_HRIDS.has(itemHrid);
   }
@@ -9155,7 +9189,9 @@
     isOptionalTokenAsset,
     invalidateAssetValueCache,
     shouldIncludeCowbellsInAssets,
-    shouldIncludeGuildDungeonTokensInAssets
+    shouldIncludeGuildDungeonTokensInAssets,
+    shouldIncludeTaskTokensInAssets,
+    shouldExcludeItemFromAssets
   });
   function refreshConfiguredAssetValues() {
     invalidateAssetValueCache();
@@ -9170,6 +9206,10 @@
   );
   runtime.settings.onChange?.(
     "includeGuildDungeonTokensInAssets",
+    refreshConfiguredAssetValues
+  );
+  runtime.settings.onChange?.(
+    "includeTaskTokensInAssets",
     refreshConfiguredAssetValues
   );
   runtime.settings.onChange?.(
@@ -10438,6 +10478,7 @@
     let inventoryAsk = 0;
     let inventoryBid = 0;
     for (const item of runtime.state.initData_characterItems) {
+      if (runtime.api.shouldExcludeItemFromAssets?.(item.itemHrid)) continue;
       if (item.itemHrid === "/items/cowbell" && !runtime.api.shouldIncludeCowbellsInAssets()) {
         continue;
       }
@@ -15525,9 +15566,11 @@ ${preview}`
   });
 
   // src/features/leaderboard-overlay.js
-  var OVERLAY_VERSION = "1.3.0";
+  var OVERLAY_VERSION = "1.4.0";
   var LEADERBOARD_API_URL = "https://mwi-guild.43.167.210.211.sslip.io/api/v1/leaderboards";
-  var LEADERBOARD_CACHE_KEY = "MWITools_leaderboard_overlay_cache_v2";
+  var LEADERBOARD_CACHE_KEY = "MWITools_leaderboard_overlay_cache_v3";
+  var LEGACY_LEADERBOARD_CACHE_KEY = "MWITools_leaderboard_overlay_cache_v2";
+  var LEADERBOARD_TYPES = ["standard", "ironcow"];
   var LEADERBOARD_REFRESH_INTERVAL = 15 * 60 * 1e3;
   var STYLE_ID5 = "mwi-leaderboard-overlay-style";
   var BADGE_CONTAINER_ATTRIBUTE = "data-mwi-leaderboard-badges";
@@ -15596,6 +15639,10 @@ ${preview}`
   }
   function normalizedName2(value) {
     return String(value || "").normalize("NFKC").trim().toLocaleLowerCase();
+  }
+  function normalizedLeaderboardType(value) {
+    const type = String(value || "standard").toLowerCase();
+    return type === "ironcow" || type === "legacy_ironcow" ? "ironcow" : type === "standard" ? "standard" : "";
   }
   function badgeTier(rank) {
     const value = Number(rank);
@@ -15714,7 +15761,7 @@ ${preview}`
     const categoryLabels = Object.fromEntries(categoryEntries);
     const iconBaseUrl = String(options.iconBaseUrl || "").replace(/\/+$/, "");
     const state = {
-      categories: {},
+      leaderboards: { standard: {}, ironcow: {} },
       nameIndex: /* @__PURE__ */ new Map(),
       currentLeaderboard: null,
       refreshPending: false,
@@ -15726,20 +15773,23 @@ ${preview}`
     ensureStyles(documentRef);
     function rebuildNameIndex() {
       const index = /* @__PURE__ */ new Map();
-      for (const category of categoryOrder) {
-        const snapshot = state.categories?.[category];
-        for (const row of Array.isArray(snapshot?.rows) ? snapshot.rows : []) {
-          const name = normalizedName2(row.characterName || row.name);
-          const rank = Number(row.rank);
-          const tier = badgeTier(rank);
-          if (!name || !tier) continue;
-          if (!index.has(name)) index.set(name, []);
-          index.get(name).push({
-            category,
-            label: categoryLabels[category],
-            rank,
-            tier
-          });
+      for (const leaderboardType of LEADERBOARD_TYPES) {
+        for (const category of categoryOrder) {
+          const snapshot = state.leaderboards?.[leaderboardType]?.[category];
+          for (const row of Array.isArray(snapshot?.rows) ? snapshot.rows : []) {
+            const name = normalizedName2(row.characterName || row.name);
+            const rank = Number(row.rank);
+            const tier = badgeTier(rank);
+            if (!name || !tier) continue;
+            if (!index.has(name)) index.set(name, []);
+            index.get(name).push({
+              leaderboardType,
+              category,
+              label: categoryLabels[category],
+              rank,
+              tier
+            });
+          }
         }
       }
       const categoryIndex = new Map(
@@ -15753,7 +15803,7 @@ ${preview}`
       state.nameIndex = index;
     }
     function badgeSignature(badges) {
-      return badges.map((item) => `${item.category}:${item.rank}`).join("|");
+      return badges.map((item) => `${item.leaderboardType}:${item.category}:${item.rank}`).join("|");
     }
     function renderNameBadges() {
       if (!state.showBadges) return;
@@ -15831,7 +15881,8 @@ ${preview}`
             const icon = createBadgeIcon(documentRef, item.category, iconBaseUrl);
             badge.append(icon, documentRef.createTextNode(String(item.rank)));
             const label = categoryLabel(item.label, item.category);
-            badge.title = runtime.config.isZH ? `${label}排行榜第 ${item.rank} 名` : `${label} leaderboard rank ${item.rank}`;
+            const typeLabel = item.leaderboardType === "ironcow" ? t5("铁牛排行榜", "Iron Cow leaderboard") : t5("标准排行榜", "Standard leaderboard");
+            badge.title = runtime.config.isZH ? `${label}·${typeLabel}第 ${item.rank} 名` : `${label} · ${typeLabel} rank ${item.rank}`;
             return badge;
           })
         );
@@ -15925,7 +15976,7 @@ ${preview}`
     activeInstances += 1;
     return {
       setRankings(categories) {
-        state.categories = categories && typeof categories === "object" ? categories : {};
+        state.leaderboards = normalizeLeaderboardCollection(categories);
         rebuildNameIndex();
         scheduleRefresh();
       },
@@ -16063,14 +16114,15 @@ ${preview}`
     }
   };
   function normalizeLeaderboardPayload(payload) {
-    if (payload?.type !== "leaderboard_updated" || payload?.leaderboardType !== "standard") {
+    const leaderboardType = normalizedLeaderboardType(payload?.leaderboardType);
+    if (payload?.type !== "leaderboard_updated" || !leaderboardType) {
       return null;
     }
     const leaderboard = payload.leaderboard;
     const category = String(
       payload.leaderboardCategory ?? leaderboard?.category ?? ""
     );
-    if (leaderboard?.type !== "standard" || leaderboard?.category !== category || !DEFAULT_CATEGORIES.some(([key]) => key === category) || !Array.isArray(leaderboard?.rows)) {
+    if (normalizedLeaderboardType(leaderboard?.type) !== leaderboardType || leaderboard?.category !== category || !DEFAULT_CATEGORIES.some(([key]) => key === category) || !Array.isArray(leaderboard?.rows)) {
       return null;
     }
     const rows2 = leaderboard.rows.map((row) => {
@@ -16088,7 +16140,7 @@ ${preview}`
     }).filter(
       (row) => row.characterName && Number.isInteger(row.rank) && row.rank >= 1 && row.rank <= 100
     );
-    return rows2.length ? { category, rows: rows2 } : null;
+    return rows2.length ? { leaderboardType, category, rows: rows2 } : null;
   }
   function normalizeCategories(value) {
     const allowed = new Set(DEFAULT_CATEGORIES.map(([category]) => category));
@@ -16102,21 +16154,56 @@ ${preview}`
       })
     );
   }
+  function normalizeLeaderboardCollection(value) {
+    if (!value || typeof value !== "object") {
+      return { standard: {}, ironcow: {} };
+    }
+    const hasTypedShape = LEADERBOARD_TYPES.some(
+      (leaderboardType) => value[leaderboardType]?.categories
+    );
+    if (hasTypedShape) {
+      return Object.fromEntries(
+        LEADERBOARD_TYPES.map((leaderboardType) => [
+          leaderboardType,
+          normalizeCategories(value[leaderboardType]?.categories)
+        ])
+      );
+    }
+    if (LEADERBOARD_TYPES.some((leaderboardType) => value[leaderboardType])) {
+      return Object.fromEntries(
+        LEADERBOARD_TYPES.map((leaderboardType) => [
+          leaderboardType,
+          normalizeCategories(value[leaderboardType])
+        ])
+      );
+    }
+    return { standard: normalizeCategories(value), ironcow: {} };
+  }
   function loadCachedCategories() {
     try {
       const cached = JSON.parse(
         globalThis.localStorage?.getItem(LEADERBOARD_CACHE_KEY) || "null"
       );
-      return cached?.schemaVersion === 1 ? normalizeCategories(cached.categories) : {};
+      if (cached?.schemaVersion === 2) {
+        return normalizeLeaderboardCollection(cached.leaderboards);
+      }
+      const legacy = JSON.parse(
+        globalThis.localStorage?.getItem(LEGACY_LEADERBOARD_CACHE_KEY) || "null"
+      );
+      return legacy?.schemaVersion === 1 ? { standard: normalizeCategories(legacy.categories), ironcow: {} } : { standard: {}, ironcow: {} };
     } catch {
-      return {};
+      return { standard: {}, ironcow: {} };
     }
   }
-  function saveCachedCategories(categories) {
+  function saveCachedCategories(leaderboards) {
     try {
       globalThis.localStorage?.setItem(
         LEADERBOARD_CACHE_KEY,
-        JSON.stringify({ schemaVersion: 1, cachedAt: Date.now(), categories })
+        JSON.stringify({
+          schemaVersion: 2,
+          cachedAt: Date.now(),
+          leaderboards: normalizeLeaderboardCollection(leaderboards)
+        })
       );
     } catch (error) {
       console.warn(
@@ -16125,7 +16212,9 @@ ${preview}`
       );
     }
   }
-  function requestLeaderboardCategories(onRequest) {
+  function requestLeaderboardCategories(leaderboardType, onRequest) {
+    const normalizedType = normalizedLeaderboardType(leaderboardType);
+    if (!normalizedType) return Promise.resolve(null);
     const requestFn = typeof GM !== "undefined" && typeof GM.xmlHttpRequest === "function" ? GM.xmlHttpRequest : typeof GM_xmlhttpRequest === "function" ? GM_xmlhttpRequest : null;
     if (!requestFn) return Promise.resolve(null);
     return new Promise((resolve) => {
@@ -16143,7 +16232,7 @@ ${preview}`
           const raw = response.responseText || response.response;
           const payload = typeof raw === "string" ? JSON.parse(raw) : raw;
           resolve(
-            payload?.schemaVersion === 1 && payload?.leaderboardType === "standard" ? normalizeCategories(payload.categories) : null
+            payload?.schemaVersion === 1 && normalizedLeaderboardType(payload?.leaderboardType) === normalizedType ? normalizeCategories(payload.categories) : null
           );
         } catch {
           resolve(null);
@@ -16153,7 +16242,7 @@ ${preview}`
       try {
         const request2 = requestFn({
           method: "GET",
-          url: LEADERBOARD_API_URL,
+          url: `${LEADERBOARD_API_URL}?leaderboardType=${encodeURIComponent(normalizedType)}`,
           timeout: 1e4,
           onload: finish,
           onabort: () => finish(null),
@@ -16195,22 +16284,32 @@ ${preview}`
     let categories = loadCachedCategories();
     let currentLeaderboard = null;
     let active = true;
-    let activeRequest = null;
+    const activeRequests = /* @__PURE__ */ new Set();
     controller.setRankings(categories);
     const applyCurrentLeaderboard = () => {
       if (!currentLeaderboard) return;
+      const leaderboardType = currentLeaderboard.leaderboardType;
       controller.enhanceLeaderboard({
         category: currentLeaderboard.category,
-        rows: categories[currentLeaderboard.category]?.rows ?? currentLeaderboard.rows
+        rows: categories[leaderboardType]?.[currentLeaderboard.category]?.rows ?? currentLeaderboard.rows
       });
     };
     const refreshRankings = async () => {
-      const response = await requestLeaderboardCategories((request2) => {
-        activeRequest = request2;
-      });
-      activeRequest = null;
-      if (!active || !response) return;
-      categories = response;
+      const responses = await Promise.all(
+        LEADERBOARD_TYPES.map(
+          (leaderboardType) => requestLeaderboardCategories(leaderboardType, (request2) => {
+            if (request2) activeRequests.add(request2);
+          }).then((response) => [leaderboardType, response])
+        )
+      );
+      activeRequests.clear();
+      if (!active) return;
+      const successful = responses.filter(([, response]) => response);
+      if (!successful.length) return;
+      categories = {
+        ...categories,
+        ...Object.fromEntries(successful)
+      };
       saveCachedCategories(categories);
       controller.setRankings(categories);
       applyCurrentLeaderboard();
@@ -16218,7 +16317,7 @@ ${preview}`
     const stopMessages = runtime.onMessage("leaderboard_updated", (payload) => {
       const normalized = normalizeLeaderboardPayload(payload);
       if (!normalized) {
-        if (payload?.type === "leaderboard_updated" && payload?.leaderboardType === "standard") {
+        if (payload?.type === "leaderboard_updated" && normalizedLeaderboardType(payload?.leaderboardType)) {
           currentLeaderboard = null;
           controller.clearLeaderboard();
         }
@@ -16230,12 +16329,15 @@ ${preview}`
         controller.clearLeaderboard();
         return;
       }
-      if (!categories[normalized.category]) {
+      if (!categories[normalized.leaderboardType]?.[normalized.category]) {
         categories = {
           ...categories,
-          [normalized.category]: {
-            receivedAt: (/* @__PURE__ */ new Date()).toISOString(),
-            rows: normalized.rows
+          [normalized.leaderboardType]: {
+            ...categories[normalized.leaderboardType],
+            [normalized.category]: {
+              receivedAt: (/* @__PURE__ */ new Date()).toISOString(),
+              rows: normalized.rows
+            }
           }
         };
         controller.setRankings(categories);
@@ -16253,7 +16355,8 @@ ${preview}`
         active = false;
         clearInterval(interval);
         stopMessages();
-        activeRequest?.abort?.();
+        for (const request2 of activeRequests) request2?.abort?.();
+        activeRequests.clear();
         controller.destroy();
       }
     };
@@ -17252,6 +17355,7 @@ ${preview}`
     const categoryValues = /* @__PURE__ */ new Map();
     for (const item of runtime.state.initData_characterItems ?? []) {
       if (item?.itemLocationHrid !== "/item_locations/inventory") continue;
+      if (runtime.api.shouldExcludeItemFromAssets?.(item.itemHrid)) continue;
       if (item.itemHrid === "/items/cowbell" && !runtime.api.shouldIncludeCowbellsInAssets()) {
         continue;
       }
@@ -17502,6 +17606,7 @@ ${preview}`
     renderInventoryPanels();
   }
   function getInventorySortUnitValue(itemHrid, enhancementLevel = 0, order = "fair") {
+    if (runtime.api.shouldExcludeItemFromAssets?.(itemHrid)) return 0;
     const derivedValue = Number(runtime.api.getAssetValue?.(itemHrid, enhancementLevel)) || Number(runtime.api.getFairValue?.(itemHrid, enhancementLevel)) || 0;
     if (order === "ask") {
       return Number(runtime.api.getAskPrice?.(itemHrid, enhancementLevel)) || derivedValue;
@@ -18199,6 +18304,7 @@ ${preview}`
     .copy{display:block;min-width:0}
     .name-line{display:flex;min-width:0;align-items:center;gap:5px}
     .name{min-width:0;overflow:hidden;color:#f5f6ff;font-size:11px;font-weight:700;text-overflow:ellipsis;white-space:nowrap}
+    .ratio{margin-top:2px;color:#aeb1c9;font:500 9px/1.1 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:nowrap}
     .tag{flex:0 0 auto;padding:1px 4px;border:1px solid color-mix(in srgb,var(--mwi-credit-accent,#43c4ad) 65%,#555976);border-radius:999px;color:var(--mwi-credit-accent,#43c4ad);font-size:8px;font-weight:700}
     .price{display:flex;align-items:baseline;justify-content:flex-end;gap:3px;color:var(--mwi-credit-accent,#43c4ad);font:750 12px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:nowrap}
     .price small{color:#aeb1c9;font:500 9px/1.2 inherit}
@@ -18253,7 +18359,7 @@ ${preview}`
     return `<div class="rank-row${index === 0 ? " best" : ""}${separate ? " current-row" : ""}">
     <span class="rank">${separate ? "—" : index + 1}</span>
     ${itemIconMarkup(option.itemHrid, name)}
-    <span class="copy"><span class="name-line"><span class="name" title="${escapeHtml3(name)}">${escapeHtml3(name)}</span>${current ? `<span class="tag">${escapeHtml3(t6("当前", "Current"))}</span>` : ""}</span></span>
+    <span class="copy"><span class="name-line"><span class="name" title="${escapeHtml3(name)}">${escapeHtml3(name)}</span>${current ? `<span class="tag">${escapeHtml3(t6("当前", "Current"))}</span>` : ""}</span><span class="ratio">${escapeHtml3(formatExact(option.itemCount))} ${escapeHtml3(t6("个物品", "items"))} → ${escapeHtml3(formatExact(option.creditCount))} ${escapeHtml3(t6("点信用", "credits"))}</span></span>
     <span class="price" title="${escapeHtml3(formatExact(option.costPerCredit))}">${pricePrefix}${escapeHtml3(formatNumber2(option.costPerCredit))}<small>${escapeHtml3(t6("每信用点", "per credit"))}</small></span>
   </div>`;
   }
@@ -22126,6 +22232,10 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
   var marketSessionActive = false;
   var marketSessionRequiresModal = false;
   var marketSessionStartedAt = 0;
+  var autoInventoryRefreshHost = null;
+  var autoInventoryRefreshDone = false;
+  var autoInventoryRefreshInProgress = false;
+  var autoInventoryRefreshRetry = null;
   var marketSessionModalSeen = false;
   var marketSessionHost = null;
   var marketSessionRestoreNavTarget = "";
@@ -23356,10 +23466,67 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
     );
     return activeModal ? { host: activeModal, sourcePanel: modalPanel } : null;
   }
+  function resetAutoInventoryRefresh() {
+    autoInventoryRefreshHost = null;
+    autoInventoryRefreshDone = false;
+    autoInventoryRefreshInProgress = false;
+    if (autoInventoryRefreshRetry !== null) {
+      clearTimeout(autoInventoryRefreshRetry);
+      autoInventoryRefreshRetry = null;
+    }
+  }
+  function refreshInventorySnapshot(sourcePanel, { silent = false } = {}) {
+    const liveItems = resolveLiveCharacterItems(sourcePanel);
+    if (liveItems === null) {
+      if (!silent) {
+        showToast(
+          t9(
+            "暂时无法读取游戏当前仓库，请稍后再试",
+            "Could not read the current game inventory; try again shortly"
+          )
+        );
+      }
+      return null;
+    }
+    runtime.state.initData_characterItems = liveItems.map((item) => ({
+      ...item
+    }));
+    const result = procurement3.replaceInventorySnapshot(liveItems);
+    lastProductionSignature = "";
+    renderShell();
+    runtime.api.renderProductionPanel?.();
+    renderProductionProcurement();
+    if (!silent) {
+      showToast(
+        runtime.config.isZH ? `仓库已更新：${result.changedItemCount} 种库存变化；购物车 ${result.cartItemCount} 项、项目 ${result.projectCount} 个已按最新库存重算` : `Inventory updated: ${result.changedItemCount} item changes; ${result.cartItemCount} cart items and ${result.projectCount} projects recalculated`
+      );
+    }
+    return result;
+  }
+  function maybeAutoRefreshInventory(host, sourcePanel) {
+    if (autoInventoryRefreshHost !== host) {
+      resetAutoInventoryRefresh();
+      autoInventoryRefreshHost = host;
+    }
+    if (autoInventoryRefreshDone || autoInventoryRefreshInProgress || autoInventoryRefreshRetry !== null)
+      return;
+    autoInventoryRefreshInProgress = true;
+    autoInventoryRefreshDone = refreshInventorySnapshot(sourcePanel, { silent: true }) !== null;
+    autoInventoryRefreshInProgress = false;
+    if (autoInventoryRefreshDone) return;
+    autoInventoryRefreshRetry = setTimeout(() => {
+      autoInventoryRefreshRetry = null;
+      if (autoInventoryRefreshHost !== host || !host.isConnected) return;
+      autoInventoryRefreshInProgress = true;
+      autoInventoryRefreshDone = refreshInventorySnapshot(sourcePanel, { silent: true }) !== null;
+      autoInventoryRefreshInProgress = false;
+    }, 180);
+  }
   function ensureInventoryRefreshButton(panel) {
     const resolved = resolveInventoryRefreshHost(panel);
     if (!resolved) {
       removeInventoryRefreshButtons();
+      resetAutoInventoryRefresh();
       return null;
     }
     const { host, sourcePanel } = resolved;
@@ -23372,7 +23539,10 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
       needsPositionAnchor
     );
     let button = host.querySelector(`#${PRODUCTION_REFRESH_ID}`);
-    if (button) return button;
+    if (button) {
+      maybeAutoRefreshInventory(host, sourcePanel);
+      return button;
+    }
     button = document.createElement("button");
     button.id = PRODUCTION_REFRESH_ID;
     button.type = "button";
@@ -23390,31 +23560,11 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
       event.stopPropagation();
       if (button.disabled) return;
       button.disabled = true;
-      const liveItems = resolveLiveCharacterItems(sourcePanel);
-      if (liveItems === null) {
-        button.disabled = false;
-        showToast(
-          t9(
-            "暂时无法读取游戏当前仓库，请稍后再试",
-            "Could not read the current game inventory; try again shortly"
-          )
-        );
-        return;
-      }
-      runtime.state.initData_characterItems = liveItems.map((item) => ({
-        ...item
-      }));
-      const result = procurement3.replaceInventorySnapshot(liveItems);
-      lastProductionSignature = "";
-      renderShell();
-      runtime.api.renderProductionPanel?.();
-      renderProductionProcurement();
-      showToast(
-        runtime.config.isZH ? `仓库已更新：${result.changedItemCount} 种库存变化；购物车 ${result.cartItemCount} 项、项目 ${result.projectCount} 个已按最新库存重算` : `Inventory updated: ${result.changedItemCount} item changes; ${result.cartItemCount} cart items and ${result.projectCount} projects recalculated`
-      );
+      refreshInventorySnapshot(sourcePanel);
       if (button.isConnected) button.disabled = false;
     });
     host.append(button);
+    maybeAutoRefreshInventory(host, sourcePanel);
     return button;
   }
   function clearProductionUi() {
@@ -23435,6 +23585,7 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
     const context = resolveActionPanel();
     if (!context) {
       removeInventoryRefreshButtons();
+      resetAutoInventoryRefresh();
       const houseModal = findActiveHouseModal();
       if (!houseModal) {
         clearProductionUi();
@@ -24477,6 +24628,7 @@ ${locks}` : ""}`;
         renderScheduler.cancel();
         stopActiveHoldRepeat();
         removeInventoryRefreshButtons();
+        resetAutoInventoryRefresh();
         clearProductionUi();
         clearMarketUi();
         document.getElementById(STYLE_ID9)?.remove();
@@ -26211,8 +26363,13 @@ ${locks}` : ""}`;
   }
   function visibleTaskTitle(card) {
     const name = card.querySelector('div[class*="RandomTask_name"]');
+    const nativeText = [...name?.childNodes ?? []].filter(
+      (node) => node.nodeType === 3 || node.nodeType === 1 && !node.matches?.(
+        ".script_taskMapIndex,.mwi-task-new-badge,.mwi-task-train-planner"
+      )
+    ).map((node) => node.textContent ?? "").join(" ").trim();
     const text = String(
-      runtime.api.getOriTextFromElement?.(name ?? card) ?? name?.textContent ?? card.textContent ?? ""
+      nativeText || name?.textContent || card.textContent || ""
     );
     return text.trim().split("\n")[0].trim();
   }
@@ -27805,7 +27962,7 @@ ${locks}` : ""}`;
     return runtime.api.taskRemaining?.(task) ?? 0;
   }
   function collectTaskTrainGroups(quests = []) {
-    const groups = /* @__PURE__ */ new Map();
+    const rootBuckets = /* @__PURE__ */ new Map();
     const entries = quests.map((task, index) => {
       const actionHrid = taskActionHrid2(task);
       const remaining = taskRemaining2(task);
@@ -27823,23 +27980,39 @@ ${locks}` : ""}`;
         state: remaining <= 0 ? "done" : depth < 0 ? "isolated" : "planned"
       };
       if (entry.state === "planned") {
-        if (!groups.has(root)) groups.set(root, []);
-        groups.get(root).push(entry);
+        if (!rootBuckets.has(root)) rootBuckets.set(root, []);
+        rootBuckets.get(root).push(entry);
       }
       return entry;
     });
-    for (const group of groups.values()) {
-      group.sort(
+    const groups = /* @__PURE__ */ new Map();
+    for (const [chainRoot, bucket] of rootBuckets) {
+      const pending = bucket.sort(
         (left, right) => right.depth - left.depth || left.index - right.index
       );
-      const chain = runtime.api.trainPlanning.buildTrainChain(
-        group[0].outputHrid
-      );
-      if (!chain.steps.length || chain.cycle || chain.truncated) {
-        for (const entry of group) entry.state = "isolated";
-        groups.delete(group[0].root);
-      } else {
+      let branch = 0;
+      while (pending.length) {
+        const top = pending.shift();
+        const chain = runtime.api.trainPlanning.buildTrainChain(top.outputHrid);
+        if (!chain.steps.length || chain.cycle || chain.truncated) {
+          top.state = "isolated";
+          continue;
+        }
+        const outputs = new Set(chain.steps.map((step) => step.outputHrid));
+        const group = [top];
+        for (let index = pending.length - 1; index >= 0; index -= 1) {
+          if (!outputs.has(pending[index].outputHrid)) continue;
+          group.push(pending[index]);
+          pending.splice(index, 1);
+        }
+        group.sort(
+          (left, right) => right.depth - left.depth || left.index - right.index
+        );
+        const groupKey = branch === 0 ? chainRoot : `${chainRoot}${top.outputHrid}`;
+        branch += 1;
+        for (const entry of group) entry.root = groupKey;
         group[0].state = "top";
+        groups.set(groupKey, group);
       }
     }
     return { entries, groups };
@@ -28972,6 +29145,31 @@ ${locks}` : ""}`;
   // src/features/opinion-center/announcements.js
   var STORAGE_KEY = "MWITools_opinion_center_seen_announcements_v1";
   var ANNOUNCEMENTS = Object.freeze([
+    Object.freeze({
+      id: "26.4.16",
+      version: "26.4.16",
+      publishedAt: "2026-08-20",
+      title: Object.freeze({
+        zh: "26.4.16 更新公告",
+        en: "Version 26.4.16 update"
+      }),
+      body: Object.freeze({
+        zh: Object.freeze([
+          "修复任务首次刷新后图标仍停留在旧任务、地图编号独立开关不生效的问题；火车规划现在会核对真实升级链，光辉袍服与烈焰袍服等平行分支不再误合并。",
+          "DPS 命中率改为保存全队与怪物面板快照后计算理论命中率；五人队每位玩家都有独立子标签，每只怪物显示命中等级、闪避等级与结果，旧实战次数不会冒充理论数据。",
+          "市场主接口失败时会自动切换到 q7.nainai.eu.org 备用接口，再按过期缓存与内置备份降级。新增默认关闭的“任务代币计入资产”开关，可独立控制资产、历史和价值排序。",
+          "每次真正打开生产制作页都会静默刷新一次仓库，首次取数失败会自动重试，手动刷新仍保留提示。公会信誉兑换同时显示物品数量、信用点数和每点成本。",
+          "排行榜服务端现在仅从官方前 1 万公开 JSON 同步标准榜与铁牛榜，两类快照、经验速度和缓存完全隔离；插件为铁牛榜增加了与标准榜相同样式的徽章和对应经验/小时。"
+        ]),
+        en: Object.freeze([
+          "Fixed task artwork remaining on the previous task after the first reroll and fixed the independent map-number switch. Train planning now validates real upgrade chains, so parallel branches such as Radiant Robes and Flame Robes are no longer merged incorrectly.",
+          "DPS accuracy now uses saved panel snapshots for the full party and monsters to calculate theoretical hit chance. Every member of a five-player party has a subtab, each monster shows accuracy, evasion, and the result, and legacy observed attempts are never presented as theoretical data.",
+          "Marketplace requests automatically fall back to q7.nainai.eu.org when the primary endpoint fails, followed by stale cache and the built-in backup. A new Task Tokens in assets switch defaults off and independently controls assets, history, and value sorting.",
+          "Opening a production page now silently refreshes inventory once, retries automatically when the first snapshot is unavailable, and keeps manual refresh notifications. Guild reputation exchanges now show the item quantity, credit-point return, and cost per point together.",
+          "The leaderboard server now synchronizes Standard and Iron Cow data exclusively from the official public top-10,000 JSON, with isolated snapshots, XP rates, and caches. The plugin adds matching Iron Cow badges and the corresponding XP/hour data using the same visual standard as regular rankings."
+        ])
+      })
+    }),
     Object.freeze({
       id: "26.4.15",
       version: "26.4.15",
@@ -31650,7 +31848,7 @@ ${locks}` : ""}`;
   }
   function handleTaskCard() {
     const taskNameDivs = document.querySelectorAll(
-      "div.RandomTask_randomTask__3B9fA div.RandomTask_name__1hl1b"
+      'div[class*="RandomTask_randomTask"] div[class*="RandomTask_name"]'
     );
     for (const div of taskNameDivs) {
       if (div.querySelector("span.script_taskMapIndex")) {
@@ -35641,7 +35839,7 @@ ${locks}` : ""}`;
     return value?.[runtime.config.isZH ? "zh" : "en"] ?? value?.en ?? "";
   }
   function currentVersion() {
-    return String(globalThis.GM_info?.script?.version ?? "26.4.15");
+    return String(globalThis.GM_info?.script?.version ?? "26.4.16");
   }
   function isTestBuild() {
     const info = globalThis.GM_info?.script;
@@ -38119,7 +38317,8 @@ ${locks}` : ""}`;
             ...playerKills.keys(),
             ...playerHealing.keys(),
             ...playerTaken.keys(),
-            ...playerAccuracy.keys()
+            ...playerAccuracy.keys(),
+            ...Object.keys(meta.accuracyProfiles || {})
           ])
         );
       },
@@ -38246,6 +38445,90 @@ ${locks}` : ""}`;
   })();
 
   // src/features/dps/40-socket-parser.js
+  var COMBAT_STYLES = /* @__PURE__ */ new Set(["stab", "slash", "smash", "ranged", "magic"]);
+  function rating(value) {
+    const number3 = Number(value);
+    return Number.isFinite(number3) && number3 >= 0 ? number3 : null;
+  }
+  function theoreticalHitChance(accuracyRating, evasionRating) {
+    const accuracy = rating(accuracyRating);
+    const evasion = rating(evasionRating);
+    if (accuracy === null || evasion === null) return null;
+    const attackPower = Math.pow(accuracy, 1.4);
+    const evasionPower = Math.pow(evasion, 1.4);
+    const total = attackPower + evasionPower;
+    return total > 0 ? attackPower / total : null;
+  }
+  function combatRating(unit, key) {
+    return rating(
+      unit?.combatDetails?.[key] ?? unit?.combatDetails?.combatStats?.[key] ?? unit?.combatStats?.[key]
+    );
+  }
+  function accuracyUnitName(unit, fallback) {
+    return String(unit?.character?.name || unit?.name || fallback || "");
+  }
+  function accuracyCombatStyle(unit) {
+    const stats = unit?.combatDetails?.combatStats ?? {};
+    const hrid = Array.isArray(stats.combatStyleHrids) ? stats.combatStyleHrids[0] : stats.combatStyleHrid;
+    const style = String(hrid || "").split("/").at(-1);
+    return COMBAT_STYLES.has(style) ? style : "";
+  }
+  function buildTheoreticalAccuracyProfiles(players = [], monsters = []) {
+    const monsterRows = (Array.isArray(monsters) ? monsters : []).map(
+      (monster, index) => ({
+        monster,
+        monsterName: accuracyUnitName(
+          monster,
+          String(monster?.hrid || "").split("/").at(-1)?.replaceAll("_", " ") || `Monster ${index + 1}`
+        ),
+        monsterHrid: String(monster?.hrid || "")
+      })
+    );
+    return Object.fromEntries(
+      (Array.isArray(players) ? players : []).map((player, playerIndex) => {
+        const name = accuracyUnitName(player, `Player ${playerIndex + 1}`);
+        const style = accuracyCombatStyle(player);
+        const accuracyRating = style ? combatRating(player, `${style}AccuracyRating`) : null;
+        const unique = /* @__PURE__ */ new Map();
+        for (const row of monsterRows) {
+          const evasionRating = style ? combatRating(row.monster, `${style}EvasionRating`) : null;
+          const hitChance = theoreticalHitChance(accuracyRating, evasionRating);
+          if (hitChance === null) continue;
+          const key = `${row.monsterHrid || `name:${row.monsterName}`}${evasionRating}`;
+          if (unique.has(key)) continue;
+          unique.set(key, {
+            monsterName: row.monsterName,
+            monsterHrid: row.monsterHrid,
+            evasionRating,
+            hitChance
+          });
+        }
+        const duplicateNames = /* @__PURE__ */ new Map();
+        for (const monster of unique.values()) {
+          duplicateNames.set(
+            monster.monsterName,
+            (duplicateNames.get(monster.monsterName) || 0) + 1
+          );
+        }
+        const duplicateIndexes = /* @__PURE__ */ new Map();
+        for (const monster of unique.values()) {
+          if ((duplicateNames.get(monster.monsterName) || 0) <= 1) continue;
+          const index = (duplicateIndexes.get(monster.monsterName) || 0) + 1;
+          duplicateIndexes.set(monster.monsterName, index);
+          monster.monsterName += ` #${index}`;
+        }
+        return [
+          name,
+          {
+            theoretical: true,
+            combatStyle: style,
+            accuracyRating,
+            monsters: Object.fromEntries(unique)
+          }
+        ];
+      }).filter(([name]) => name)
+    );
+  }
   var SocketHook = (() => {
     const bus = new EventTarget();
     let monstersHP = [];
@@ -39291,7 +39574,11 @@ ${locks}` : ""}`;
             tier: stage.tier,
             stageChanged,
             characterId: currentCharacterId2,
-            classes
+            classes,
+            accuracyProfiles: buildTheoreticalAccuracyProfiles(
+              players,
+              p.monsters || []
+            )
           }
         })
       );
@@ -39873,7 +40160,11 @@ ${locks}` : ""}`;
             classes,
             combatKey: parallelGuildBattle ? String(incomingCombatKey || "") : currentCombatKey || String(p.battleId || ""),
             characterId: currentCharacterId2,
-            parallelGuildBattle
+            parallelGuildBattle,
+            accuracyProfiles: buildTheoreticalAccuracyProfiles(
+              p.players || [],
+              p.monsters || []
+            )
           }
         })
       );
@@ -41156,28 +41447,28 @@ ${locks}` : ""}`;
       }));
     }
     function accuracyBreakdown(raw) {
-      const attempts = Number(raw && raw.attempts) || 0;
-      if (!(attempts > 0)) return null;
-      const hits = Math.max(0, Math.min(attempts, Number(raw && raw.hits) || 0));
+      if (!raw?.theoretical) return null;
       const monsters = Object.values(raw && raw.monsters || {}).map((monster) => {
-        const monsterAttempts = Number(monster && monster.attempts) || 0, monsterHits = Math.max(
-          0,
-          Math.min(monsterAttempts, Number(monster && monster.hits) || 0)
-        ), monsterHrid = String(monster && monster.monsterHrid || ""), monsterName2 = String(monster && monster.monsterName || ""), localized = monsterHrid ? getLocalizedEntityName("monster", monsterHrid) : "";
+        const monsterHrid = String(monster && monster.monsterHrid || ""), monsterName2 = String(monster && monster.monsterName || ""), localized = monsterHrid ? getLocalizedEntityName("monster", monsterHrid) : "", suffix = monsterName2.match(/\s+#\d+$/)?.[0] || "", hitChance = Number(monster && monster.hitChance), pct = Number.isFinite(hitChance) ? hitChance * 100 : 0;
         return {
-          monsterName: localized || monsterName2 || (Settings.getLanguage() === "en" ? "Unknown Monster" : "未知怪物"),
+          monsterName: (localized ? localized + suffix : "") || monsterName2 || (Settings.getLanguage() === "en" ? "Unknown Monster" : "未知怪物"),
           monsterHrid,
-          attempts: monsterAttempts,
-          hits: monsterHits,
-          pct: monsterAttempts > 0 ? monsterHits * 100 / monsterAttempts : 0
+          evasionRating: Number(monster && monster.evasionRating) || 0,
+          pct
         };
-      }).filter((monster) => monster.attempts > 0).sort(
-        (a, b) => b.attempts - a.attempts || b.pct - a.pct || a.monsterName.localeCompare(b.monsterName)
+      }).filter((monster) => Number.isFinite(monster.pct)).sort(
+        (a, b) => b.pct - a.pct || a.monsterName.localeCompare(b.monsterName)
       );
-      return { attempts, hits, pct: hits * 100 / attempts, monsters };
+      return {
+        theoretical: true,
+        combatStyle: String(raw.combatStyle || ""),
+        accuracyRating: Number(raw.accuracyRating) || 0,
+        pct: monsters.length ? monsters.reduce((sum, monster) => sum + monster.pct, 0) / monsters.length : 0,
+        monsters
+      };
     }
     function current() {
-      const elapsed = Session.getElapsedSeconds(), names = Session.getAllPlayerNames(), teamDamage = Session.getTeamDamage(), players = names.map((name) => ({
+      const elapsed = Session.getElapsedSeconds(), names = Session.getAllPlayerNames(), teamDamage = Session.getTeamDamage(), accuracyProfiles = Session.getMeta().accuracyProfiles || {}, players = names.map((name) => ({
         name,
         classId: ClassSystem.classFor(name),
         damage: Session.getPlayerDamage(name),
@@ -41187,7 +41478,7 @@ ${locks}` : ""}`;
         taken: Session.getPlayerTaken(name),
         takenPs: Session.getPlayerTakenPs(name),
         kills: Session.getPlayerKills(name),
-        accuracy: accuracyBreakdown(Session.getPlayerAccuracy(name)),
+        accuracy: accuracyBreakdown(accuracyProfiles[name]),
         breakdown: damageBreakdown(
           Session.getPlayerDamageSources(name),
           Session.getPlayerDamage(name),
@@ -41219,14 +41510,14 @@ ${locks}` : ""}`;
       const elapsed = fragment ? (Number(fragment.durationMs) || 0) / 1e3 : Number(entry.durationSeconds) || (Number(entry.durationMs) || 0) / 1e3;
       let players;
       if (fragment) {
-        const maps = fragment.players || {}, damage = maps.damage || {}, healing = maps.healing || {}, taken = maps.taken || {}, kills = maps.kills || {}, accuracy = maps.accuracy || {};
+        const maps = fragment.players || {}, damage = maps.damage || {}, healing = maps.healing || {}, taken = maps.taken || {}, kills = maps.kills || {};
         const names = [
           .../* @__PURE__ */ new Set([
             ...Object.keys(damage),
             ...Object.keys(healing),
             ...Object.keys(taken),
             ...Object.keys(kills),
-            ...Object.keys(accuracy)
+            ...Object.keys(entry.accuracyProfiles || {})
           ])
         ];
         const sources = maps.sources || {}, takenSources = maps.takenSources || {};
@@ -41237,7 +41528,7 @@ ${locks}` : ""}`;
           healing: Number(healing[name]) || 0,
           taken: Number(taken[name]) || 0,
           kills: Number(kills[name]) || 0,
-          accuracy: accuracyBreakdown(accuracy[name]),
+          accuracy: accuracyBreakdown(entry.accuracyProfiles?.[name]),
           dps: elapsed > 0 ? (Number(damage[name]) || 0) / elapsed : 0,
           hps: elapsed > 0 ? (Number(healing[name]) || 0) / elapsed : 0,
           takenPs: elapsed > 0 ? (Number(taken[name]) || 0) / elapsed : 0,
@@ -41256,7 +41547,7 @@ ${locks}` : ""}`;
       } else {
         players = (entry.players || []).map((p) => ({
           ...p,
-          accuracy: accuracyBreakdown(p.accuracy),
+          accuracy: accuracyBreakdown(entry.accuracyProfiles?.[p.name]),
           takenPs: elapsed > 0 ? (Number(p.taken) || 0) / elapsed : 0,
           breakdown: damageBreakdown(
             p.sources,
@@ -42012,114 +42303,144 @@ ${locks}` : ""}`;
     return { show, update, isOpenFor, scheduleClose, cancelClose, close };
   })();
   function renderAccuracyRows(container, rows2, rerender, emptyText) {
-    if (AccuracyBreakdownTooltip.isOpenFor(container)) {
-      AccuracyBreakdownTooltip.update(rows2);
-      const existing = new Map(
-        [...container.querySelectorAll("[data-kikimeter-accuracy-row]")].map(
-          (line) => [line.dataset.player, line]
-        )
-      );
-      if (existing.size === rows2.length && rows2.every((row) => existing.has(row.name))) {
-        rows2.forEach((row, index) => {
-          const line = existing.get(row.name);
-          line._accuracyRow = row;
-          line._accuracyRank.textContent = String(index + 1) + ".";
-          line._accuracyBar.style.width = Math.max(0, Math.min(100, Number(row.pct) || 0)) + "%";
-          line._accuracyStats.textContent = `${(Number(row.pct) || 0).toFixed(1)}% (${Number(row.hits) || 0}/${Number(row.attempts) || 0})`;
-        });
-        rows2.forEach((row) => container.appendChild(existing.get(row.name)));
-        return;
-      }
-      AccuracyBreakdownTooltip.close();
-    }
+    AccuracyBreakdownTooltip.close();
     container.replaceChildren();
-    rows2.forEach((row, index) => {
-      const cls = ClassSystem.get(row.name), line = el("div", {
-        position: "relative",
-        height: "24px",
-        margin: "2px 0",
-        overflow: "hidden",
-        minHeight: "24px",
-        flexShrink: "0",
-        boxSizing: "border-box",
-        borderRadius: "2px",
-        background: "rgba(0,0,0,.42)",
-        border: "1px solid rgba(255,255,255,.06)",
-        color: "#fff"
-      }), bar = el("div", {
-        position: "absolute",
-        inset: "0 auto 0 0",
-        width: Math.max(0, Math.min(100, Number(row.pct) || 0)) + "%",
-        background: `linear-gradient(90deg,${cls.color}d9,${cls.color}70)`,
-        boxShadow: `inset 0 0 5px ${cls.color}`
-      }), content = el("div", {
-        position: "absolute",
-        inset: "0",
-        display: "flex",
-        alignItems: "center",
-        gap: "4px",
-        padding: "1px 5px",
-        whiteSpace: "nowrap",
-        textShadow: "0 1px 2px #000"
-      }), rank = el("span", {
-        width: "18px",
-        textAlign: "right",
-        opacity: ".85",
-        fontSize: "11px"
-      }), icon = iconElement(cls.icon, cls.label), name = el("span", {
-        fontWeight: "600",
-        overflow: "hidden",
-        textOverflow: "ellipsis",
-        flex: "1",
-        minWidth: "30px"
-      }), stats = el("span", {
-        fontSize: "11px",
-        fontVariantNumeric: "tabular-nums",
-        textAlign: "right"
-      });
-      line.dataset.kikimeterAccuracyRow = "true";
-      line.dataset.player = row.name;
-      line._accuracyRow = row;
-      line._accuracyRank = rank;
-      line._accuracyBar = bar;
-      line._accuracyStats = stats;
-      rank.textContent = String(index + 1) + ".";
-      Object.assign(icon.style, {
-        width: "19px",
-        height: "19px",
-        objectFit: "contain",
-        flexShrink: "0",
-        cursor: "pointer",
-        filter: "drop-shadow(0 1px 1px #000)"
-      });
-      icon.title = `${cls.label}${langText2("｜点击选择职业", " | Click to choose class")}`;
-      icon.addEventListener("click", (event) => {
-        event.stopPropagation();
-        openClassPicker(row.name, icon, rerender);
-      });
-      name.textContent = row.name;
-      stats.textContent = `${(Number(row.pct) || 0).toFixed(1)}% (${Number(row.hits) || 0}/${Number(row.attempts) || 0})`;
-      line.title = langText2(
-        "悬停查看对各怪物的命中率",
-        "Hover to view accuracy by monster"
-      );
-      line.addEventListener(
-        "mouseenter",
-        () => AccuracyBreakdownTooltip.show(line, line._accuracyRow, container)
-      );
-      line.addEventListener("mouseleave", AccuracyBreakdownTooltip.scheduleClose);
-      content.append(rank, icon, name, stats);
-      line.append(bar, content);
-      container.appendChild(line);
-    });
     if (!rows2.length) {
       const empty = el("div", {
         padding: "14px",
         textAlign: "center",
         opacity: ".5"
       });
-      empty.textContent = emptyText || langText2("暂无命中率数据", "No accuracy data");
+      empty.textContent = emptyText || langText2("暂无理论命中率数据", "No theoretical accuracy data");
       container.appendChild(empty);
+      return;
+    }
+    const selectedName = rows2.some(
+      (row) => row.name === container.dataset.kikimeterAccuracyPlayer
+    ) ? container.dataset.kikimeterAccuracyPlayer : rows2[0].name;
+    container.dataset.kikimeterAccuracyPlayer = selectedName;
+    const tabs = el("div", {
+      display: "flex",
+      gap: "3px",
+      overflowX: "auto",
+      padding: "1px 0 5px",
+      flexShrink: "0"
+    });
+    for (const row of rows2) {
+      const selected2 = row.name === selectedName;
+      const button = el("button", {
+        flex: "0 0 auto",
+        maxWidth: "130px",
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+        padding: "3px 7px",
+        border: selected2 ? `1px solid ${ACCENT}` : "1px solid rgba(255,255,255,.14)",
+        borderRadius: "4px",
+        background: selected2 ? "rgba(212,175,55,.18)" : "rgba(0,0,0,.3)",
+        color: selected2 ? "#fff" : "rgba(255,255,255,.72)",
+        font: "600 10px/1.2 inherit",
+        cursor: "pointer"
+      });
+      button.type = "button";
+      button.textContent = row.name;
+      button.title = row.name;
+      button.dataset.kikimeterAccuracyPlayerTab = row.name;
+      button.addEventListener("click", () => {
+        container.dataset.kikimeterAccuracyPlayer = row.name;
+        renderAccuracyRows(container, rows2, rerender, emptyText);
+      });
+      tabs.appendChild(button);
+    }
+    container.appendChild(tabs);
+    const selected = rows2.find((row) => row.name === selectedName) || rows2[0];
+    const styleLabel = selected.combatStyle ? selected.combatStyle[0].toUpperCase() + selected.combatStyle.slice(1) : langText2("未知战斗类型", "Unknown style");
+    const summary = el("div", {
+      padding: "2px 5px 5px",
+      color: "rgba(255,255,255,.65)",
+      fontSize: "9px",
+      flexShrink: "0"
+    });
+    const accuracyCopy = Number.isFinite(Number(selected.accuracyRating)) ? selected.accuracyRating : "—";
+    summary.textContent = `${styleLabel} · ${langText2("命中等级", "Accuracy rating")} ${accuracyCopy}`;
+    container.appendChild(summary);
+    const monsters = Array.isArray(selected.monsters) ? selected.monsters : [];
+    const cls = ClassSystem.get(selected.name);
+    for (const monster of monsters) {
+      const pct = Math.max(0, Math.min(100, Number(monster.pct) || 0));
+      const line = el("div", {
+        position: "relative",
+        height: "27px",
+        minHeight: "27px",
+        margin: "2px 0",
+        overflow: "hidden",
+        flexShrink: "0",
+        borderRadius: "2px",
+        background: "rgba(0,0,0,.42)",
+        border: "1px solid rgba(255,255,255,.06)",
+        color: "#fff"
+      });
+      line.dataset.kikimeterAccuracyMonsterRow = "true";
+      line.dataset.monsterHrid = monster.monsterHrid || "";
+      line.title = `${selected.name} · ${styleLabel}
+${langText2("命中等级", "Accuracy rating")}: ${accuracyCopy}
+${langText2("闪避等级", "Evasion rating")}: ${Number.isFinite(Number(monster.evasionRating)) ? monster.evasionRating : "—"}
+${langText2("理论命中率", "Theoretical hit chance")}: ${pct.toFixed(2)}%`;
+      const bar = el("div", {
+        position: "absolute",
+        inset: "0 auto 0 0",
+        width: pct + "%",
+        background: `linear-gradient(90deg,${cls.color}d9,${cls.color}70)`
+      });
+      const content = el("div", {
+        position: "absolute",
+        inset: "0",
+        display: "flex",
+        alignItems: "center",
+        gap: "6px",
+        padding: "1px 6px",
+        textShadow: "0 1px 2px #000"
+      });
+      const iconSource = monster.monsterHrid ? GameAssets.monster(monster.monsterHrid) : "";
+      if (iconSource) {
+        const icon = iconElement(iconSource, monster.monsterName);
+        Object.assign(icon.style, {
+          width: "20px",
+          height: "20px",
+          flexShrink: "0"
+        });
+        content.appendChild(icon);
+      }
+      const label = el("span", {
+        flex: "1",
+        minWidth: "40px",
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+        fontWeight: "600"
+      });
+      label.textContent = monster.monsterName;
+      const stats = el("span", {
+        fontSize: "10px",
+        fontVariantNumeric: "tabular-nums",
+        whiteSpace: "nowrap"
+      });
+      stats.textContent = `${pct.toFixed(2)}%`;
+      content.append(label, stats);
+      line.append(bar, content);
+      container.appendChild(line);
+    }
+    if (!monsters.length) {
+      const unavailable = el("div", {
+        padding: "12px",
+        textAlign: "center",
+        opacity: ".55"
+      });
+      unavailable.textContent = langText2(
+        "该玩家或当前怪物缺少可用的命中／闪避面板属性",
+        "This player or monster has no usable accuracy/evasion ratings"
+      );
+      container.appendChild(unavailable);
     }
   }
   function renderDetailsRows(container, rows2, rerender) {
@@ -43439,25 +43760,24 @@ ${locks}` : ""}`;
         return;
       }
       if (mainMode === "accuracy") {
-        const rows3 = (view.players || []).filter((player) => player.accuracy && player.accuracy.attempts > 0).map((player) => ({
+        const rows3 = (view.players || []).filter((player) => player.accuracy?.theoretical).map((player) => ({
           name: player.name,
-          attempts: player.accuracy.attempts,
-          hits: player.accuracy.hits,
+          theoretical: true,
+          combatStyle: player.accuracy.combatStyle,
+          accuracyRating: player.accuracy.accuracyRating,
           pct: player.accuracy.pct,
           monsters: player.accuracy.monsters
-        })).sort(
-          (a, b) => b.pct - a.pct || b.attempts - a.attempts || a.name.localeCompare(b.name)
-        );
+        })).sort((a, b) => a.name.localeCompare(b.name));
         renderAccuracyRows(
           playersListEl,
           rows3,
           () => renderView(ViewData.get()),
           view.current ? langText4(
-            "暂无可靠判定的直接攻击",
-            "No reliably resolved direct attacks yet"
+            "当前战斗没有可用的玩家或怪物面板属性",
+            "No player or monster panel ratings are available"
           ) : langText4(
-            "该历史记录暂无命中率数据",
-            "No accuracy data for this combat record"
+            "该历史记录没有理论命中率面板快照",
+            "This record has no theoretical accuracy snapshot"
           )
         );
         return;
@@ -43976,6 +44296,21 @@ ${locks}` : ""}`;
 
   // src/features/dps/90-application.js
   var langText3 = (zh, en) => Settings.getLanguage() === "en" ? en : zh;
+  function mergeAccuracyProfiles(previous = {}, incoming = {}) {
+    const merged = { ...previous || {} };
+    for (const [name, profile] of Object.entries(incoming || {})) {
+      const old = merged[name];
+      const sameRatings = old?.theoretical && old.combatStyle === profile?.combatStyle && Number(old.accuracyRating) === Number(profile?.accuracyRating);
+      merged[name] = sameRatings ? {
+        ...profile,
+        monsters: {
+          ...old.monsters || {},
+          ...profile?.monsters || {}
+        }
+      } : profile;
+    }
+    return merged;
+  }
   function start(scope) {
     installThemeFont();
     let currentPlayerNames = [];
@@ -44015,6 +44350,7 @@ ${locks}` : ""}`;
         teamDamage: snap.teamDamage,
         teamKills: Session.getTeamKills(),
         classes: snap.classes,
+        accuracyProfiles: m.accuracyProfiles || {},
         fragments: snap.fragments,
         graph: snap.graph,
         players: names.map((n) => ({
@@ -44092,6 +44428,12 @@ ${locks}` : ""}`;
             manualReset: false
           });
       }
+      Session.setMeta({
+        accuracyProfiles: sameEncounter ? mergeAccuracyProfiles(
+          old.accuracyProfiles,
+          detail.accuracyProfiles || {}
+        ) : detail.accuracyProfiles || {}
+      });
       ClassSystem.applyClasses(detail.classes);
       hasConfirmedCombat = true;
       pendingReconnect = false;
@@ -44214,14 +44556,6 @@ ${locks}` : ""}`;
           ev.detail.name,
           ev.detail.amount,
           ev.detail.source
-        );
-    });
-    scope.event(SocketHook.bus, "attackResolved", (ev) => {
-      if (acceptsCombatEvent(ev.detail))
-        Session.addPlayerAccuracy(
-          ev.detail.name,
-          ev.detail.hit,
-          ev.detail.targets
         );
     });
     scope.event(SocketHook.bus, "healing", (ev) => {

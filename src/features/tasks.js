@@ -740,11 +740,20 @@ function taskIconMatches(card) {
 
 function visibleTaskTitle(card) {
   const name = card.querySelector('div[class*="RandomTask_name"]');
+  const nativeText = [...(name?.childNodes ?? [])]
+    .filter(
+      (node) =>
+        node.nodeType === 3 ||
+        (node.nodeType === 1 &&
+          !node.matches?.(
+            ".script_taskMapIndex,.mwi-task-new-badge,.mwi-task-train-planner",
+          )),
+    )
+    .map((node) => node.textContent ?? "")
+    .join(" ")
+    .trim();
   const text = String(
-    runtime.api.getOriTextFromElement?.(name ?? card) ??
-      name?.textContent ??
-      card.textContent ??
-      "",
+    nativeText || name?.textContent || card.textContent || "",
   );
   return text.trim().split("\n")[0].trim();
 }

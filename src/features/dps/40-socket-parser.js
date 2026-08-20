@@ -8,6 +8,112 @@ import {
 } from "./10-combat-sources.js";
 import { Capture, Diagnostics, Session } from "./20-session.js";
 
+const COMBAT_STYLES = new Set(["stab", "slash", "smash", "ranged", "magic"]);
+
+function rating(value) {
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 0 ? number : null;
+}
+
+export function theoreticalHitChance(accuracyRating, evasionRating) {
+  const accuracy = rating(accuracyRating);
+  const evasion = rating(evasionRating);
+  if (accuracy === null || evasion === null) return null;
+  const attackPower = Math.pow(accuracy, 1.4);
+  const evasionPower = Math.pow(evasion, 1.4);
+  const total = attackPower + evasionPower;
+  return total > 0 ? attackPower / total : null;
+}
+
+function combatRating(unit, key) {
+  return rating(
+    unit?.combatDetails?.[key] ??
+      unit?.combatDetails?.combatStats?.[key] ??
+      unit?.combatStats?.[key],
+  );
+}
+
+function accuracyUnitName(unit, fallback) {
+  return String(unit?.character?.name || unit?.name || fallback || "");
+}
+
+function accuracyCombatStyle(unit) {
+  const stats = unit?.combatDetails?.combatStats ?? {};
+  const hrid = Array.isArray(stats.combatStyleHrids)
+    ? stats.combatStyleHrids[0]
+    : stats.combatStyleHrid;
+  const style = String(hrid || "")
+    .split("/")
+    .at(-1);
+  return COMBAT_STYLES.has(style) ? style : "";
+}
+
+export function buildTheoreticalAccuracyProfiles(players = [], monsters = []) {
+  const monsterRows = (Array.isArray(monsters) ? monsters : []).map(
+    (monster, index) => ({
+      monster,
+      monsterName: accuracyUnitName(
+        monster,
+        String(monster?.hrid || "")
+          .split("/")
+          .at(-1)
+          ?.replaceAll("_", " ") || `Monster ${index + 1}`,
+      ),
+      monsterHrid: String(monster?.hrid || ""),
+    }),
+  );
+  return Object.fromEntries(
+    (Array.isArray(players) ? players : [])
+      .map((player, playerIndex) => {
+        const name = accuracyUnitName(player, `Player ${playerIndex + 1}`);
+        const style = accuracyCombatStyle(player);
+        const accuracyRating = style
+          ? combatRating(player, `${style}AccuracyRating`)
+          : null;
+        const unique = new Map();
+        for (const row of monsterRows) {
+          const evasionRating = style
+            ? combatRating(row.monster, `${style}EvasionRating`)
+            : null;
+          const hitChance = theoreticalHitChance(accuracyRating, evasionRating);
+          if (hitChance === null) continue;
+          const key = `${row.monsterHrid || `name:${row.monsterName}`}\u001f${evasionRating}`;
+          if (unique.has(key)) continue;
+          unique.set(key, {
+            monsterName: row.monsterName,
+            monsterHrid: row.monsterHrid,
+            evasionRating,
+            hitChance,
+          });
+        }
+        const duplicateNames = new Map();
+        for (const monster of unique.values()) {
+          duplicateNames.set(
+            monster.monsterName,
+            (duplicateNames.get(monster.monsterName) || 0) + 1,
+          );
+        }
+        const duplicateIndexes = new Map();
+        for (const monster of unique.values()) {
+          if ((duplicateNames.get(monster.monsterName) || 0) <= 1) continue;
+          const index = (duplicateIndexes.get(monster.monsterName) || 0) + 1;
+          duplicateIndexes.set(monster.monsterName, index);
+          monster.monsterName += ` #${index}`;
+        }
+        return [
+          name,
+          {
+            theoretical: true,
+            combatStyle: style,
+            accuracyRating,
+            monsters: Object.fromEntries(unique),
+          },
+        ];
+      })
+      .filter(([name]) => name),
+  );
+}
+
 // ─── SocketHook v3 ────────────────────────────────────────────────────────────
 // Moteur d'attribution réécrit sur la méthode MWITools / Combat Suite
 // (rétro-ingénierie du 16/07/2026, validée à ±0.1% contre vérité terrain).
@@ -1459,6 +1565,10 @@ const SocketHook = (() => {
           stageChanged,
           characterId: currentCharacterId,
           classes,
+          accuracyProfiles: buildTheoreticalAccuracyProfiles(
+            players,
+            p.monsters || [],
+          ),
         },
       }),
     );
@@ -2212,6 +2322,10 @@ const SocketHook = (() => {
             : currentCombatKey || String(p.battleId || ""),
           characterId: currentCharacterId,
           parallelGuildBattle,
+          accuracyProfiles: buildTheoreticalAccuracyProfiles(
+            p.players || [],
+            p.monsters || [],
+          ),
         },
       }),
     );

@@ -60,11 +60,52 @@ const {
   SegmentSelection,
   ViewData,
   SocketHook,
+  buildTheoreticalAccuracyProfiles,
+  theoreticalHitChance,
 } = await import(moduleUrl);
 
 const assert = (condition, message) => {
   if (!condition) throw new Error(message);
 };
+
+assert(
+  theoreticalHitChance(100, 100) === 0.5,
+  "相同命中与闪避等级没有得到 50% 理论命中率",
+);
+const theoreticalProfiles = buildTheoreticalAccuracyProfiles(
+  Array.from({ length: 5 }, (_, index) => ({
+    name: `理论玩家${index + 1}`,
+    combatDetails: {
+      magicAccuracyRating: 100,
+      combatStats: { combatStyleHrids: ["/combat_styles/magic"] },
+    },
+  })),
+  [
+    {
+      name: "训练鼠",
+      hrid: "/monsters/training_rat",
+      combatDetails: { magicEvasionRating: 100 },
+    },
+    {
+      name: "训练鼠",
+      hrid: "/monsters/training_rat",
+      combatDetails: { magicEvasionRating: 100 },
+    },
+    {
+      name: "训练鼠",
+      hrid: "/monsters/training_rat",
+      combatDetails: { magicEvasionRating: 200 },
+    },
+  ],
+);
+assert(
+  Object.keys(theoreticalProfiles).length === 5,
+  "五人队理论命中面板没有保留全部玩家",
+);
+assert(
+  Object.keys(theoreticalProfiles["理论玩家1"].monsters).length === 2,
+  "同属性怪物未去重，或同名不同闪避怪物被错误合并",
+);
 
 const zhGameResources = {
   itemNames: { "/items/sundering_crossbow": "裂空之弩" },
@@ -2205,7 +2246,25 @@ assert(
   "battle_unit_fetched 没有即时更新被点击玩家职业",
 );
 
-Session.reset({ combatKey: "resume", characterId: "A" });
+Session.reset({
+  combatKey: "resume",
+  characterId: "A",
+  accuracyProfiles: {
+    甲: {
+      theoretical: true,
+      combatStyle: "magic",
+      accuracyRating: 100,
+      monsters: {
+        trainingRat: {
+          monsterName: "训练鼠",
+          monsterHrid: "/monsters/training_rat",
+          evasionRating: 100,
+          hitChance: 0.5,
+        },
+      },
+    },
+  },
+});
 Session.addTeamDamage(10, performance.now());
 Session.addPlayerDamage("甲", 10, "auto");
 Session.addPlayerAccuracy("甲", true, [
@@ -2256,10 +2315,11 @@ assert(
 );
 assert(
   sourceView.accuracy &&
+    sourceView.accuracy.theoretical === true &&
     sourceView.accuracy.pct === 50 &&
     sourceView.accuracy.monsters.length === 1 &&
     sourceView.accuracy.monsters[0].pct === 50,
-  "实时 ViewData 没有生成玩家和分怪物命中率",
+  "实时 ViewData 没有使用面板快照生成理论命中率",
 );
 Session.renamePlayer("甲", "改名甲");
 assert(
@@ -2405,6 +2465,34 @@ HistoryStore.push({
   durationMs: 10000,
   teamDamage: 110,
   classes: { 甲: "fire", 乙: "sword" },
+  accuracyProfiles: {
+    甲: {
+      theoretical: true,
+      combatStyle: "magic",
+      accuracyRating: 100,
+      monsters: {
+        firefly: {
+          monsterName: "Trial Firefly",
+          monsterHrid: "/monsters/trial_firefly",
+          evasionRating: 100,
+          hitChance: 0.5,
+        },
+      },
+    },
+    乙: {
+      theoretical: true,
+      combatStyle: "slash",
+      accuracyRating: 100,
+      monsters: {
+        firefly: {
+          monsterName: "Trial Firefly",
+          monsterHrid: "/monsters/trial_firefly",
+          evasionRating: 100,
+          hitChance: 0.5,
+        },
+      },
+    },
+  },
   players: [
     {
       name: "甲",
@@ -2497,10 +2585,10 @@ assert(
         player.synthetic === "unattributed-damage" && player.damage === 10,
     ) &&
     selectedView.players[0].damage === 70 &&
-    selectedView.players[0].accuracy.pct === 80 &&
+    selectedView.players[0].accuracy.pct === 50 &&
     selectedView.players[0].accuracy.monsters[0].monsterName === "试炼萤火虫" &&
-    selectedView.players.find((player) => player.name === "乙").accuracy ===
-      null,
+    selectedView.players.find((player) => player.name === "乙").accuracy.pct ===
+      50,
   "历史片段没有替换当前排行数据或试炼标记丢失",
 );
 const reconnectOption = segmentOptions.find(
@@ -2512,7 +2600,7 @@ assert(
   selectedView.teamDamage === 65 &&
     selectedView.players.some((x) => x.name === "乙" && x.dps === 5) &&
     selectedView.players.some(
-      (x) => x.name === "乙" && x.accuracy && x.accuracy.pct === 75,
+      (x) => x.name === "乙" && x.accuracy && x.accuracy.pct === 50,
     ) &&
     selectedView.players.some(
       (player) =>

@@ -99,6 +99,7 @@ export async function getAssetSnapshot() {
   let inventoryBid = 0;
 
   for (const item of runtime.state.initData_characterItems) {
+    if (runtime.api.shouldExcludeItemFromAssets?.(item.itemHrid)) continue;
     if (
       item.itemHrid === "/items/cowbell" &&
       !runtime.api.shouldIncludeCowbellsInAssets()

@@ -109,7 +109,7 @@ for (const [buildName, userscript] of userscripts) {
     );
     assert.doesNotThrow(() => window.eval(userscript));
     for (let index = 0; index < 30; index += 1) await Promise.resolve();
-    assert.equal(calls.requests, 2);
+    assert.equal(calls.requests, 3);
     assert.equal(calls.styles, 2);
     assert.ok(calls.intervals >= 2);
     const idleCallbacksPerSecond = calls.intervalDelays.reduce(

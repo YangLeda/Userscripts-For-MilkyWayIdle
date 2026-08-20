@@ -64,7 +64,7 @@ function rowNames() {
 }
 
 test("exports the standalone overlay API and formatting helpers", () => {
-  assert.equal(dom.window.MWILeaderboardOverlay.VERSION, "1.3.0");
+  assert.equal(dom.window.MWILeaderboardOverlay.VERSION, "1.4.0");
   assert.equal(dom.window.MWILeaderboardOverlay.create, create);
   assert.equal(badgeTier(1), "rainbow");
   assert.equal(badgeTier(35), "gold");
@@ -276,6 +276,26 @@ test("renders fame with the game XP-buff icon and reads value1", async () => {
     badge.querySelector("use").getAttribute("href"),
     "/static/media/misc_sprite.current.svg#experience",
   );
+  overlay.destroy();
+});
+
+test("Iron Cow badges reuse standard styling and identify their leaderboard", async () => {
+  document.body.innerHTML = `
+    <svg><use href="/static/media/skills_sprite.current.svg#foraging"></use></svg>
+    <span class="CharacterName_name__test" data-name="IronAlice">IronAlice</span>`;
+  const overlay = create({ document });
+  overlay.setRankings({
+    standard: {},
+    ironcow: {
+      total_level: {
+        rows: [{ characterName: "IronAlice", rank: 12 }],
+      },
+    },
+  });
+  await settle();
+  const badge = document.querySelector(".mwi-lb-badge--rainbow");
+  assert.equal(badge.textContent, "12");
+  assert.match(badge.title, /铁牛排行榜/);
   overlay.destroy();
 });
 
@@ -566,6 +586,7 @@ test("aggregate leaderboard tabs clear stale XP rates without moving rows", asyn
 test("the feature anonymously loads, caches, and applies leaderboard data", async () => {
   await runtime.settings.set("leaderboardOverlay", false, { persist: false });
   await runtime.settings.set("leaderboardXpRate", false, { persist: false });
+  localStorage.removeItem("MWITools_leaderboard_overlay_cache_v3");
   localStorage.removeItem("MWITools_leaderboard_overlay_cache_v2");
   document.body.innerHTML = `
     <div><span class="CharacterName_name__test" data-name="Alice">Alice</span></div>
@@ -573,24 +594,28 @@ test("the feature anonymously loads, caches, and applies leaderboard data", asyn
       <thead><tr><th>Character</th></tr></thead>
       <tbody><tr><td><span class="CharacterName_name__test" data-name="Alice">Alice</span></td></tr></tbody>
     </table>`;
-  let requestOptions = null;
+  const requestOptions = [];
   leaderboardRequest = (options) => {
-    requestOptions = options;
+    requestOptions.push(options);
+    const leaderboardType = new URL(options.url).searchParams.get(
+      "leaderboardType",
+    );
     globalThis.queueMicrotask(() =>
       options.onload({
         status: 200,
         responseText: JSON.stringify({
           schemaVersion: 1,
-          leaderboardType: "standard",
+          leaderboardType,
           categories: {
             milking: {
               receivedAt: "2026-08-11T00:00:00Z",
               rows: [
                 {
-                  characterId: 1,
-                  characterName: "Alice",
-                  rank: 7,
-                  xpPerHour: 123_400,
+                  characterId: leaderboardType === "ironcow" ? 2 : 1,
+                  characterName:
+                    leaderboardType === "ironcow" ? "IronAlice" : "Alice",
+                  rank: leaderboardType === "ironcow" ? 8 : 7,
+                  xpPerHour: leaderboardType === "ironcow" ? 8_000 : 123_400,
                 },
               ],
             },
@@ -603,10 +628,23 @@ test("the feature anonymously loads, caches, and applies leaderboard data", asyn
   await runtime.settings.set("leaderboardOverlay", true, { persist: false });
   await runtime.settings.set("leaderboardXpRate", true, { persist: false });
   await settle();
-  assert.equal(requestOptions.url.endsWith("/api/v1/leaderboards"), true);
-  assert.equal(requestOptions.headers, undefined);
+  assert.deepEqual(
+    requestOptions.map((options) =>
+      new URL(options.url).searchParams.get("leaderboardType"),
+    ),
+    ["standard", "ironcow"],
+  );
+  assert.equal(
+    requestOptions.every((options) => !options.headers),
+    true,
+  );
   assert.equal(document.querySelector(".mwi-lb-badge").textContent, "7");
-  assert.ok(localStorage.getItem("MWITools_leaderboard_overlay_cache_v2"));
+  const cached = JSON.parse(
+    localStorage.getItem("MWITools_leaderboard_overlay_cache_v3"),
+  );
+  assert.equal(cached.schemaVersion, 2);
+  assert.equal(cached.leaderboards.standard.milking.rows[0].rank, 7);
+  assert.equal(cached.leaderboards.ironcow.milking.rows[0].rank, 8);
 
   runtime.dispatchMessage({
     type: "leaderboard_updated",
