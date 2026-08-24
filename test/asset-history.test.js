@@ -230,6 +230,12 @@ test("snapshot service calculates seven categories, totals, and taxed listings",
       enhancementLevel: 0,
       count: 4,
     },
+    {
+      itemHrid: "/items/coin",
+      itemLocationHrid: "/item_locations/inventory",
+      enhancementLevel: 0,
+      count: 50,
+    },
   ];
   runtime.state.initData_myMarketListings = [
     {
@@ -245,6 +251,7 @@ test("snapshot service calculates seven categories, totals, and taxed listings",
     "/items/equipment": { fair: 10, ask: 12, bid: 8 },
     "/items/inventory": { fair: 20, ask: 22, bid: 18 },
     "/items/token": { fair: 30, ask: 0, bid: 0 },
+    "/items/coin": { fair: 1, ask: 1, bid: 1 },
   };
   runtime.api.fetchMarketJSON = async () => ({ marketData: {} });
   runtime.api.ensureMarketValueSource = async () => true;
@@ -268,15 +275,15 @@ test("snapshot service calculates seven categories, totals, and taxed listings",
   const result = await getAssetSnapshot();
   assert.deepEqual(result.values, {
     equipment: 20,
-    inventory: 60,
+    inventory: 110,
     marketListings: 222,
     houses: 2_000_000,
     abilities: 3_000_000,
     nonTradableTokens: 120,
     shrine: 400,
-    liquid: 302,
+    liquid: 352,
     fixed: 5_000_520,
-    total: 5_000_822,
+    total: 5_000_872,
   });
   assert.equal(result.complete, true);
 });
@@ -488,6 +495,46 @@ test("history charts retain zoom gestures and calendar-normalized 7-day averages
   assert.equal(options.options.plugins.zoom.zoom.wheel.enabled, true);
   assert.equal(options.options.plugins.zoom.zoom.pinch.enabled, true);
   assert.equal(options.options.plugins.zoom.pan.enabled, true);
+  assert.equal(options.options.responsive, false);
+});
+
+test("history charts size connected canvases without Chart.js DOM observers", () => {
+  let created = 0;
+  let received;
+  globalThis.Chart = class {
+    constructor(context, options) {
+      created += 1;
+      received = { context, options };
+    }
+    destroy() {}
+  };
+  const context = {};
+  const canvas = {
+    hidden: false,
+    isConnected: true,
+    style: {},
+    width: 300,
+    height: 150,
+    getBoundingClientRect: () => ({ width: 640, height: 280 }),
+    getContext: () => context,
+  };
+  const chart = new AssetHistoryChart(canvas, {
+    hidden: true,
+    textContent: "",
+  });
+
+  assert.equal(chart.render([], { mode: "total" }), true);
+  assert.equal(created, 1);
+  assert.equal(received.context, context);
+  assert.equal(received.options.options.responsive, false);
+  assert.equal(canvas.width, 640);
+  assert.equal(canvas.height, 280);
+  assert.equal(canvas.style.width, "100%");
+  assert.equal(canvas.style.height, "100%");
+
+  canvas.isConnected = false;
+  assert.equal(chart.render([], { mode: "total" }), false);
+  assert.equal(created, 1);
 });
 
 test("component charts use absolute holdings, compact tooltips, and persistent legend toggles", () => {

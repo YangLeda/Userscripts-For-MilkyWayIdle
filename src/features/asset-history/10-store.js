@@ -24,6 +24,7 @@ const LEGACY_KEYS = {
 };
 
 export const ASSET_HISTORY_SCHEMA_VERSION = 2;
+const NO_HISTORY_CHANGE = Symbol("no-history-change");
 
 export const DEFAULT_ASSET_HISTORY_PREFERENCES = Object.freeze({
   language: null,
@@ -308,13 +309,75 @@ function legacyPayloadFromStorage(storage) {
 export class AssetHistoryStore {
   constructor(storage = globalThis.localStorage) {
     this.storage = storage;
+    this.listeners = new Set();
     const loaded = safeParse(storage?.getItem(ASSET_HISTORY_STORAGE_KEY), null);
     this.data = migrateStoredData(loaded);
     if (loaded && loaded.version !== ASSET_HISTORY_SCHEMA_VERSION) this.save();
   }
 
   save() {
-    this.storage?.setItem(ASSET_HISTORY_STORAGE_KEY, JSON.stringify(this.data));
+    if (!this.storage) return false;
+    const serialized = JSON.stringify(this.data);
+    this.storage.setItem(ASSET_HISTORY_STORAGE_KEY, serialized);
+    if (this.storage.getItem(ASSET_HISTORY_STORAGE_KEY) !== serialized) {
+      throw new Error(
+        runtime.config.isZH
+          ? "资产历史写入校验失败。"
+          : "Asset history storage verification failed.",
+      );
+    }
+    return true;
+  }
+
+  subscribe(listener) {
+    if (typeof listener !== "function") return () => {};
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  emit(change) {
+    for (const listener of this.listeners) {
+      try {
+        listener(change);
+      } catch (error) {
+        console.error(
+          runtime.config.isZH
+            ? "[MWITools] 资产历史监听器执行失败。"
+            : "[MWITools] Asset history listener failed.",
+          error,
+        );
+      }
+    }
+  }
+
+  reloadFromStorage({ notify = true } = {}) {
+    const raw = this.storage?.getItem(ASSET_HISTORY_STORAGE_KEY);
+    const loaded = safeParse(raw, null);
+    if (!loaded) return false;
+    const next = migrateStoredData(loaded);
+    if (JSON.stringify(next) === JSON.stringify(this.data)) return false;
+    this.data = next;
+    if (notify) this.emit({ reason: "storage" });
+    return true;
+  }
+
+  commit(change, mutate) {
+    const persistedRaw = this.storage?.getItem(ASSET_HISTORY_STORAGE_KEY);
+    const persisted = safeParse(persistedRaw, null);
+    const fallback = this.data;
+    if (persisted) this.data = migrateStoredData(persisted);
+    try {
+      const result = mutate();
+      if (result === NO_HISTORY_CHANGE) return false;
+      this.save();
+      this.emit(change);
+      return result;
+    } catch (error) {
+      this.data = persistedRaw
+        ? migrateStoredData(safeParse(persistedRaw, null))
+        : fallback;
+      throw error;
+    }
   }
 
   scopeKey(characterId = runtime.state.currentCharacterId) {
@@ -461,15 +524,17 @@ export class AssetHistoryStore {
     const values = normalizeAssetValues(snapshot.values);
     if (!Number.isFinite(values.total)) return false;
     const dayKey = getUtc8DayKey(new Date(snapshot.recordedAt));
-    const role = this.getRole(scopeKey);
-    role.server = snapshot.server;
-    role.characterId = snapshot.characterId;
-    role.days[dayKey] = {
-      recordedAt: snapshot.recordedAt,
-      values,
-    };
-    this.save();
-    return dayKey;
+    return this.commit({ reason: "record", scopeKey, dayKey }, () => {
+      const role = this.getRole(scopeKey);
+      if (role.days[dayKey]?.edited === true) return NO_HISTORY_CHANGE;
+      role.server = snapshot.server;
+      role.characterId = snapshot.characterId;
+      role.days[dayKey] = {
+        recordedAt: snapshot.recordedAt,
+        values,
+      };
+      return dayKey;
+    });
   }
 
   comparison(dayKey = getUtc8DayKey(), scopeKey = this.scopeKey()) {
@@ -507,13 +572,14 @@ export class AssetHistoryStore {
     if (!ASSET_COMPONENT_KEYS.every((key) => Number.isFinite(values[key]))) {
       throw new TypeError("Every asset component needs a finite value");
     }
-    this.getRole(scopeKey).days[dayKey] = {
-      recordedAt: new Date().toISOString(),
-      values,
-      edited: true,
-    };
-    this.save();
-    return values;
+    return this.commit({ reason: "update", scopeKey, dayKey }, () => {
+      this.getRole(scopeKey).days[dayKey] = {
+        recordedAt: new Date().toISOString(),
+        values,
+        edited: true,
+      };
+      return values;
+    });
   }
 
   insertDay(dayKey, componentValues, scopeKey = this.scopeKey()) {
@@ -530,38 +596,41 @@ export class AssetHistoryStore {
         "Every inserted asset component needs a non-negative finite value",
       );
     }
-    const role = this.getRole(scopeKey);
-    if (Object.hasOwn(role.days, dayKey)) {
-      throw new RangeError(`Asset history already contains ${dayKey}`);
-    }
-    role.days[dayKey] = {
-      recordedAt: new Date(`${dayKey}T15:59:59.999Z`).toISOString(),
-      values,
-      inserted: true,
-      edited: true,
-    };
-    this.save();
-    return values;
+    return this.commit({ reason: "insert", scopeKey, dayKey }, () => {
+      const role = this.getRole(scopeKey);
+      if (Object.hasOwn(role.days, dayKey)) {
+        throw new RangeError(`Asset history already contains ${dayKey}`);
+      }
+      role.days[dayKey] = {
+        recordedAt: new Date(`${dayKey}T15:59:59.999Z`).toISOString(),
+        values,
+        inserted: true,
+        edited: true,
+      };
+      return values;
+    });
   }
 
   deleteDay(dayKey, scopeKey = this.scopeKey()) {
-    const days = this.getRole(scopeKey).days;
-    if (!Object.hasOwn(days, dayKey)) return false;
-    delete days[dayKey];
-    this.save();
-    return true;
+    return this.commit({ reason: "delete", scopeKey, dayKey }, () => {
+      const days = this.getRole(scopeKey).days;
+      if (!Object.hasOwn(days, dayKey)) return NO_HISTORY_CHANGE;
+      delete days[dayKey];
+      return true;
+    });
   }
 
   cleanupInvalid(scopeKey = this.scopeKey()) {
-    let removed = 0;
-    for (const [dayKey, record] of this.list(scopeKey)) {
-      if (!Number.isFinite(record?.values?.total)) {
-        delete this.getRole(scopeKey).days[dayKey];
-        removed += 1;
+    return this.commit({ reason: "cleanup", scopeKey }, () => {
+      let removed = 0;
+      for (const [dayKey, record] of this.list(scopeKey)) {
+        if (!Number.isFinite(record?.values?.total)) {
+          delete this.getRole(scopeKey).days[dayKey];
+          removed += 1;
+        }
       }
-    }
-    if (removed) this.save();
-    return removed;
+      return removed || NO_HISTORY_CHANGE;
+    });
   }
 
   detectAnomalies(scopeKey = this.scopeKey()) {

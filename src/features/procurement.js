@@ -1,14 +1,16 @@
 import { runtime } from "../core/runtime.js";
 import { parseCompactNumber } from "../core/market.js";
 import { createFrameScheduler } from "../core/frame-scheduler.js";
+import { getGameSpriteHref } from "../core/game-assets.js";
 
 const STYLE_ID = "mwitools-procurement-style";
 const HOST_ID = "mwitools-procurement-host";
 const MARKET_NAV_ID = "mwitools-procurement-market-nav";
 const PRODUCTION_ID = "mwitools-procurement-production";
+const PRODUCTION_REFRESH_ID = "mwitools-procurement-inventory-refresh";
 const PROCUREMENT_SURFACE_SELECTOR =
   'div[class*="SkillActionDetail"],div[class*="MarketplacePanel"],div[class*="HousePanel"],div[class*="HouseRoom"]';
-const OWNED_PROCUREMENT_SELECTOR = `#${HOST_ID},#${MARKET_NAV_ID},#${PRODUCTION_ID},.mwi-procurement-badge,.mwi-procurement-market-target`;
+const OWNED_PROCUREMENT_SELECTOR = `#${HOST_ID},#${MARKET_NAV_ID},#${PRODUCTION_ID},#${PRODUCTION_REFRESH_ID},.mwi-procurement-badge,.mwi-procurement-market-target,.mwi-procurement-refresh-host`;
 const procurement = runtime.api.procurement;
 
 let shell = null;
@@ -21,12 +23,19 @@ let marketSessionDone = new Map();
 let marketSessionActive = false;
 let marketSessionRequiresModal = false;
 let marketSessionStartedAt = 0;
+let autoInventoryRefreshHost = null;
+let autoInventoryRefreshDone = false;
+let autoInventoryRefreshInProgress = false;
+let autoInventoryRefreshRetry = null;
 let marketSessionModalSeen = false;
 let marketSessionHost = null;
 let marketSessionRestoreNavTarget = "";
+let currentMarketLevel = 0;
+let marketNavigationRevision = 0;
 let lastProductionSignature = "";
 let activeHoldRepeatStop = null;
 let activeCartDrag = null;
+const cartScrollStates = new Map();
 
 const MARKET_SESSION_OPEN_GRACE_MS = 2_500;
 
@@ -79,6 +88,10 @@ function addStyles() {
     .mwi-procurement-badge[data-state="missing"]{color:#ffad62;border-color:rgba(255,153,51,.45)}
     .mwi-procurement-badge[data-state="ready"]{color:#43d17f;border-color:#43c979;background:rgba(48,176,105,.12)}
     .mwi-procurement-badge[data-state="locked"]{color:#d9bd72;border-color:rgba(210,180,90,.4)}
+    .mwi-procurement-refresh-position-anchor{position:relative!important}
+    #${PRODUCTION_REFRESH_ID}{position:absolute;top:6px;right:48px;z-index:4;min-height:24px;padding:2px 7px;border:1px solid rgba(255,255,255,.18);border-radius:4px;background:rgba(37,43,65,.94);color:var(--color-neutral-100,#eee);font:600 calc(.6875rem * var(--mwi-ui-font-scale,1))/1.25 Roboto,Arial,sans-serif;white-space:nowrap;cursor:pointer;box-shadow:0 2px 7px rgba(0,0,0,.24)}
+    #${PRODUCTION_REFRESH_ID}:hover{background:var(--color-space-700,#46547e)}
+    #${PRODUCTION_REFRESH_ID}:disabled{opacity:.55;cursor:wait}
     #${PRODUCTION_ID}{min-width:0;max-width:100%;box-sizing:border-box;margin-top:5px;padding-top:5px;border-top:1px solid rgba(255,255,255,.08);font:inherit;font-size:calc(.6875rem * var(--mwi-ui-font-scale,1))}
     #${PRODUCTION_ID}[hidden]{display:none}
     .mwi-procurement-summary-line{display:flex;min-width:0;align-items:center;gap:5px;flex-wrap:wrap}
@@ -98,7 +111,7 @@ function addStyles() {
     .mwi-procurement-chain-stage span:first-of-type{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .mwi-procurement-chain-stage span:last-child{margin-left:auto;color:#d7bb67;white-space:nowrap}
     .mwi-procurement-market-target{outline:2px solid rgba(245,158,11,.72)!important;outline-offset:1px;border-radius:4px;box-shadow:0 0 0 3px rgba(245,158,11,.12)}
-    #${MARKET_NAV_ID}{position:fixed;z-index:1005;display:flex;box-sizing:border-box;align-items:center;gap:7px;min-height:40px;padding:5px 8px;border:1px solid var(--color-midnight-400,#505776);border-radius:0 0 5px 5px;background:var(--color-midnight-900,#151927);color:var(--color-neutral-100,#eee);box-shadow:0 7px 18px rgba(0,0,0,.38);font:inherit;font-size:calc(.6875rem * var(--mwi-ui-font-scale,1))}
+    #${MARKET_NAV_ID}{position:fixed;z-index:2147482001;display:flex;box-sizing:border-box;align-items:center;gap:7px;min-height:40px;padding:5px 8px;border:1px solid var(--color-midnight-400,#505776);border-radius:0 0 5px 5px;background:var(--color-midnight-900,#151927);color:var(--color-neutral-100,#eee);box-shadow:0 7px 18px rgba(0,0,0,.38);font:inherit;font-size:calc(.6875rem * var(--mwi-ui-font-scale,1))}
     #${MARKET_NAV_ID}[data-inside="true"]{border-radius:5px 5px 0 0;box-shadow:0 -5px 16px rgba(0,0,0,.35)}
     .mwi-procurement-nav-progress{flex:0 0 auto;color:var(--color-space-300,#9da9d0);white-space:nowrap}
     .mwi-procurement-nav-items{display:flex;min-width:0;flex:1;gap:4px;overflow-x:auto;padding:1px}
@@ -107,7 +120,8 @@ function addStyles() {
     .mwi-procurement-nav-chip[data-done="true"]{opacity:.68;border-color:#4d9d68;cursor:default}
     .mwi-procurement-nav-icon{display:flex;width:27px;height:27px;align-items:center;justify-content:center;overflow:hidden}.mwi-procurement-nav-icon svg{display:block;width:27px;height:27px}.mwi-procurement-nav-icon .item-icon-fallback{font-size:11px;font-weight:700}
     .mwi-procurement-nav-chip b{position:absolute;right:-2px;bottom:-2px;min-width:13px;padding:0 2px;border-radius:5px;background:var(--color-midnight-900,#151927);color:var(--color-neutral-100,#eee);font-size:.55rem;line-height:12px;text-align:center;box-shadow:0 0 0 1px var(--color-midnight-400,#505776)}.mwi-procurement-nav-chip[data-done="true"] b{color:#62d88e}
-    .mwi-procurement-nav-next{flex:0 0 auto;min-height:28px;padding:3px 10px;border:0;border-radius:4px;background:var(--color-space-600,#52649a);color:#fff;cursor:pointer;white-space:nowrap}
+    .mwi-procurement-nav-next,.mwi-procurement-nav-remove{flex:0 0 auto;min-height:28px;padding:3px 10px;border:0;border-radius:4px;background:var(--color-space-600,#52649a);color:#fff;cursor:pointer;white-space:nowrap}
+    .mwi-procurement-nav-remove{background:rgba(184,72,84,.78)}.mwi-procurement-nav-remove:hover{background:rgba(210,82,95,.92)}
     .mwi-procurement-toast{position:fixed;right:14px;top:14px;z-index:2147483000;max-width:min(360px,calc(100vw - 28px));padding:8px 11px;border:1px solid rgba(245,158,11,.55);border-radius:5px;background:rgba(15,18,28,.96);color:#eee;font-size:.75rem;box-shadow:0 8px 22px rgba(0,0,0,.4)}
   `;
   (document.head ?? document.documentElement).appendChild(style);
@@ -119,15 +133,16 @@ function shellStyles() {
     : 'ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif';
   return `
     :host{all:initial;color-scheme:dark;--panel:#171b2a;--card:#23283b;--text:#e7e9ef;--muted:#9299aa;--line:#505773;--accent:#5669ab;--gold:#e8c87f;font-family:${fontFamily}}
+    :host([data-market-session="true"]){position:relative;z-index:2147482000;pointer-events:none}
     *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
     button,input,select{border:0;background:none;color:inherit;font:inherit}
     button{cursor:pointer}.icon{display:block}
     ::-webkit-scrollbar{width:7px}::-webkit-scrollbar-thumb{border-radius:4px;background:color-mix(in srgb,var(--muted) 28%,transparent)}
-    .handle{position:fixed;right:0;z-index:1002;display:flex;width:32px;height:62px;align-items:center;justify-content:center;border-radius:9px 0 0 9px;background:var(--panel);color:var(--text);box-shadow:-2px 2px 10px rgba(0,0,0,.3);cursor:pointer;opacity:.86;touch-action:none;user-select:none;transition:opacity .15s}
+    .handle{position:fixed;right:0;z-index:1002;display:flex;width:32px;height:62px;align-items:center;justify-content:center;border-radius:9px 0 0 9px;background:var(--panel);color:var(--text);box-shadow:-2px 2px 10px rgba(0,0,0,.3);cursor:pointer;opacity:.86;pointer-events:auto;touch-action:none;user-select:none;transition:opacity .15s}
     .handle:hover{opacity:1}.handle .icon{width:16px;height:16px}.handle[data-has-items="true"]{box-shadow:-2px 2px 10px rgba(0,0,0,.3),inset 2px 0 0 var(--gold)}
     .handle-badge{position:absolute;top:9px;right:7px;width:7px;height:7px;border-radius:50%;background:var(--gold);box-shadow:0 0 0 2px var(--panel)}
     .handle-badge::after{content:"";position:absolute;inset:-3px;border:1.5px solid var(--gold);border-radius:50%;opacity:.6;animation:badge-pulse 1.6s ease-out infinite}@keyframes badge-pulse{0%{transform:scale(.7);opacity:.7}100%{transform:scale(1.9);opacity:0}}
-    .drawer{position:fixed;top:56px;right:10px;z-index:1001;display:flex;width:var(--drawer-width,360px);max-width:calc(100vw - 26px);min-height:320px;max-height:calc(100vh - 96px);flex-direction:column;border-radius:10px;background:var(--panel);color:var(--text);box-shadow:0 10px 32px rgba(0,0,0,.45),0 0 0 1px color-mix(in srgb,var(--line) 70%,transparent);transform:translateX(calc(100% + 18px));transition:transform .2s ease}
+    .drawer{position:fixed;top:56px;right:10px;z-index:1001;display:flex;width:var(--drawer-width,360px);max-width:calc(100vw - 26px);min-height:320px;max-height:calc(100vh - 96px);flex-direction:column;border-radius:10px;background:var(--panel);color:var(--text);box-shadow:0 10px 32px rgba(0,0,0,.45),0 0 0 1px color-mix(in srgb,var(--line) 70%,transparent);pointer-events:auto;transform:translateX(calc(100% + 18px));transition:transform .2s ease}
     .drawer[data-open="true"]{transform:translateX(0)}.resize{position:absolute;left:-3px;top:0;bottom:0;width:7px;border-radius:10px 0 0 10px;cursor:ew-resize;touch-action:none}.resize:hover{background:color-mix(in srgb,var(--accent) 25%,transparent)}
     .header{display:flex;flex:0 0 auto;align-items:center;gap:8px;padding:11px 14px 9px;border-bottom:1px solid color-mix(in srgb,var(--line) 55%,transparent)}
     .title{font-size:14px;font-weight:700;letter-spacing:.2px}.head-count{padding:2px 7px;border-radius:5px;background:color-mix(in srgb,var(--gold) 12%,transparent);color:color-mix(in srgb,var(--gold) 85%,white);font-size:10.5px}.head-count:empty{display:none}
@@ -178,33 +193,67 @@ function pendingItems() {
     });
 }
 
-function findItemsSpriteBase() {
-  for (const entry of globalThis.performance?.getEntriesByType?.("resource") ??
-    []) {
-    if (entry.name?.includes("items_sprite") && entry.name.endsWith(".svg")) {
-      try {
-        return new URL(entry.name).pathname;
-      } catch {
-        return entry.name;
-      }
-    }
-  }
-  const use = document.querySelector(
-    'svg use[href*="items_sprite"],svg use[xlink\\:href*="items_sprite"]',
-  );
-  const href =
-    use?.getAttribute("href") ?? use?.getAttribute("xlink:href") ?? "";
-  return href.includes("#") ? href.split("#")[0] : "";
-}
-
 function renderItemIcon(item) {
-  const bare = procurement.normalizeItemHrid(item.itemHrid).split("/").at(-1);
-  const sprite = findItemsSpriteBase();
-  if (!bare || !sprite) {
+  const itemHrid = procurement.normalizeItemHrid(item.itemHrid);
+  const href = getGameSpriteHref("items", itemHrid);
+  if (!href) {
     return `<span class="item-icon-fallback">${escapeHtml((item.name || "?").trim().charAt(0) || "?")}</span>`;
   }
-  const href = `${sprite}#${bare}`;
   return `<svg viewBox="0 0 32 32" aria-label="${escapeHtml(item.name)}"><use href="${escapeHtml(href)}" xlink:href="${escapeHtml(href)}"></use></svg>`;
+}
+
+function captureCartScroll(body) {
+  if (!body) return null;
+  const rows = [...body.querySelectorAll(".cart-row")];
+  if (!rows.length)
+    return { scrollTop: body.scrollTop || 0, keys: [], offset: 0 };
+  const bodyTop = body.getBoundingClientRect?.().top ?? 0;
+  let anchorIndex = rows.findIndex((row) => {
+    const rect = row.getBoundingClientRect?.();
+    return rect && rect.bottom > bodyTop;
+  });
+  if (anchorIndex < 0) anchorIndex = rows.length - 1;
+  const anchor = rows[anchorIndex];
+  const anchorTop = anchor.getBoundingClientRect?.().top ?? bodyTop;
+  return {
+    scrollTop: body.scrollTop || 0,
+    keys: [
+      ...rows.slice(anchorIndex).map((row) => row.dataset.cartKey),
+      ...rows
+        .slice(0, anchorIndex)
+        .reverse()
+        .map((row) => row.dataset.cartKey),
+    ],
+    offset: anchorTop - bodyTop,
+  };
+}
+
+function restoreCartScroll(body, state) {
+  if (!body || !state) return;
+  const anchor = state.keys
+    ?.map((key) =>
+      [...body.querySelectorAll(".cart-row")].find(
+        (row) => row.dataset.cartKey === key,
+      ),
+    )
+    .find(Boolean);
+  if (!anchor) {
+    body.scrollTop = state.scrollTop || 0;
+    return;
+  }
+  const bodyTop = body.getBoundingClientRect?.().top ?? 0;
+  const anchorTop = anchor.getBoundingClientRect?.().top ?? bodyTop;
+  const delta = anchorTop - bodyTop - (state.offset || 0);
+  body.scrollTop = Math.max(0, (body.scrollTop || 0) + delta);
+}
+
+function rememberBodyScroll(body, tab = body?.dataset.tab) {
+  if (!body || !tab) return;
+  const state =
+    tab === "cart"
+      ? captureCartScroll(body)
+      : { scrollTop: body.scrollTop || 0 };
+  cartScrollStates.set(tab, state);
 }
 
 function renderShell() {
@@ -215,6 +264,7 @@ function renderShell() {
   const handle = shadow.querySelector(".handle");
   const drawer = shadow.querySelector(".drawer");
   if (!handle || !drawer) return;
+  shell.dataset.marketSession = String(marketSessionActive);
   handle.style.top = `${clampHandleY(settings.handleY)}px`;
   drawer.style.setProperty("--drawer-width", `${settings.drawerWidth}px`);
   drawer.dataset.open = String(drawerOpen);
@@ -228,9 +278,23 @@ function renderShell() {
     button.dataset.active = String(button.dataset.tab === activeTab);
   }
   const body = shadow.querySelector(".body");
+  let scrollState = null;
+  if (body.dataset.tab !== activeTab) {
+    rememberBodyScroll(body);
+    abandonCartDrag();
+    body.replaceChildren();
+    body.dataset.tab = activeTab;
+    body.scrollTop = cartScrollStates.get(activeTab)?.scrollTop ?? 0;
+    scrollState = cartScrollStates.get(activeTab) ?? null;
+  } else if (activeTab === "cart") {
+    scrollState = captureCartScroll(body);
+  }
   if (activeTab === "plans") renderPlans(body);
   else if (activeTab === "settings") renderProcurementSettings(body);
-  else renderCart(body);
+  else renderCart(body, scrollState);
+  if (activeTab === "cart") {
+    cartScrollStates.set("cart", captureCartScroll(body));
+  }
 }
 
 function prepareFooter(mode) {
@@ -335,7 +399,7 @@ function createCartRow(key, body) {
   row.querySelector(".delete").addEventListener("click", () => {
     stopActiveHoldRepeat();
     const item = latestCartItem(row);
-    if (item) procurement.removeFromCart(item.itemHrid, item.enhancementLevel);
+    if (item) removeCartItemAndAdvance(item);
   });
   const quantityInput = row.querySelector(".qty");
   quantityInput.addEventListener("change", () => {
@@ -387,7 +451,11 @@ function updateCartRow(row, item, { marketEnabled, pricesEnabled, price }) {
   const icon = row.querySelector(".item-icon");
   icon.disabled = !marketEnabled;
   icon.title = marketEnabled ? t("在市场中打开", "Open in marketplace") : "";
-  icon.innerHTML = renderItemIcon(item);
+  const iconMarkup = renderItemIcon(item);
+  if (icon.mwitoolsIconMarkup !== iconMarkup) {
+    icon.innerHTML = iconMarkup;
+    icon.mwitoolsIconMarkup = iconMarkup;
+  }
   const name = row.querySelector(".item-name");
   name.disabled = !marketEnabled;
   name.title = item.name;
@@ -449,7 +517,7 @@ function renderCartFooter({ marketEnabled, settings, total, unpriced }) {
   clear.textContent = t("清空未收藏", "Clear");
 }
 
-function renderCart(body) {
+function renderCart(body, scrollState = captureCartScroll(body)) {
   const items = procurement.getCartItems();
   if (!items.length) {
     if (activeCartDrag) finishCartDrag(true);
@@ -475,6 +543,7 @@ function renderCart(body) {
     ]),
   );
   const wantedKeys = new Set();
+  const desiredRows = [];
   let total = 0;
   let unpriced = 0;
   for (const item of items) {
@@ -491,15 +560,25 @@ function renderCart(body) {
       else unpriced += 1;
     }
     updateCartRow(row, item, { marketEnabled, pricesEnabled, price });
-    if (!activeCartDrag) body.append(row);
-    else if (!row.isConnected) body.append(row);
+    desiredRows.push(row);
   }
   for (const [key, row] of currentRows) {
     if (wantedKeys.has(key)) continue;
     if (activeCartDrag?.row === row) abandonCartDrag();
     row.remove();
   }
+  if (!activeCartDrag) {
+    desiredRows.forEach((row, index) => {
+      const current = body.children[index] ?? null;
+      if (current !== row) body.insertBefore(row, current);
+    });
+  } else {
+    desiredRows
+      .filter((row) => !row.isConnected)
+      .forEach((row) => body.append(row));
+  }
   renderCartFooter({ marketEnabled, settings, total, unpriced });
+  restoreCartScroll(body, scrollState);
 }
 
 function stopActiveHoldRepeat() {
@@ -970,6 +1049,7 @@ function createShell(scope) {
   });
   scope.add(() => {
     abandonCartDrag();
+    cartScrollStates.clear();
     shell?.remove();
     shell = null;
     shadow = null;
@@ -979,7 +1059,12 @@ function createShell(scope) {
 
 function resolveActionPanel() {
   const shared = runtime.api.resolveActiveProductionPanelContext?.();
-  if (shared?.panel && shared?.input && shared?.actionHrid) {
+  if (
+    shared?.panel &&
+    shared?.input &&
+    shared?.actionHrid &&
+    !isCombatActionPanel(shared.panel)
+  ) {
     return {
       panel: shared.panel,
       input: shared.input,
@@ -1004,7 +1089,9 @@ function resolveActionPanel() {
       input.closest('div[class*="SkillActionDetail_skillActionDetail"]') ??
       input.closest('div[class*="SkillActionDetail_regularComponent"]') ??
       input.parentElement;
-    if (!panel || isHiddenActionElement(panel)) continue;
+    if (!panel || isHiddenActionElement(panel) || isCombatActionPanel(panel)) {
+      continue;
+    }
     const fiberContext = resolveActionFiberContext(panel);
     const actionHrid =
       fiberContext?.actionHrid ??
@@ -1016,15 +1103,17 @@ function resolveActionPanel() {
         : null);
     const parsedCount = runtime.api.parseCompactNumber?.(input.value);
     if (!actionHrid) continue;
+    const actionFunction = resolveActionFunction(
+      panel,
+      actionHrid,
+      fiberContext?.actionFunction,
+    );
+    if (!isProcurementProductionAction(actionHrid, actionFunction)) continue;
     return {
       panel,
       input,
       actionHrid,
-      actionFunction: resolveActionFunction(
-        panel,
-        actionHrid,
-        fiberContext?.actionFunction,
-      ),
+      actionFunction,
       count:
         Number.isFinite(parsedCount) && parsedCount > 0
           ? Math.ceil(parsedCount)
@@ -1032,6 +1121,21 @@ function resolveActionPanel() {
     };
   }
   return null;
+}
+
+function isCombatActionPanel(panel) {
+  return Boolean(
+    panel?.querySelector?.('[class*="SkillActionDetail_combatMonsters"]'),
+  );
+}
+
+function isProcurementProductionAction(actionHrid, actionFunction) {
+  const normalizedFunction = String(actionFunction ?? "");
+  if (normalizedFunction.includes("enhancing")) return true;
+  if (normalizedFunction.includes("combat")) return false;
+  const detail = runtime.state.initData_actionDetailMap?.[actionHrid];
+  if (!detail || String(detail.type ?? "").includes("combat")) return false;
+  return Boolean(runtime.api.getExpectedOutputs?.(detail)?.length);
 }
 
 function isHiddenActionElement(element) {
@@ -1205,15 +1309,28 @@ function appendSunnyEnhancingCompatibility(root) {
 }
 
 function findMaterialHost(panel, itemHrid) {
-  const bare = procurement.normalizeItemHrid(itemHrid).split("/").at(-1);
+  const normalizedItemHrid = procurement.normalizeItemHrid(itemHrid);
   for (const node of panel.querySelectorAll('[class*="Item_itemContainer"]')) {
     const href =
       node.querySelector("svg use")?.getAttribute("href") ??
       node.querySelector("svg use")?.getAttribute("xlink:href") ??
       "";
-    if (href.includes(bare)) return node;
+    if (itemHridFromSpriteHref(href) === normalizedItemHrid) return node;
   }
   return null;
+}
+
+function itemHridFromSpriteHref(href) {
+  const source = String(href ?? "");
+  const hashIndex = source.lastIndexOf("#");
+  if (hashIndex < 0) return "";
+  let fragment = source.slice(hashIndex + 1).split(/[?&]/, 1)[0];
+  try {
+    fragment = decodeURIComponent(fragment);
+  } catch {
+    // Keep the original fragment when a third-party sprite URL is malformed.
+  }
+  return procurement.normalizeItemHrid(fragment);
 }
 
 function markRequirementCell(element, row, column) {
@@ -1252,6 +1369,178 @@ function layoutMaterialBadge(panel, host, badge) {
   panel.classList.add("mwi-procurement-panel");
 }
 
+function removeInventoryRefreshButtons(keepHost = null) {
+  for (const button of document.querySelectorAll(`#${PRODUCTION_REFRESH_ID}`)) {
+    if (keepHost && button.parentElement === keepHost) continue;
+    const host = button.parentElement;
+    button.remove();
+    host?.classList.remove("mwi-procurement-refresh-host");
+    host?.classList.remove("mwi-procurement-refresh-position-anchor");
+  }
+  for (const host of document.querySelectorAll(
+    ".mwi-procurement-refresh-host",
+  )) {
+    if (host !== keepHost && !host.querySelector(`#${PRODUCTION_REFRESH_ID}`)) {
+      host.classList.remove("mwi-procurement-refresh-host");
+      host.classList.remove("mwi-procurement-refresh-position-anchor");
+    }
+  }
+}
+
+function resolveInventoryRefreshHost(panel) {
+  if (!panel) return null;
+  const modal = panel.closest?.(
+    '[class*="Modal_modal__"]:not([class*="Modal_modalContainer"])',
+  );
+  if (modal) return { host: modal, sourcePanel: panel };
+  const existingHost = document.getElementById(
+    PRODUCTION_REFRESH_ID,
+  )?.parentElement;
+  if (
+    existingHost?.isConnected &&
+    !isHiddenActionElement(existingHost) &&
+    existingHost.matches?.(
+      '[class*="Modal_modal__"]:not([class*="Modal_modalContainer"])',
+    )
+  ) {
+    const sourcePanel = existingHost.querySelector(
+      'div[class*="SkillActionDetail_regularComponent"],div[class*="SkillActionDetail_skillActionDetail"]',
+    );
+    return { host: existingHost, sourcePanel: sourcePanel ?? panel };
+  }
+  const modalContainer = panel.closest?.('[class*="Modal_modalContainer"]');
+  const nestedModal = modalContainer?.querySelector?.(
+    ':scope > [class*="Modal_modal__"]:not([class*="Modal_modalContainer"])',
+  );
+  if (nestedModal) return { host: nestedModal, sourcePanel: panel };
+  const modalPanel = [
+    ...document.querySelectorAll(
+      '[class*="Modal_modalContainer"] div[class*="SkillActionDetail_regularComponent"],[class*="Modal_modalContainer"] div[class*="SkillActionDetail_skillActionDetail"]',
+    ),
+  ].find((candidate) => !isHiddenActionElement(candidate));
+  const activeModal = modalPanel?.closest?.(
+    '[class*="Modal_modal__"]:not([class*="Modal_modalContainer"])',
+  );
+  return activeModal ? { host: activeModal, sourcePanel: modalPanel } : null;
+}
+
+function resetAutoInventoryRefresh() {
+  autoInventoryRefreshHost = null;
+  autoInventoryRefreshDone = false;
+  autoInventoryRefreshInProgress = false;
+  if (autoInventoryRefreshRetry !== null) {
+    clearTimeout(autoInventoryRefreshRetry);
+    autoInventoryRefreshRetry = null;
+  }
+}
+
+function refreshInventorySnapshot(sourcePanel, { silent = false } = {}) {
+  const liveItems = resolveLiveCharacterItems(sourcePanel);
+  if (liveItems === null) {
+    if (!silent) {
+      showToast(
+        t(
+          "暂时无法读取游戏当前仓库，请稍后再试",
+          "Could not read the current game inventory; try again shortly",
+        ),
+      );
+    }
+    return null;
+  }
+  runtime.state.initData_characterItems = liveItems.map((item) => ({
+    ...item,
+  }));
+  const result = procurement.replaceInventorySnapshot(liveItems);
+  lastProductionSignature = "";
+  renderShell();
+  runtime.api.renderProductionPanel?.();
+  renderProductionProcurement();
+  if (!silent) {
+    showToast(
+      runtime.config.isZH
+        ? `仓库已更新：${result.changedItemCount} 种库存变化；购物车 ${result.cartItemCount} 项、项目 ${result.projectCount} 个已按最新库存重算`
+        : `Inventory updated: ${result.changedItemCount} item changes; ${result.cartItemCount} cart items and ${result.projectCount} projects recalculated`,
+    );
+  }
+  return result;
+}
+
+function maybeAutoRefreshInventory(host, sourcePanel) {
+  if (autoInventoryRefreshHost !== host) {
+    resetAutoInventoryRefresh();
+    autoInventoryRefreshHost = host;
+  }
+  if (
+    autoInventoryRefreshDone ||
+    autoInventoryRefreshInProgress ||
+    autoInventoryRefreshRetry !== null
+  )
+    return;
+  autoInventoryRefreshInProgress = true;
+  autoInventoryRefreshDone =
+    refreshInventorySnapshot(sourcePanel, { silent: true }) !== null;
+  autoInventoryRefreshInProgress = false;
+  if (autoInventoryRefreshDone) return;
+  autoInventoryRefreshRetry = setTimeout(() => {
+    autoInventoryRefreshRetry = null;
+    if (autoInventoryRefreshHost !== host || !host.isConnected) return;
+    autoInventoryRefreshInProgress = true;
+    autoInventoryRefreshDone =
+      refreshInventorySnapshot(sourcePanel, { silent: true }) !== null;
+    autoInventoryRefreshInProgress = false;
+  }, 180);
+}
+
+function ensureInventoryRefreshButton(panel) {
+  const resolved = resolveInventoryRefreshHost(panel);
+  if (!resolved) {
+    removeInventoryRefreshButtons();
+    resetAutoInventoryRefresh();
+    return null;
+  }
+  const { host, sourcePanel } = resolved;
+  removeInventoryRefreshButtons(host);
+  const computedPosition =
+    document.defaultView?.getComputedStyle?.(host)?.position ?? "";
+  const needsPositionAnchor =
+    host.classList.contains("mwi-procurement-refresh-position-anchor") ||
+    !computedPosition ||
+    computedPosition === "static";
+  host.classList.add("mwi-procurement-refresh-host");
+  host.classList.toggle(
+    "mwi-procurement-refresh-position-anchor",
+    needsPositionAnchor,
+  );
+  let button = host.querySelector(`#${PRODUCTION_REFRESH_ID}`);
+  if (button) {
+    maybeAutoRefreshInventory(host, sourcePanel);
+    return button;
+  }
+  button = document.createElement("button");
+  button.id = PRODUCTION_REFRESH_ID;
+  button.type = "button";
+  button.textContent = t("↻ 仓库", "↻ Stock");
+  button.title = t(
+    "从游戏当前状态更新仓库，并重新计算购物车、项目占用和生产余缺",
+    "Update inventory from the current game state and recalculate the shopping cart, project reservations, and production shortages",
+  );
+  button.setAttribute("aria-label", t("更新仓库", "Refresh inventory"));
+  for (const eventName of ["pointerdown", "mousedown"]) {
+    button.addEventListener(eventName, (event) => event.stopPropagation());
+  }
+  button.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (button.disabled) return;
+    button.disabled = true;
+    refreshInventorySnapshot(sourcePanel);
+    if (button.isConnected) button.disabled = false;
+  });
+  host.append(button);
+  maybeAutoRefreshInventory(host, sourcePanel);
+  return button;
+}
+
 function clearProductionUi() {
   document.getElementById(PRODUCTION_ID)?.remove();
   document
@@ -1278,6 +1567,8 @@ function clearProductionUi() {
 function renderProductionProcurement() {
   const context = resolveActionPanel();
   if (!context) {
+    removeInventoryRefreshButtons();
+    resetAutoInventoryRefresh();
     const houseModal = findActiveHouseModal();
     if (!houseModal) {
       clearProductionUi();
@@ -1308,6 +1599,7 @@ function renderProductionProcurement() {
         ) ?? context.input.parentElement;
       anchor.insertAdjacentElement("afterend", root);
     }
+    ensureInventoryRefreshButton(context.panel);
     return;
   }
   const settings = procurement.getSettings();
@@ -1317,6 +1609,7 @@ function renderProductionProcurement() {
     : procurement.calculateRequirements(context.actionHrid, context.count);
   if (!direct?.materials?.length) {
     clearProductionUi();
+    ensureInventoryRefreshButton(context.panel);
     return;
   }
   const chain =
@@ -1345,6 +1638,7 @@ function renderProductionProcurement() {
     signature === lastProductionSignature &&
     document.getElementById(PRODUCTION_ID)
   ) {
+    ensureInventoryRefreshButton(context.panel);
     return;
   }
   clearProductionUi();
@@ -1513,6 +1807,7 @@ function renderProductionProcurement() {
       anchor.insertAdjacentElement("afterend", root);
     }
   }
+  ensureInventoryRefreshButton(context.panel);
 }
 
 function findReactFiber(element) {
@@ -1523,6 +1818,75 @@ function findReactFiber(element) {
       candidate.startsWith("__reactInternalInstance"),
   );
   return key ? element[key] : null;
+}
+
+function liveItemsFromStateHost(host) {
+  const state = host?.state;
+  if (!state || state.characterItemMap == null) return null;
+  const characterId =
+    state.character?.id ??
+    state.character?.characterID ??
+    state.currentCharacter?.id ??
+    state.characterId ??
+    state.characterID ??
+    null;
+  if (
+    characterId != null &&
+    procurement.activeCharacterId != null &&
+    String(characterId) !== String(procurement.activeCharacterId)
+  ) {
+    return null;
+  }
+  const source = state.characterItemMap;
+  let values;
+  if (Array.isArray(source)) values = source;
+  else if (typeof source?.values === "function") values = [...source.values()];
+  else values = Object.values(source ?? {});
+  return values
+    .filter((item) => item?.itemHrid && Number(item.count) > 0)
+    .map((item) => ({ ...item }));
+}
+
+function resolveLiveCharacterItems(panel) {
+  let fiber = findReactFiber(panel);
+  let depth = 0;
+  while (fiber && depth < 250) {
+    const items = liveItemsFromStateHost(fiber.stateNode);
+    if (items !== null) return items;
+    fiber = fiber.return;
+    depth += 1;
+  }
+
+  const root = document.getElementById("root");
+  const fibers = [];
+  const pushFiber = (value) => {
+    const candidate = value?.current ?? value;
+    if (candidate && typeof candidate === "object") fibers.push(candidate);
+  };
+  pushFiber(root?._reactRootContainer?.current);
+  pushFiber(root?._reactRootContainer?._internalRoot?.current);
+  for (const element of [root, document.body]) {
+    for (const key of Object.getOwnPropertyNames(element ?? {})) {
+      if (
+        key.startsWith("__reactContainer") ||
+        key.startsWith("__reactFiber") ||
+        key.startsWith("__reactInternalInstance")
+      ) {
+        pushFiber(element[key]);
+      }
+    }
+  }
+  const seen = new Set();
+  while (fibers.length && seen.size < 50_000) {
+    const candidate = fibers.pop();
+    if (!candidate || seen.has(candidate)) continue;
+    seen.add(candidate);
+    const items = liveItemsFromStateHost(candidate.stateNode);
+    if (items !== null) return items;
+    if (candidate.child) fibers.push(candidate.child);
+    if (candidate.sibling) fibers.push(candidate.sibling);
+  }
+  return null;
 }
 
 function findObjectWithItemRequirements(value, depth = 0, seen = new Set()) {
@@ -1763,6 +2127,39 @@ function resolveMarketplaceHandler() {
   return fallback;
 }
 
+function beginMarketSession(
+  resolved,
+  { requiresModal, restoreNavTarget = "" },
+) {
+  const continuing =
+    marketSessionActive &&
+    marketSessionRequiresModal === requiresModal &&
+    (!requiresModal || marketSessionHost === resolved.host);
+  if (!continuing) {
+    marketSessionDone = new Map();
+    marketSessionRestoreNavTarget = restoreNavTarget;
+  } else if (!marketSessionRestoreNavTarget && restoreNavTarget) {
+    marketSessionRestoreNavTarget = restoreNavTarget;
+  }
+  marketSessionActive = true;
+  marketSessionRequiresModal = requiresModal;
+  marketSessionStartedAt = Date.now();
+  marketSessionModalSeen = false;
+  marketSessionHost = requiresModal ? resolved.host : null;
+  if (shell) shell.dataset.marketSession = "true";
+  return continuing;
+}
+
+function scheduleMarketUiUpdates(revision) {
+  for (const delay of [80, 240, 600, 1_200]) {
+    setTimeout(() => {
+      if (revision === marketNavigationRevision && marketSessionActive) {
+        updateMarketUi(true);
+      }
+    }, delay);
+  }
+}
+
 function openMarketplace(itemHrid, enhancementLevel = 0) {
   if (marketFeaturesSuppressed()) return false;
   const resolved = resolveMarketplaceHandler();
@@ -1775,25 +2172,41 @@ function openMarketplace(itemHrid, enhancementLevel = 0) {
     );
     return false;
   }
-  currentMarketTarget = procurement.normalizeItemHrid(itemHrid);
-  const bareItemId = currentMarketTarget.replace(/^\/items\//, "");
+  const target = procurement.normalizeItemHrid(itemHrid);
+  const bareItemId = target.replace(/^\/items\//, "");
   const level = Number(enhancementLevel) || 0;
   const argumentSets = [
-    [currentMarketTarget, level],
-    [currentMarketTarget],
+    [target, level],
+    [target],
     [bareItemId, level],
     [bareItemId],
   ];
+  const revision = ++marketNavigationRevision;
   let lastError = null;
   if (resolved.floating) {
     try {
+      const newSession =
+        !marketSessionActive ||
+        !marketSessionRequiresModal ||
+        marketSessionHost !== resolved.host;
       const restoreNavTarget =
-        resolved.host.state?.navTarget === "marketplace" ? "marketplace" : "";
+        newSession && resolved.host.state?.navTarget === "marketplace"
+          ? "marketplace"
+          : "";
+      const continuingSession = beginMarketSession(resolved, {
+        requiresModal: true,
+        restoreNavTarget,
+      });
+      currentMarketTarget = target;
+      currentMarketLevel = level;
       const showFloatingModal = () => {
+        if (revision !== marketNavigationRevision || !marketSessionActive) {
+          return;
+        }
         resolved.host.setState({
           showMarketplaceModal: true,
           marketViewOverrideData: {
-            itemHrid: currentMarketTarget,
+            itemHrid: target,
             enhancementLevel: level,
           },
         });
@@ -1806,29 +2219,29 @@ function openMarketplace(itemHrid, enhancementLevel = 0) {
         setTimeout(() => {
           if (
             marketSessionActive &&
-            currentMarketTarget === procurement.normalizeItemHrid(itemHrid) &&
+            revision === marketNavigationRevision &&
+            currentMarketTarget === target &&
             resolved.host.state?.navTarget !== "marketplace"
           ) {
-            resolved.fn.call(resolved.host, currentMarketTarget, level);
+            resolved.fn.call(resolved.host, target, level);
           }
         }, 240);
+      } else if (
+        resolved.host.state?.showMarketplaceModal ||
+        continuingSession
+      ) {
+        resolved.host.setState(
+          { showMarketplaceModal: false },
+          showFloatingModal,
+        );
       } else {
         showFloatingModal();
       }
-      marketSessionActive = true;
-      marketSessionRequiresModal = true;
-      marketSessionStartedAt = Date.now();
-      marketSessionModalSeen = false;
-      marketSessionHost = resolved.host;
-      marketSessionRestoreNavTarget = restoreNavTarget;
-      marketSessionDone = new Map();
       if (window.matchMedia?.("(max-width:760px)").matches) {
         drawerOpen = false;
         renderShell();
       }
-      for (const delay of [80, 240, 600, 1_200]) {
-        setTimeout(() => updateMarketUi(true), delay);
-      }
+      scheduleMarketUiUpdates(revision);
       return true;
     } catch (error) {
       lastError = error;
@@ -1837,20 +2250,14 @@ function openMarketplace(itemHrid, enhancementLevel = 0) {
   for (const args of argumentSets) {
     try {
       resolved.fn.call(resolved.host, ...args);
-      marketSessionActive = true;
-      marketSessionRequiresModal = false;
-      marketSessionStartedAt = Date.now();
-      marketSessionModalSeen = false;
-      marketSessionHost = null;
-      marketSessionRestoreNavTarget = "";
-      marketSessionDone = new Map();
+      beginMarketSession(resolved, { requiresModal: false });
+      currentMarketTarget = target;
+      currentMarketLevel = level;
       if (window.matchMedia?.("(max-width:760px)").matches) {
         drawerOpen = false;
         renderShell();
       }
-      for (const delay of [80, 240, 600, 1_200]) {
-        setTimeout(() => updateMarketUi(true), delay);
-      }
+      scheduleMarketUiUpdates(revision);
       return true;
     } catch (error) {
       lastError = error;
@@ -1891,7 +2298,40 @@ function detectMarketItem(panel) {
   return fragment ? procurement.normalizeItemHrid(fragment) : "";
 }
 
-function clearMarketUi({ preserveSession = false } = {}) {
+function isCurrentMarketItem(item) {
+  return Boolean(
+    marketSessionActive &&
+    procurement.normalizeItemHrid(item?.itemHrid) === currentMarketTarget &&
+    (Number(item?.enhancementLevel) || 0) === currentMarketLevel,
+  );
+}
+
+function removeCartItemAndAdvance(item) {
+  if (!item) return false;
+  const ordered = pendingItems();
+  const key = procurement.itemKey(item.itemHrid, item.enhancementLevel);
+  const currentIndex = ordered.findIndex(
+    (candidate) =>
+      procurement.itemKey(candidate.itemHrid, candidate.enhancementLevel) ===
+      key,
+  );
+  const shouldAdvance = isCurrentMarketItem(item);
+  const removed = procurement.removeFromCart(
+    item.itemHrid,
+    item.enhancementLevel,
+  );
+  if (!removed.ok || !shouldAdvance) return removed.ok;
+  const remaining = pendingItems();
+  if (!remaining.length) {
+    clearMarketUi({ closeModal: true });
+    return true;
+  }
+  const next = remaining[Math.max(0, currentIndex) % remaining.length];
+  openMarketplace(next.itemHrid, next.enhancementLevel);
+  return true;
+}
+
+function clearMarketUi({ preserveSession = false, closeModal = false } = {}) {
   document.getElementById(MARKET_NAV_ID)?.remove();
   document
     .querySelectorAll(".mwi-procurement-market-target")
@@ -1899,6 +2339,7 @@ function clearMarketUi({ preserveSession = false } = {}) {
   if (!preserveSession) {
     const restoreHost = marketSessionHost;
     const restoreNavTarget = marketSessionRestoreNavTarget;
+    marketNavigationRevision += 1;
     marketSessionActive = false;
     marketSessionRequiresModal = false;
     marketSessionStartedAt = 0;
@@ -1906,8 +2347,21 @@ function clearMarketUi({ preserveSession = false } = {}) {
     marketSessionHost = null;
     marketSessionRestoreNavTarget = "";
     currentMarketTarget = "";
+    currentMarketLevel = 0;
     armedNextItem = "";
     marketSessionDone = new Map();
+    if (shell) shell.dataset.marketSession = "false";
+    if (closeModal && restoreHost) {
+      try {
+        if (typeof restoreHost.handleCloseMarketplaceModal === "function") {
+          restoreHost.handleCloseMarketplaceModal();
+        } else if (typeof restoreHost.setState === "function") {
+          restoreHost.setState({ showMarketplaceModal: false });
+        }
+      } catch (error) {
+        console.info("[MWITools] Marketplace modal close unavailable", error);
+      }
+    }
     if (
       restoreNavTarget &&
       typeof restoreHost?.setState === "function" &&
@@ -1926,20 +2380,20 @@ function highlightMarketItems(panel, scroll = false) {
     return;
   }
   const pending = new Set(
-    pendingItems().map((item) => item.itemHrid.split("/").at(-1)),
+    pendingItems().map((item) => procurement.normalizeItemHrid(item.itemHrid)),
   );
   let scrollTarget = null;
   for (const use of panel.querySelectorAll("svg use")) {
     const href =
       use.getAttribute("href") ?? use.getAttribute("xlink:href") ?? "";
-    const matched = [...pending].find((bare) => href.includes(bare));
-    if (!matched) continue;
+    const matched = itemHridFromSpriteHref(href);
+    if (!pending.has(matched)) continue;
     const host =
       use.closest('[class*="Item_itemContainer"]') ?? use.parentElement;
     host.classList.add("mwi-procurement-market-target");
     if (
       currentMarketTarget &&
-      currentMarketTarget.endsWith(matched) &&
+      procurement.normalizeItemHrid(currentMarketTarget) === matched &&
       !scrollTarget
     ) {
       scrollTarget = host;
@@ -2002,11 +2456,18 @@ function renderMarketNav(panel) {
     document.getElementById(MARKET_NAV_ID)?.remove();
     return;
   }
-  const current = detectMarketItem(panel);
+  const detectedCurrent = detectMarketItem(panel);
+  const current = currentMarketTarget || detectedCurrent;
+  const currentKey = procurement.itemKey(current, currentMarketLevel);
   const rows = [
     ...items.map((item) => ({ ...item, done: false })),
     ...[...marketSessionDone.values()].filter(
-      (done) => !items.some((item) => item.itemHrid === done.itemHrid),
+      (done) =>
+        !items.some(
+          (item) =>
+            procurement.itemKey(item.itemHrid, item.enhancementLevel) ===
+            procurement.itemKey(done.itemHrid, done.enhancementLevel),
+        ),
     ),
   ];
   let nav = document.getElementById(MARKET_NAV_ID);
@@ -2015,42 +2476,104 @@ function renderMarketNav(panel) {
     nav.id = MARKET_NAV_ID;
     document.body.appendChild(nav);
   }
-  nav.replaceChildren();
-  const progress = document.createElement("span");
-  progress.className = "mwi-procurement-nav-progress";
-  progress.textContent = t(`待购 ${items.length}`, `${items.length} pending`);
-  const list = document.createElement("div");
-  list.className = "mwi-procurement-nav-items";
-  for (const item of rows) {
-    const chip = document.createElement("button");
-    chip.className = "mwi-procurement-nav-chip";
-    chip.dataset.current = String(!item.done && item.itemHrid === current);
-    chip.dataset.done = String(Boolean(item.done));
+  const progressText = t(`待购 ${items.length}`, `${items.length} pending`);
+  const rowModels = rows.map((item) => {
     const itemName = procurement.resolveItemName(item.itemHrid) || item.name;
     const quantity = item.done
       ? t("已完成", "Completed")
       : exactNumber(item.quantity);
-    chip.title = `${itemName} · ${quantity}`;
-    chip.setAttribute("aria-label", chip.title);
-    chip.innerHTML = `<span class="mwi-procurement-nav-icon">${renderItemIcon({ ...item, name: itemName })}</span><b>${item.done ? "✓" : formatNumber(item.quantity)}</b>`;
-    if (!item.done) {
-      chip.addEventListener("click", () =>
-        openMarketplace(item.itemHrid, item.enhancementLevel),
-      );
-    }
-    list.append(chip);
-  }
-  const next =
-    items.find((item) => item.itemHrid !== current) ?? items.at(0) ?? null;
-  const nextButton = document.createElement("button");
-  nextButton.className = "mwi-procurement-nav-next";
-  nextButton.textContent = t("下一项 ›", "Next ›");
-  nextButton.disabled = !next;
-  nextButton.addEventListener("click", () => {
-    if (next) openMarketplace(next.itemHrid, next.enhancementLevel);
-    armedNextItem = "";
+    return {
+      item,
+      itemName,
+      quantity,
+      current:
+        !item.done &&
+        procurement.itemKey(item.itemHrid, item.enhancementLevel) ===
+          currentKey,
+      iconMarkup: renderItemIcon({ ...item, name: itemName }),
+      badge: item.done ? "✓" : formatNumber(item.quantity),
+    };
   });
-  nav.append(progress, list, nextButton);
+  const next =
+    items.find(
+      (item) =>
+        procurement.itemKey(item.itemHrid, item.enhancementLevel) !==
+        currentKey,
+    ) ??
+    items.at(0) ??
+    null;
+  const currentItem = items.find(
+    (item) =>
+      procurement.itemKey(item.itemHrid, item.enhancementLevel) === currentKey,
+  );
+  const nextText = t("下一项 ›", "Next ›");
+  const removeText = t("删除当前", "Remove");
+  const renderSignature = JSON.stringify({
+    progressText,
+    nextText,
+    removeText,
+    currentKey: currentItem ? currentKey : "",
+    next: next ? procurement.itemKey(next.itemHrid, next.enhancementLevel) : "",
+    rows: rowModels.map(
+      ({
+        item,
+        itemName,
+        quantity,
+        current: isCurrent,
+        iconMarkup,
+        badge,
+      }) => ({
+        key: procurement.itemKey(item.itemHrid, item.enhancementLevel),
+        done: Boolean(item.done),
+        itemName,
+        quantity,
+        current: isCurrent,
+        iconMarkup,
+        badge,
+      }),
+    ),
+  });
+  if (nav.mwitoolsRenderSignature !== renderSignature) {
+    nav.replaceChildren();
+    const progress = document.createElement("span");
+    progress.className = "mwi-procurement-nav-progress";
+    progress.textContent = progressText;
+    const list = document.createElement("div");
+    list.className = "mwi-procurement-nav-items";
+    for (const model of rowModels) {
+      const { item } = model;
+      const chip = document.createElement("button");
+      chip.className = "mwi-procurement-nav-chip";
+      chip.dataset.current = String(model.current);
+      chip.dataset.done = String(Boolean(item.done));
+      chip.title = `${model.itemName} · ${model.quantity}`;
+      chip.setAttribute("aria-label", chip.title);
+      chip.innerHTML = `<span class="mwi-procurement-nav-icon">${model.iconMarkup}</span><b>${model.badge}</b>`;
+      if (!item.done) {
+        chip.addEventListener("click", () =>
+          openMarketplace(item.itemHrid, item.enhancementLevel),
+        );
+      }
+      list.append(chip);
+    }
+    const nextButton = document.createElement("button");
+    nextButton.className = "mwi-procurement-nav-next";
+    nextButton.textContent = nextText;
+    nextButton.disabled = !next;
+    nextButton.addEventListener("click", () => {
+      if (next) openMarketplace(next.itemHrid, next.enhancementLevel);
+      armedNextItem = "";
+    });
+    const removeButton = document.createElement("button");
+    removeButton.className = "mwi-procurement-nav-remove";
+    removeButton.textContent = removeText;
+    removeButton.hidden = !currentItem;
+    removeButton.addEventListener("click", () => {
+      if (currentItem) removeCartItemAndAdvance(currentItem);
+    });
+    nav.append(progress, list, removeButton, nextButton);
+    nav.mwitoolsRenderSignature = renderSignature;
+  }
   const modal =
     panel.closest('[class*="MainPanel_marketplaceModal__"]') ??
     panel.closest('[class*="Modal_modalContainer"]') ??
@@ -2236,6 +2759,27 @@ runtime.features.register({
         const changed = [...record.addedNodes, ...record.removedNodes].filter(
           (node) => node?.nodeType === 1,
         );
+        const removedProductionModule = [...record.removedNodes].some(
+          (node) =>
+            node?.nodeType === 1 &&
+            (node.matches?.(
+              `#${PRODUCTION_ID},.mwi-production-quick-inputs,#mwi-production-summary,#mwi-level-progress`,
+            ) ||
+              node.querySelector?.(
+                `#${PRODUCTION_ID},.mwi-production-quick-inputs,#mwi-production-summary,#mwi-level-progress`,
+              )),
+        );
+        if (removedProductionModule) return true;
+        const replacedProductionMount = changed.some(
+          (node) =>
+            node.matches?.(
+              '.mwi-production-extensions,div[class*="SkillActionDetail_regularComponent"],div[class*="SkillActionDetail_skillActionDetail"]',
+            ) ||
+            node.querySelector?.(
+              '.mwi-production-extensions,div[class*="SkillActionDetail_regularComponent"],div[class*="SkillActionDetail_skillActionDetail"]',
+            ),
+        );
+        if (replacedProductionMount) return true;
         if (
           target?.closest?.(OWNED_PROCUREMENT_SELECTOR) ||
           (changed.length &&
@@ -2254,7 +2798,13 @@ runtime.features.register({
             node.querySelector?.(PROCUREMENT_SURFACE_SELECTOR),
         );
       });
-      if (relevant) scheduleRender();
+      if (relevant) {
+        runtime.api.scheduleProductionUiRecovery?.();
+        scheduleRender();
+        scope.timeout(scheduleRender, 80);
+        scope.timeout(scheduleRender, 220);
+        scope.timeout(scheduleRender, 450);
+      }
     });
     scope.observer(observer, document.body, {
       childList: true,
@@ -2289,6 +2839,8 @@ runtime.features.register({
     scope.add(() => {
       renderScheduler.cancel();
       stopActiveHoldRepeat();
+      removeInventoryRefreshButtons();
+      resetAutoInventoryRefresh();
       clearProductionUi();
       clearMarketUi();
       document.getElementById(STYLE_ID)?.remove();

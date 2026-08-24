@@ -1,13 +1,13 @@
 {
   "version": 1,
-  "latestVersion": "26.4.9",
-  "importantVersion": "26.4.9",
+  "latestVersion": "26.4.16",
+  "importantVersion": "26.4.16",
   "title": {
-    "zh": "MWITools 26.4.9 重要更新",
-    "en": "Important MWITools 26.4.9 update"
+    "zh": "MWITools 26.4.16 重要更新",
+    "en": "Important MWITools 26.4.16 update"
   },
   "message": {
-    "zh": "26.4.9 是重要功能更新：新增独立三步规划计算器和快捷设置，重做任务筛选与动作队列时间，并修复加工茶、库存摘要、生产控件等问题。建议前往 Greasy Fork 更新。",
-    "en": "Version 26.4.9 is an important feature update. It adds the standalone three-step planner and quick settings, redesigns task filters and action-queue timing, and fixes Processing Tea, inventory summaries, production controls, and more. Update on Greasy Fork."
+    "zh": "26.4.16 是重要更新：新增铁牛排行榜、徽章与经验速度；修复任务刷新图片和锁定串联，战斗状态栏改为单行循环滚动并让 Debuff 跟随实际目标；同时加入市场备用接口、理论命中率、任务代币资产开关，并修复本地化数值、资产历史、无限队列、购物车、生产与公会兑换等问题。建议前往 Greasy Fork 更新。",
+    "en": "Version 26.4.16 is an important update. It adds Iron Cow rankings, badges, and XP rates; fixes rerolled task artwork and isolated locks; changes battle status bars to a single-row marquee and keeps Debuffs on affected targets; adds marketplace fallback, theoretical accuracy, and a Task Token asset switch; and fixes localized numbers, asset history, infinite queues, shopping, Production, and Guild exchanges. Update on Greasy Fork."
   }
 }

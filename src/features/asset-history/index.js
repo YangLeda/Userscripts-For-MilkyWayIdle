@@ -56,6 +56,9 @@ const assetHistoryApi = {
   deleteDay(dayKey, scopeKey = currentScopeKey()) {
     return assetHistoryStore.deleteDay(dayKey, scopeKey);
   },
+  subscribe(listener) {
+    return assetHistoryStore.subscribe(listener);
+  },
   cleanup(scopeKey = currentScopeKey()) {
     return assetHistoryStore.cleanupInvalid(scopeKey);
   },
@@ -149,6 +152,12 @@ runtime.features.register({
       ui.update(snapshot);
     };
     scope.add(onAssetSnapshot(consume));
+    scope.event(globalThis.window, "storage", (event) => {
+      if (event.key === assetHistoryApi.storageKey) {
+        assetHistoryStore.reloadFromStorage();
+        ui.update(getLatestAssetSnapshot());
+      }
+    });
     const latest = getLatestAssetSnapshot();
     if (latest) consume(latest);
     void refreshAssetSnapshot();

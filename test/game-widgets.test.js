@@ -120,3 +120,17 @@ test("map decorations scan on interaction without a background poll", async () =
   await runtime.features.disable("mapIndex");
   assert.equal(document.querySelectorAll(".script_mapIndex").length, 0);
 });
+
+test("task map labels reuse the task page classification without name lookup", () => {
+  document.body.innerHTML = `
+    <div class="RandomTask_randomTask__newHash" data-mwitools-map-index="7">
+      <div class="RandomTask_name__newHash">Crafting - Not a monster</div>
+    </div>
+    <div class="RandomTask_randomTask__newHash" data-mwitools-map-index="">
+      <div class="RandomTask_name__newHash">Tailoring - Still not a monster</div>
+    </div>`;
+  runtime.api.handleTaskCard();
+  const labels = document.querySelectorAll(".script_taskMapIndex");
+  assert.equal(labels.length, 1);
+  assert.equal(labels[0].textContent.trim(), "Z7");
+});

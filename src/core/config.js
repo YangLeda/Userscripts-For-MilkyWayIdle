@@ -123,6 +123,11 @@ let settingsMap = {
       : "Include guild and dungeon tokens in total assets.",
     isTrue: true,
   },
+  includeTaskTokensInAssets: {
+    id: "includeTaskTokensInAssets",
+    desc: isZH ? "总资产计入任务代币" : "Include task tokens in total assets.",
+    isTrue: false,
+  },
   valueBackEquipmentWithProtectionMirror: {
     id: "valueBackEquipmentWithProtectionMirror",
     desc: isZH
@@ -154,6 +159,13 @@ let settingsMap = {
     desc: isZH
       ? "物品悬浮窗显示：市场价值和订单簿价格"
       : "Item tooltip: Market value and order book prices.",
+    isTrue: true,
+  },
+  showConsumTips: {
+    id: "showConsumTips",
+    desc: isZH
+      ? "物品悬浮窗显示：按市场价值计算消耗品回复性价比"
+      : "Item tooltip: Consumable recovery efficiency based on market value.",
     isTrue: true,
   },
   itemTooltip_profit: {
@@ -264,8 +276,8 @@ let settingsMap = {
   ThirdPartyLinks: {
     id: "ThirdPartyLinks",
     desc: isZH
-      ? "左侧菜单栏显示：第三方工具网站链接、脚本设置链接"
-      : "Left sidebar: Links to 3rd-party websites, script settings.",
+      ? "左侧菜单栏显示：第三方工具网站链接"
+      : "Left sidebar: Links to 3rd-party websites.",
     isTrue: true,
   },
   actionQueue: {
@@ -773,6 +785,14 @@ const catalogRows = [
     "Include Guild, Chimerical, Sinister, Enchanted, and Pirate Tokens under non-tradable tokens and total assets. On by default.",
   ],
   [
+    "includeTaskTokensInAssets",
+    "inventory",
+    "任务代币计入总资产",
+    "Include task tokens in assets",
+    "开启后，任务代币按任务商店兑换价值计入总资产和物品价值排序；默认关闭。",
+    "Include task tokens at their task-shop redemption value in total assets and inventory value sorting. Off by default.",
+  ],
+  [
     "valueBackEquipmentWithProtectionMirror",
     "inventory",
     "普通背部装备按保护之镜估值",
@@ -819,6 +839,14 @@ const catalogRows = [
     "Tooltip prices",
     "在物品悬浮窗显示市场价值和当前出售价、收购价。",
     "Show server value and current ask and bid prices in item tooltips.",
+  ],
+  [
+    "showConsumTips",
+    "market",
+    "消耗品性价比",
+    "Consumable efficiency",
+    "按市场价值显示回复 100 血或蓝所需的金币。",
+    "Show the market-value cost to restore 100 HP or MP.",
   ],
   [
     "itemTooltip_profit",
@@ -1121,8 +1149,8 @@ const catalogRows = [
     "tools",
     "第三方工具入口",
     "External tool shortcuts",
-    "在左侧菜单提供模拟器、计算器和脚本设置入口。",
-    "Add sidebar shortcuts for simulators, calculators, and MWITools settings.",
+    "在左侧菜单提供模拟器、计算器和第三方数据入口。",
+    "Add sidebar shortcuts for simulators, calculators, and third-party data.",
   ],
   [
     "skillbook",
@@ -1174,6 +1202,24 @@ settingsCatalog.hoverFontScale.control = {
     ["largest", { zh: "最大", en: "Largest" }],
   ],
 };
+settingsCatalog.productionQuickHours = Object.freeze({
+  id: "productionQuickHours",
+  group: "production",
+  hidden: true,
+  control: Object.freeze({
+    type: "text",
+    preference: "productionQuickHours",
+  }),
+});
+settingsCatalog.productionQuickCounts = Object.freeze({
+  id: "productionQuickCounts",
+  group: "production",
+  hidden: true,
+  control: Object.freeze({
+    type: "text",
+    preference: "productionQuickCounts",
+  }),
+});
 
 const settingParents = {
   actionBarProfit: "totalActionTime",
@@ -1183,6 +1229,7 @@ const settingParents = {
   productionProfit: "actionPanel_totalTime",
   hideReadyProductionShortage: "procurementAssistant",
   showsKeyInfoInIcon: "itemIconLevel",
+  showConsumTips: "itemTooltip_prices",
   itemTooltip_profit: "itemTooltip_prices",
   itemTooltip_profitRequireKey: "itemTooltip_prices",
   lootChestEstimate: "itemTooltip_prices",
@@ -1212,6 +1259,12 @@ for (const [id, parent] of Object.entries(settingParents)) {
 
 const settingListeners = new Map();
 const preferenceListeners = new Map();
+function normalizeTextPreference(value, fallback) {
+  if (typeof value !== "string" && typeof value !== "number") return fallback;
+  const normalized = String(value).trim().slice(0, 256);
+  return normalized || fallback;
+}
+
 const preferenceDefinitions = Object.freeze({
   productionSummaryMode: Object.freeze({
     defaultValue: "collapsed",
@@ -1224,6 +1277,18 @@ const preferenceDefinitions = Object.freeze({
   hoverFontScale: Object.freeze({
     defaultValue: "standard",
     values: Object.freeze(["standard", "large", "largest"]),
+  }),
+  productionQuickHours: Object.freeze({
+    defaultValue: "0.5,1,2,3,4,5,6,10,12,24",
+    normalize(value) {
+      return normalizeTextPreference(value, this.defaultValue);
+    },
+  }),
+  productionQuickCounts: Object.freeze({
+    defaultValue: "10,100,300,500,1000,2000",
+    normalize(value) {
+      return normalizeTextPreference(value, this.defaultValue);
+    },
   }),
 });
 const preferenceValues = Object.fromEntries(
@@ -1240,6 +1305,9 @@ function getSetting(id) {
 function normalizePreference(id, value) {
   const definition = preferenceDefinitions[id];
   if (!definition) return undefined;
+  if (typeof definition.normalize === "function") {
+    return definition.normalize(value);
+  }
   return definition.values.includes(value) ? value : definition.defaultValue;
 }
 
@@ -1342,7 +1410,11 @@ async function applySettingsBatch(
     if (!preferenceDefinitions[id]) {
       throw new TypeError(`Unknown MWITools preference: ${id}`);
     }
-    if (!preferenceDefinitions[id].values.includes(value)) {
+    const definition = preferenceDefinitions[id];
+    if (
+      (definition.values && !definition.values.includes(value)) ||
+      (definition.normalize && typeof value !== "string")
+    ) {
       throw new TypeError(`Invalid MWITools preference value for ${id}`);
     }
   }

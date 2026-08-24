@@ -6,7 +6,10 @@ import {
   resolveLocalizedEntity,
 } from "../core/game-localization.js";
 import { createFrameScheduler } from "../core/frame-scheduler.js";
+import { subscribeMutationChannel } from "../core/mutation-channel.js";
 import { formatRemainingTiming } from "../core/time-format.js";
+import { getGameSpriteHref } from "../core/game-assets.js";
+import { orderCharacterActions } from "../core/message-state.js";
 
 const PRODUCTION_PROFILE_MESSAGES = Object.freeze([
   "init_character_data",
@@ -30,8 +33,8 @@ const PRODUCTION_PANEL_REBUILD_MESSAGES = new Set([
 ]);
 
 const STYLE_ID = "mwitools-action-dashboard-style";
-const QUICK_HOURS = [0.5, 1, 2, 3, 4, 5, 6, 10, 12, 24];
-const QUICK_COUNTS = [10, 100, 300, 500, 1_000, 2_000];
+export const DEFAULT_QUICK_HOURS = [0.5, 1, 2, 3, 4, 5, 6, 10, 12, 24];
+export const DEFAULT_QUICK_COUNTS = [10, 100, 300, 500, 1_000, 2_000];
 const ACTION_SURFACE_SELECTOR =
   'div[class*="Header_actionName"],div[class*="SkillActionDetail_regularComponent"],div[class*="SkillActionDetail_skillActionDetail"]';
 const OWNED_ACTION_UI_SELECTOR =
@@ -42,8 +45,15 @@ const PRODUCTION_MODULE_ORDER = Object.freeze({
   shortage: 30,
   targetLevel: 40,
 });
+const PRODUCTION_RECOVERY_DELAYS = Object.freeze([0, 80, 220, 450, 900, 1_500]);
+const PRODUCTION_RECOVERY_MODULE_SELECTOR =
+  ".mwi-production-extensions,#mwi-production-summary,.mwi-production-quick-inputs,#mwitools-procurement-production,#mwi-level-progress,.mwi-max-action-button,.mwi-production-duration-inline";
+const PRODUCTION_DROPDOWN_SELECTOR =
+  '[role="listbox"],[class*="MuiPopover-root"],[class*="MuiMenu-root"]';
 let productionDataRevision = 0;
 let enhancementTimingCache = { identity: "", count: null };
+let productionRecoveryGeneration = 0;
+const productionRecoveryTimers = new Set();
 
 function t(zh, en) {
   return runtime.config.isZH ? zh : en;
@@ -67,25 +77,6 @@ function formatDuration(seconds) {
 
 function number(value) {
   return runtime.api.createFormattedNumber(value);
-}
-
-function findItemsSpriteBase() {
-  for (const entry of globalThis.performance?.getEntriesByType?.("resource") ??
-    []) {
-    if (entry.name?.includes("items_sprite") && entry.name.endsWith(".svg")) {
-      try {
-        return new URL(entry.name).pathname;
-      } catch {
-        return entry.name;
-      }
-    }
-  }
-  const use = document.querySelector(
-    'svg use[href*="items_sprite"],svg use[xlink\\:href*="items_sprite"]',
-  );
-  const href =
-    use?.getAttribute("href") ?? use?.getAttribute("xlink:href") ?? "";
-  return href.includes("#") ? href.split("#")[0] : "";
 }
 
 function outputItemName(itemHrid) {
@@ -120,10 +111,9 @@ function nativeProductionItem(panel, itemHrid, name) {
   for (const className of [...item.classList]) {
     if (className.includes("Item_clickable")) item.classList.remove(className);
   }
-  const sprite = findItemsSpriteBase();
+  const href = getGameSpriteHref("items", itemHrid);
   const use = item.querySelector("use");
-  if (use && sprite && bare) {
-    const href = `${sprite}#${bare}`;
+  if (use && href && bare) {
     use.setAttribute("href", href);
     use.setAttribute("xlink:href", href);
   }
@@ -140,14 +130,13 @@ function fallbackProductionItem(itemHrid, name) {
   const bare = String(itemHrid ?? "")
     .split("/")
     .at(-1);
-  const sprite = findItemsSpriteBase();
-  if (bare && sprite) {
+  const href = getGameSpriteHref("items", itemHrid);
+  if (bare && href) {
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     svg.classList.add("mwi-production-output-icon");
     svg.setAttribute("viewBox", "0 0 32 32");
     svg.setAttribute("aria-label", name);
     const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
-    const href = `${sprite}#${bare}`;
     use.setAttribute("href", href);
     use.setAttribute("xlink:href", href);
     svg.append(use);
@@ -286,16 +275,60 @@ function getNativeEnhancementCount(host, action) {
   return Number.isSafeInteger(count) && count >= 0 ? count : null;
 }
 
+export function parseProductionDurationSeconds(value) {
+  const token = String(value ?? "").match(/[-+]?\d[\d\s\u00a0\u202f.,]*/)?.[0];
+  if (!token) return null;
+  const number = runtime.api.parseGameNumber(token);
+  return Number.isFinite(number) && number > 0 ? number : null;
+}
+
+export function parseProductionQuickPresets(
+  value,
+  { integer = false, fallback = [] } = {},
+) {
+  const result = [];
+  const seen = new Set();
+  for (const token of String(value ?? "").split(/[,;\s]+/)) {
+    if (!token) continue;
+    const number = Number(token);
+    if (
+      !Number.isFinite(number) ||
+      number <= 0 ||
+      (integer && !Number.isSafeInteger(number))
+    ) {
+      continue;
+    }
+    const key = String(number);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(number);
+  }
+  return result.length ? result : [...fallback];
+}
+
+function productionQuickPresets() {
+  return {
+    hours: parseProductionQuickPresets(
+      runtime.settings.getPreference("productionQuickHours"),
+      { fallback: DEFAULT_QUICK_HOURS },
+    ),
+    counts: parseProductionQuickPresets(
+      runtime.settings.getPreference("productionQuickCounts"),
+      { integer: true, fallback: DEFAULT_QUICK_COUNTS },
+    ),
+  };
+}
+
 function getProductionPanelDuration(panel) {
   for (const value of panel?.querySelectorAll(
     'div[class*="SkillActionDetail_value"]',
   ) ?? []) {
-    const text = String(runtime.api.getOriTextFromElement?.(value) ?? "")
-      .trim()
-      .replaceAll(runtime.config.THOUSAND_SEPERATOR, "")
-      .replace(runtime.config.DECIMAL_SEPERATOR, ".");
-    const match = text.match(/^([\d.]+)\s*s$/i);
-    if (match && Number(match[1]) > 0) return Number(match[1]);
+    const text = String(
+      runtime.api.getOriTextFromElement?.(value) ?? "",
+    ).trim();
+    if (!/s\s*$/i.test(text)) continue;
+    const duration = parseProductionDurationSeconds(text);
+    if (duration) return duration;
   }
   return null;
 }
@@ -335,12 +368,10 @@ function normalizedActionText(value) {
 function actionHeaderNames(actionHrid, detail) {
   const names = new Set([
     detail?.name,
-    runtime.data.ZHActionNames?.[actionHrid],
     getLocalizedEntityName("action", actionHrid),
   ]);
   for (const output of runtime.api.getExpectedOutputs?.(detail) ?? []) {
     names.add(runtime.state.initData_itemDetailMap?.[output.itemHrid]?.name);
-    names.add(runtime.data.ZHItemNames?.[output.itemHrid]);
     names.add(getLocalizedEntityName("item", output.itemHrid));
   }
   return [...names].map(normalizedActionText).filter(Boolean);
@@ -412,9 +443,7 @@ function actionDashboardLayout(host, lastNativeChild) {
 function renderActionDashboard() {
   addStyles();
   const host = document.querySelector('div[class*="Header_actionName"]');
-  const actions = [...(runtime.state.currentActionsHridList ?? [])].sort(
-    (left, right) => Number(left?.ordinal ?? 0) - Number(right?.ordinal ?? 0),
-  );
+  const actions = orderCharacterActions(runtime.state.currentActionsHridList);
   const current = actions[0];
   if (!host || !current) {
     clearActionDashboard();
@@ -566,15 +595,119 @@ function shouldScheduleActionUi(records) {
   });
 }
 
+function shouldSettleActionUi(records) {
+  return records.some((record) =>
+    [...(record.addedNodes ?? []), ...(record.removedNodes ?? [])].some(
+      (node) =>
+        node?.nodeType === 1 &&
+        (node.matches?.(
+          '.mwi-production-extensions,div[class*="SkillActionDetail_regularComponent"],div[class*="SkillActionDetail_skillActionDetail"]',
+        ) ||
+          node.querySelector?.(
+            '.mwi-production-extensions,div[class*="SkillActionDetail_regularComponent"],div[class*="SkillActionDetail_skillActionDetail"]',
+          )),
+    ),
+  );
+}
+
+function clearProductionRecoveryTimers() {
+  for (const timer of productionRecoveryTimers) clearTimeout(timer);
+  productionRecoveryTimers.clear();
+}
+
+function recoverProductionModules() {
+  const context = resolveActiveProductionPanelContext();
+  if (!context?.panel?.isConnected) return false;
+  if (runtime.settings.get("actionPanel_totalTime_quickInputs")) {
+    renderProductionQuickInputs();
+  }
+  if (runtime.settings.get("productionSummary")) renderProductionPanel();
+  if (
+    runtime.settings.get("procurementAssistant") &&
+    typeof runtime.api.renderProductionProcurement === "function"
+  ) {
+    runtime.api.renderProductionProcurement();
+  }
+  if (
+    runtime.settings.get("actionPanel_totalTime") &&
+    typeof runtime.api.refreshProductionActionPanel === "function"
+  ) {
+    runtime.api.refreshProductionActionPanel(context.panel);
+  }
+  return true;
+}
+
+function scheduleProductionUiRecovery() {
+  productionRecoveryGeneration += 1;
+  const generation = productionRecoveryGeneration;
+  clearProductionRecoveryTimers();
+  for (const delay of PRODUCTION_RECOVERY_DELAYS) {
+    const timer = setTimeout(() => {
+      productionRecoveryTimers.delete(timer);
+      if (generation !== productionRecoveryGeneration) return;
+      recoverProductionModules();
+    }, delay);
+    productionRecoveryTimers.add(timer);
+  }
+  return generation;
+}
+
+function shouldRecoverProductionUi(records) {
+  return records.some((record) => {
+    const target = mutationElement(record.target);
+    if (
+      record.type === "attributes" &&
+      record.attributeName === "aria-hidden" &&
+      (target?.matches?.(ACTION_SURFACE_SELECTOR) ||
+        target?.querySelector?.(ACTION_SURFACE_SELECTOR))
+    ) {
+      return true;
+    }
+    const added = [...(record.addedNodes ?? [])].filter(
+      (node) => node?.nodeType === 1,
+    );
+    if (
+      added.some(
+        (node) =>
+          node.matches?.(PRODUCTION_DROPDOWN_SELECTOR) ||
+          node.querySelector?.(PRODUCTION_DROPDOWN_SELECTOR) ||
+          node.matches?.(ACTION_SURFACE_SELECTOR) ||
+          node.querySelector?.(ACTION_SURFACE_SELECTOR),
+      )
+    ) {
+      return true;
+    }
+    return [...(record.removedNodes ?? [])].some(
+      (node) =>
+        node?.nodeType === 1 &&
+        (node.matches?.(PRODUCTION_RECOVERY_MODULE_SELECTOR) ||
+          node.querySelector?.(PRODUCTION_RECOVERY_MODULE_SELECTOR) ||
+          node.matches?.(ACTION_SURFACE_SELECTOR) ||
+          node.querySelector?.(ACTION_SURFACE_SELECTOR)),
+    );
+  });
+}
+
 function bindActionUiRenderer(scope, render, messages = []) {
   const scheduler = createFrameScheduler(render);
   const schedule = () => scheduler.schedule();
-  const MutationObserverRef =
-    globalThis.MutationObserver ?? document.defaultView?.MutationObserver;
-  const observer = new MutationObserverRef((records) => {
-    if (shouldScheduleActionUi(records)) schedule();
-  });
-  scope.observer(observer, document.body, { childList: true, subtree: true });
+  subscribeMutationChannel(
+    {
+      name: "action-ui",
+      target: document.body,
+      options: { childList: true, subtree: true },
+      scope,
+    },
+    (records) => {
+      if (!shouldScheduleActionUi(records)) return;
+      schedule();
+      if (shouldSettleActionUi(records)) {
+        scope.timeout(schedule, 80);
+        scope.timeout(schedule, 220);
+        scope.timeout(schedule, 450);
+      }
+    },
+  );
   const scheduleFromInput = (event) => {
     if (event.target?.closest?.(ACTION_SURFACE_SELECTOR)) schedule();
   };
@@ -599,9 +732,10 @@ function bindActionUiRenderer(scope, render, messages = []) {
 function isHiddenActionElement(element) {
   for (let current = element; current; current = current.parentElement) {
     const className = String(current.className ?? "");
+    // MUI Select/Popover temporarily aria-hides the underlying modal while its
+    // portal is open. That changes the accessibility tree, not visual display.
     if (
       current.hidden ||
-      current.getAttribute?.("aria-hidden") === "true" ||
       current.style?.display === "none" ||
       current.style?.visibility === "hidden" ||
       (/MainPanel_/.test(className) && /hidden/i.test(className))
@@ -830,15 +964,22 @@ function renderProductionQuickInputs() {
 
   let host = panel.querySelector(".mwi-production-quick-inputs");
   const duration = getProductionPanelDuration(panel);
+  const presets = productionQuickPresets();
+  const presetSignature = `${presets.hours.join(",")}|${presets.counts.join(",")}`;
+  if (host && host.dataset.presetSignature !== presetSignature) {
+    host.remove();
+    host = null;
+  }
   if (!host) {
     host = document.createElement("div");
     host.className = "mwi-production-quick-inputs";
+    host.dataset.presetSignature = presetSignature;
     const hours = createProductionQuickRow({
       panel,
       input,
       id: "quickInputHourButtons",
       label: t("时长", "Hours"),
-      values: QUICK_HOURS,
+      values: presets.hours,
       resolveCount: (hoursValue) => {
         const liveDuration = getProductionPanelDuration(panel);
         return getMinimumCountForDuration(
@@ -853,7 +994,7 @@ function renderProductionQuickInputs() {
       input,
       id: "quickInputCountButtons",
       label: t("次数", "Count"),
-      values: QUICK_COUNTS,
+      values: presets.counts,
       resolveCount: (count) => count,
     });
     host.append(hours, counts);
@@ -1220,6 +1361,36 @@ function removeActionUi() {
 }
 
 runtime.features.register({
+  id: "productionUiRecovery",
+  scope: "global",
+  initialize({ scope }) {
+    const attach = () => {
+      if (!document.body) return false;
+      const MutationObserverRef =
+        globalThis.MutationObserver ?? document.defaultView?.MutationObserver;
+      if (!MutationObserverRef) return false;
+      const observer = new MutationObserverRef((records) => {
+        if (shouldRecoverProductionUi(records)) scheduleProductionUiRecovery();
+      });
+      scope.observer(observer, document.body, {
+        attributes: true,
+        attributeFilter: ["aria-hidden"],
+        childList: true,
+        subtree: true,
+      });
+      return true;
+    };
+    if (!attach()) {
+      scope.event(document, "DOMContentLoaded", attach, { once: true });
+    }
+    scope.add(() => {
+      productionRecoveryGeneration += 1;
+      clearProductionRecoveryTimers();
+    });
+  },
+});
+
+runtime.features.register({
   id: "totalActionTime",
   setting: "totalActionTime",
   scope: "character",
@@ -1268,6 +1439,16 @@ runtime.features.register({
       "actions_updated",
       ...PRODUCTION_PROFILE_MESSAGES,
     ]);
+    scope.add(
+      runtime.settings.onPreferenceChange?.("productionQuickHours", () =>
+        renderProductionQuickInputs(),
+      ),
+    );
+    scope.add(
+      runtime.settings.onPreferenceChange?.("productionQuickCounts", () =>
+        renderProductionQuickInputs(),
+      ),
+    );
     scope.add(removeProductionQuickInputs);
   },
 });
@@ -1329,11 +1510,14 @@ Object.assign(runtime.api, {
   renderActionDashboard,
   renderProductionPanel,
   getProductionPanelDuration,
+  parseProductionDurationSeconds,
+  parseProductionQuickPresets,
   getLiveActionTiming,
   resolveProductionAction: resolvePanelAction,
   resolveActiveProductionPanelContext,
   getProductionPanelMount,
   mountProductionModule,
+  scheduleProductionUiRecovery,
   renderProductionQuickInputs,
   removeProductionQuickInputs,
   removeActionUi,

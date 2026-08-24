@@ -13,12 +13,14 @@ localStorage.setItem("i18nextLng", "en");
 
 const { runtime } = await import("../src/core/runtime.js");
 await import("../src/core/config.js");
-await import("../src/data/translations.js");
+await import("../src/core/game-data.js");
 await import("../src/core/state.js");
 const {
   SUPPORTED_GAME_LOCALES,
   extractGameLocaleResources,
+  extractReactGameLocaleResources,
   getGameLocale,
+  getGameLocaleResources,
   getGameTranslation,
   getLocalizedEntityName,
   matchesGameTranslation,
@@ -98,7 +100,7 @@ for (const [locale, [moduleId, chunkId]] of Object.entries(
   modules[moduleId].chunkId = chunkId;
 }
 
-globalThis.unsafeWindow = {
+const webpackWindow = {
   webpackJsonprpg_web: [
     [[0], { 400: modules[400] }],
     ...Object.entries(modules)
@@ -109,6 +111,7 @@ globalThis.unsafeWindow = {
       ]),
   ],
 };
+globalThis.unsafeWindow = webpackWindow;
 
 runtime.state.initData_itemDetailMap = {
   "/items/coin": { name: "Coin", isTradable: true },
@@ -122,6 +125,13 @@ runtime.state.initData_abilityDetailMap = {
 };
 runtime.state.initData_monsterDetailMap = {
   "/monsters/rat": { name: "Rat" },
+};
+runtime.state.clientData = {
+  versionTimestamp: "fixture-v1",
+  itemDetailMap: runtime.state.initData_itemDetailMap,
+  actionDetailMap: runtime.state.initData_actionDetailMap,
+  abilityDetailMap: runtime.state.initData_abilityDetailMap,
+  combatMonsterDetailMap: runtime.state.initData_monsterDetailMap,
 };
 
 test("normalizes every built-in game locale without collapsing Traditional Chinese", () => {
@@ -153,6 +163,28 @@ test("extracts and validates the official lazy locale modules", () => {
   }
 });
 
+test("React i18n resources take priority for the currently loaded locale", () => {
+  const resources = {
+    itemNames: { "/items/coin": "React コイン" },
+    actionNames: { "/actions/milking/cow": "React 乳牛" },
+    monsterNames: { "/monsters/rat": "React ネズミ" },
+    abilityNames: { "/abilities/strike": "React 強打" },
+  };
+  const root = document.createElement("div");
+  root.id = "root";
+  root.__reactFiber$test = {
+    memoizedProps: {
+      i18n: { options: { resources: { ja: { translation: resources } } } },
+    },
+  };
+  document.body.append(root);
+  assert.equal(extractReactGameLocaleResources("ja"), resources);
+  localStorage.setItem("i18nextLng", "ja");
+  resetGameLocalizationCache();
+  assert.equal(getGameLocaleResources("ja"), resources);
+  root.remove();
+});
+
 test("resolves items, actions, monsters, and abilities in all nine languages", () => {
   for (const locale of SUPPORTED_GAME_LOCALES) {
     localStorage.setItem("i18nextLng", locale);
@@ -180,6 +212,75 @@ test("resolves items, actions, monsters, and abilities in all nine languages", (
     );
     assert.equal(getLocalizedEntityName("item", "/items/coin"), coin);
   }
+});
+
+test("English fallback resources are reused until the game data source changes", () => {
+  localStorage.setItem("i18nextLng", "en");
+  resetGameLocalizationCache();
+  const first = getGameLocaleResources("en");
+  assert.strictEqual(getGameLocaleResources("en"), first);
+
+  const previousClientData = runtime.state.clientData;
+  runtime.state.clientData = {
+    ...previousClientData,
+    versionTimestamp: "fixture-v2",
+    itemDetailMap: {
+      ...previousClientData.itemDetailMap,
+      "/items/cache_probe": { name: "Cache Probe" },
+    },
+  };
+  const refreshed = getGameLocaleResources("en");
+  assert.notStrictEqual(refreshed, first);
+  assert.equal(refreshed.itemNames["/items/cache_probe"], "Cache Probe");
+
+  runtime.state.clientData = previousClientData;
+  resetGameLocalizationCache();
+});
+
+test("direct English labels see in-place game data additions without rebuilding the cache", () => {
+  localStorage.setItem("i18nextLng", "en");
+  resetGameLocalizationCache();
+  const resources = getGameLocaleResources("en");
+  runtime.state.clientData.itemDetailMap["/items/live_cache_probe"] = {
+    name: "Live Cache Probe",
+  };
+
+  assert.equal(
+    getLocalizedEntityName("item", "/items/live_cache_probe"),
+    "Live Cache Probe",
+  );
+  assert.strictEqual(getGameLocaleResources("en"), resources);
+
+  delete runtime.state.clientData.itemDetailMap["/items/live_cache_probe"];
+  resetGameLocalizationCache();
+});
+
+test("localized hits do not eagerly build the English fallback", () => {
+  const previousClientData = runtime.state.clientData;
+  let englishEnumerations = 0;
+  runtime.state.clientData = {
+    ...previousClientData,
+    versionTimestamp: "lazy-fallback-v1",
+    itemDetailMap: new Proxy(previousClientData.itemDetailMap, {
+      ownKeys(target) {
+        englishEnumerations += 1;
+        return Reflect.ownKeys(target);
+      },
+    }),
+  };
+  registerGameLocaleResources("zh", {
+    itemNames: { "/items/coin": "金币" },
+    actionNames: { "/actions/milking/cow": "奶牛" },
+    monsterNames: { "/monsters/rat": "老鼠" },
+    abilityNames: { "/abilities/strike": "猛击" },
+  });
+  localStorage.setItem("i18nextLng", "zh");
+  assert.equal(resolveLocalizedEntity("item", "金币"), "/items/coin");
+  assert.equal(englishEnumerations, 0);
+
+  runtime.state.clientData = previousClientData;
+  localStorage.setItem("i18nextLng", "en");
+  resetGameLocalizationCache();
 });
 
 test("language switching changes resources without retaining the previous locale", () => {
@@ -256,4 +357,35 @@ test("resolves sprite HRIDs before localized aria labels", () => {
 test("unknown names and missing locale modules fail safely", () => {
   assert.equal(resolveLocalizedEntity("item", "not an item"), "");
   assert.equal(extractGameLocaleResources("fr", {}), null);
+});
+
+test("locale cache is scoped to the game version and falls back safely", () => {
+  const cachedResources = {
+    itemNames: { "/items/coin": "Pièce en cache" },
+    actionNames: { "/actions/milking/cow": "Vache en cache" },
+    monsterNames: { "/monsters/rat": "Rat en cache" },
+    abilityNames: { "/abilities/strike": "Frappe en cache" },
+  };
+  runtime.state.clientData.versionTimestamp = "cache-v1";
+  registerGameLocaleResources("fr", cachedResources);
+  assert.ok(
+    [...Array(localStorage.length).keys()]
+      .map((index) => localStorage.key(index))
+      .some((key) => key.includes("cache-v1") && key.endsWith(":fr")),
+  );
+
+  resetGameLocalizationCache();
+  globalThis.unsafeWindow = {};
+  assert.equal(
+    getLocalizedEntityName("item", "/items/coin", { locale: "fr" }),
+    "Pièce en cache",
+  );
+
+  runtime.state.clientData.versionTimestamp = "cache-v2";
+  resetGameLocalizationCache();
+  assert.equal(
+    getLocalizedEntityName("item", "/items/coin", { locale: "fr" }),
+    "Coin",
+  );
+  globalThis.unsafeWindow = webpackWindow;
 });

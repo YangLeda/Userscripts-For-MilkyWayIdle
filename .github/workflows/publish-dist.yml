@@ -1,0 +1,92 @@
+name: Publish userscript to CloudFront
+
+# Releases the built userscript to the self-hosted S3 + CloudFront channel
+# whenever MWITools.js lands on main (i.e. a PR is merged). Update checks read
+# the tiny meta.js; the full user.js is only re-downloaded when @version bumps.
+
+on:
+  push:
+    branches: [main]
+    paths: ["MWITools.js"]
+  workflow_dispatch: {}
+
+# OIDC: mint a short-lived token to assume the AWS role — no stored secrets.
+# The role needs CreateInvalidation; the CDN completes it asynchronously.
+permissions:
+  id-token: write
+  contents: read
+
+# Never run two publishes at once; let the latest finish rather than cancel it.
+concurrency:
+  group: publish-dist
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: us-east-1
+  BUCKET: mwitools-dist-992382556533
+  DISTRIBUTION_ID: E1M7JM6T9ZXOOC
+  CF_DOMAIN: darbl6xu92arr.cloudfront.net
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::992382556533:role/mwitools-dist-github-actions
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Build distribution artifacts
+        run: |
+          set -euo pipefail
+          # Point auto-update at CloudFront instead of GreasyFork.
+          sed -e "s#https://update.greasyfork.org/scripts/494467/MWITools.meta.js#https://${CF_DOMAIN}/mwitools.meta.js#" \
+              -e "s#https://update.greasyfork.org/scripts/494467/MWITools.user.js#https://${CF_DOMAIN}/mwitools.user.js#" \
+              MWITools.js > mwitools.user.js
+          awk '/==UserScript==/{f=1} f{print} /==\/UserScript==/{exit}' \
+              mwitools.user.js > mwitools.meta.js
+
+          fail() {
+            echo "::error::$1" >&2
+            exit 1
+          }
+          [[ -s mwitools.user.js ]] || fail "Built userscript is empty"
+          [[ -s mwitools.meta.js ]] || fail "Extracted metadata is empty"
+          grep -Fxq '// ==UserScript==' mwitools.meta.js || fail "Metadata header is missing"
+          grep -Fxq '// ==/UserScript==' mwitools.meta.js || fail "Metadata footer is missing"
+
+          version="$(awk '$2 == "@version" { print $3; exit }' mwitools.meta.js)"
+          update_url="$(awk '$2 == "@updateURL" { print $3; exit }' mwitools.meta.js)"
+          download_url="$(awk '$2 == "@downloadURL" { print $3; exit }' mwitools.meta.js)"
+          [[ -n "${version}" ]] || fail "Userscript version is empty"
+          [[ "${update_url}" == "https://${CF_DOMAIN}/mwitools.meta.js" ]] || \
+            fail "CloudFront update URL was not generated"
+          [[ "${download_url}" == "https://${CF_DOMAIN}/mwitools.user.js" ]] || \
+            fail "CloudFront download URL was not generated"
+          if grep -Fq 'https://update.greasyfork.org/scripts/494467/MWITools.' mwitools.user.js; then
+            fail "A GreasyFork auto-update URL remains in the distribution"
+          fi
+          echo "VERSION=${version}" >> "$GITHUB_ENV"
+
+      - name: Upload to S3
+        run: |
+          set -euo pipefail
+          aws s3 cp mwitools.user.js "s3://${BUCKET}/mwitools.user.js" \
+            --content-type "text/javascript; charset=utf-8" --cache-control "max-age=3600"
+          aws s3 cp mwitools.meta.js "s3://${BUCKET}/mwitools.meta.js" \
+            --content-type "text/javascript; charset=utf-8" --cache-control "max-age=300"
+
+      - name: Invalidate CloudFront
+        run: |
+          set -euo pipefail
+          aws cloudfront create-invalidation \
+            --distribution-id "${DISTRIBUTION_ID}" \
+            --paths "/mwitools.user.js" "/mwitools.meta.js" \
+            --query 'Invalidation.Id' \
+            --output text
+
+      - name: Summary
+        run: echo "Uploaded v${VERSION} and requested CDN invalidation → https://${CF_DOMAIN}/mwitools.user.js" >> "$GITHUB_STEP_SUMMARY"

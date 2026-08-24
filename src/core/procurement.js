@@ -1284,6 +1284,83 @@ function consumePurchaseSuppression(key, delta) {
   return remaining;
 }
 
+function reconcileProjectCartAllocations() {
+  const desiredByKey = new Map();
+  const activePlans = [...plans.values()]
+    .filter((plan) => plan.status !== "completed")
+    .sort(
+      (left, right) =>
+        String(left.createdAt ?? "").localeCompare(
+          String(right.createdAt ?? ""),
+        ) || String(left.id).localeCompare(String(right.id)),
+    );
+  const demandsByKey = new Map();
+  for (const plan of activePlans) {
+    for (const [key, quantity] of Object.entries(plan.materials ?? {})) {
+      const demand = Math.max(0, Math.ceil(Number(quantity) || 0));
+      if (!demand || isCoin(parseItemKey(key).itemHrid)) continue;
+      if (!demandsByKey.has(key)) demandsByKey.set(key, []);
+      demandsByKey.get(key).push({ planId: String(plan.id), demand });
+    }
+  }
+  for (const [key, demands] of demandsByKey) {
+    const parsed = parseItemKey(key);
+    let available = getInventoryCount(parsed.itemHrid, parsed.enhancementLevel);
+    const desired = {};
+    for (const { planId, demand } of demands) {
+      const covered = Math.min(available, demand);
+      available -= covered;
+      const shortage = demand - covered;
+      if (shortage > 0) desired[planId] = shortage;
+    }
+    desiredByKey.set(key, desired);
+  }
+
+  let changed = false;
+  for (const [key, row] of [...cart]) {
+    let rowChanged = false;
+    const current = normalizeAllocations(
+      row.allocations,
+      row.quantity,
+    ).projects;
+    const desired = desiredByKey.get(key) ?? {};
+    const projectIds = new Set([
+      ...Object.keys(current),
+      ...Object.keys(desired),
+    ]);
+    for (const id of projectIds) {
+      const delta = (desired[id] ?? 0) - (current[id] ?? 0);
+      if (!delta) continue;
+      changeAllocation(row, { kind: "project", id }, delta);
+      changed = true;
+      rowChanged = true;
+    }
+    if (!rowChanged) continue;
+    row.baselineStock = getInventoryCount(row.itemHrid, row.enhancementLevel);
+    row.updatedAt = new Date().toISOString();
+    if (row.quantity <= 0 && !row.starred) cart.delete(key);
+  }
+
+  const additions = [];
+  for (const [key, desired] of desiredByKey) {
+    if (cart.has(key)) continue;
+    const parsed = parseItemKey(key);
+    for (const [projectId, quantity] of Object.entries(desired)) {
+      additions.push({
+        itemHrid: parsed.itemHrid,
+        enhancementLevel: parsed.enhancementLevel,
+        name: resolveItemName(parsed.itemHrid),
+        quantity,
+        source: "project",
+        allocation: { kind: "project", projectId },
+      });
+    }
+  }
+  if (changed) saveCartAndEmit({ reason: "allocation" });
+  const added = additions.length ? addToCart(additions).added : 0;
+  return changed || added > 0;
+}
+
 function applyInventoryUpdates(items) {
   const before = inventoryCounts();
   for (const item of items ?? []) {
@@ -1333,11 +1410,39 @@ function applyInventoryUpdates(items) {
     }
   }
   applyRestockThresholds();
+  reconcileProjectCartAllocations();
   refreshPlanProgress();
   persistData();
   emit("inventory:change", {
     changes: changes.map(({ key: _key, ...change }) => change),
   });
+}
+
+function replaceInventorySnapshot(items) {
+  const snapshot = (items ?? [])
+    .filter((item) => item?.itemHrid && Number(item.count) > 0)
+    .map((item) => ({ ...item }));
+  const before = inventoryCounts();
+  const removals = [...inventoryEntries.values()].map((item) => ({
+    ...item,
+    count: 0,
+  }));
+  applyInventoryUpdates([...removals, ...snapshot]);
+  applyRestockThresholds();
+  reconcileProjectCartAllocations();
+  const after = inventoryCounts();
+  const keys = new Set([...before.keys(), ...after.keys()]);
+  const changedItemCount = [...keys].filter(
+    (key) => (before.get(key) ?? 0) !== (after.get(key) ?? 0),
+  ).length;
+  return {
+    stackCount: snapshot.length,
+    changedItemCount,
+    cartItemCount: [...cart.values()].filter((row) => row.quantity > 0).length,
+    projectCount: [...plans.values()].filter(
+      (plan) => plan.status !== "completed",
+    ).length,
+  };
 }
 
 function applyRestockThresholds() {
@@ -1701,6 +1806,7 @@ Object.assign(runtime.api, {
     setPlanningData,
     confirmMarketPurchase,
     applyInventoryUpdates,
+    replaceInventorySnapshot,
     applyRestockThresholds,
     recordActionCompletion,
     parsePurchaseConfirmation,

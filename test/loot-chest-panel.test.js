@@ -28,8 +28,9 @@ localStorage.setItem("i18nextLng", "zh-CN");
 
 const { runtime } = await import("../src/core/runtime.js");
 await import("../src/core/config.js");
-await import("../src/data/translations.js");
+await import("../src/core/game-data.js");
 await import("../src/core/state.js");
+await import("../src/core/market.js");
 await import("../src/core/action-projection.js");
 await import("../src/core/asset-values.js");
 await import("../src/features/settings-and-notifications.js");
@@ -259,6 +260,70 @@ test("loot projection weights drops and includes best token redemptions", () => 
   assert.equal(chest.keyCost, 300);
   assert.equal(chest.netValue, 5_055);
   assert.deepEqual(chest.missing, [ITEM.junk]);
+});
+
+test("dungeon and refinement chests also subtract their matching entry key", () => {
+  const dungeonChestHrids = [
+    "/items/chimerical_chest",
+    "/items/chimerical_refinement_chest",
+  ];
+  const entryKeyItemHrid = "/items/chimerical_entry_key";
+  runtime.state.initData_itemDetailMap[entryKeyItemHrid] = {
+    hrid: entryKeyItemHrid,
+  };
+  for (const chestHrid of dungeonChestHrids) {
+    runtime.state.initData_itemDetailMap[chestHrid] = {
+      hrid: chestHrid,
+      openKeyItemHrid: ITEM.key,
+    };
+    runtime.state.initData_openableLootDropMap[chestHrid] = [
+      { itemHrid: ITEM.coin, dropRate: 1, count: 1_000 },
+    ];
+  }
+  askPrices.set(entryKeyItemHrid, 50);
+  bidPrices.set(entryKeyItemHrid, 40);
+  setLootSettings({
+    sellAtAsk: false,
+    buyAtAsk: true,
+    fromFragments: false,
+  });
+
+  for (const chestHrid of dungeonChestHrids) {
+    const chest = runtime.api.projectLootChest(chestHrid);
+    assert.equal(chest.entryKeyItemHrid, entryKeyItemHrid);
+    assert.equal(chest.chestKeyCost, 300);
+    assert.equal(chest.entryKeyCost, 50);
+    assert.equal(chest.keyCost, 350);
+    assert.equal(chest.netValue, 650);
+    assert.equal(chest.complete, true);
+  }
+
+  const panel = runtime.api.showLootChestPanel(
+    ensureAnchor(),
+    dungeonChestHrids[0],
+  );
+  assert.match(panel.textContent, /开箱钥匙/);
+  assert.match(panel.textContent, /门票钥匙/);
+  runtime.api.hideProductionProfitPanel();
+
+  setLootSettings({
+    sellAtAsk: false,
+    buyAtAsk: false,
+    fromFragments: false,
+  });
+  const bid = runtime.api.projectLootChest(dungeonChestHrids[0]);
+  assert.equal(bid.chestKeyCost, 240);
+  assert.equal(bid.entryKeyCost, 40);
+  assert.equal(bid.keyCost, 280);
+  assert.equal(bid.netValue, 720);
+
+  askPrices.delete(entryKeyItemHrid);
+  bidPrices.delete(entryKeyItemHrid);
+  delete runtime.state.initData_itemDetailMap[entryKeyItemHrid];
+  for (const chestHrid of dungeonChestHrids) {
+    delete runtime.state.initData_itemDetailMap[chestHrid];
+    delete runtime.state.initData_openableLootDropMap[chestHrid];
+  }
 });
 
 test("sell-side changes can select a different best redemption", () => {
@@ -697,27 +762,118 @@ test("loot chest estimates share the configured key and work without production 
   runtime.config.isZH = true;
 });
 
-test("removed consumable efficiency content is no longer appended", async () => {
+test("consumable tooltips use market value for HP and MP efficiency", async () => {
   runtime.api.hideProductionProfitPanel();
   runtime.config.isZH = false;
   runtime.state.itemEnNameToHridMap["artisan tea"] = ITEM.artisanTea;
   runtime.state.initData_itemDetailMap[ITEM.artisanTea].consumableDetail = {
     buffs: [{ typeHrid: "/buff_types/artisan", flatBoost: 0.1 }],
     hitpointRestore: 500,
+    manapointRestore: 200,
     cooldownDuration: 60_000_000_000,
   };
-  runtime.settings.settingsMap.itemTooltip_prices.isTrue = false;
+  const originalFetchMarketJSON = runtime.api.fetchMarketJSON;
+  const originalGetFairValue = runtime.api.getFairValue;
+  runtime.api.fetchMarketJSON = async () => ({
+    marketData: {
+      [ITEM.artisanTea]: { 0: { a: 999, b: 50 } },
+    },
+  });
+  runtime.api.getFairValue = () => 120;
+  runtime.settings.settingsMap.itemTooltip_prices.isTrue = true;
+  runtime.settings.settingsMap.showConsumTips.isTrue = true;
   runtime.settings.settingsMap.itemTooltip_profit.isTrue = false;
   const tooltip = document.createElement("div");
   tooltip.className = "MuiTooltip-popper";
   tooltip.style.transform = "translate3d(0px, 0px, 0px)";
   tooltip.innerHTML =
-    '<div class="ItemTooltipText_name__2JAHA"><span>artisan tea</span></div><div class="separator"></div>';
+    '<div class="ItemTooltipText_name__2JAHA"><span>artisan tea</span></div><div><span>Count: 10</span></div><div class="separator"></div>';
   document.body.append(tooltip);
   await runtime.api.handleTooltipItem(tooltip);
-  assert.doesNotMatch(tooltip.textContent, /coins\/100hp|hp\/min|\/day/);
+  assert.match(
+    tooltip.textContent,
+    /Consumable efficiency: 24 coins\/100hp, 60 coins\/100mp/,
+  );
+  assert.doesNotMatch(tooltip.textContent, /200 coins\/100hp|hp\/min|\/day/);
   tooltip.remove();
+
+  runtime.config.isZH = true;
+  const zhTooltip = document.createElement("div");
+  zhTooltip.className = "MuiTooltip-popper";
+  zhTooltip.style.transform = "translate3d(0px, 0px, 0px)";
+  zhTooltip.innerHTML =
+    '<div class="ItemTooltipText_name__2JAHA"><span>artisan tea</span></div><div class="separator"></div>';
+  document.body.append(zhTooltip);
+  await runtime.api.handleTooltipItem(zhTooltip);
+  assert.match(zhTooltip.textContent, /消耗品性价比：24金\/100血，60金\/100蓝/);
+  zhTooltip.remove();
+
+  runtime.api.fetchMarketJSON = originalFetchMarketJSON;
+  runtime.api.getFairValue = originalGetFairValue;
+  runtime.settings.settingsMap.itemTooltip_profit.isTrue = true;
+  runtime.config.isZH = true;
+});
+
+test("consumable efficiency handles toggles, missing values, and market suppression", async () => {
+  runtime.config.isZH = false;
+  runtime.state.itemEnNameToHridMap["artisan tea"] = ITEM.artisanTea;
+  runtime.state.initData_itemDetailMap[ITEM.artisanTea].consumableDetail = {
+    hitpointRestore: 500,
+  };
+  const originalFetchMarketJSON = runtime.api.fetchMarketJSON;
+  const originalGetFairValue = runtime.api.getFairValue;
+  const originalShouldSuppressMarketFeatures =
+    runtime.api.shouldSuppressMarketFeatures;
+  runtime.api.fetchMarketJSON = async () => ({
+    marketData: { [ITEM.artisanTea]: { 0: { a: 999, b: 50 } } },
+  });
+  runtime.api.getFairValue = () => 0;
+  runtime.api.shouldSuppressMarketFeatures = () => false;
   runtime.settings.settingsMap.itemTooltip_prices.isTrue = true;
+  runtime.settings.settingsMap.itemTooltip_profit.isTrue = false;
+
+  const makeTooltip = () => {
+    const tooltip = document.createElement("div");
+    tooltip.className = "MuiTooltip-popper";
+    tooltip.style.transform = "translate3d(0px, 0px, 0px)";
+    tooltip.innerHTML =
+      '<div class="ItemTooltipText_name__2JAHA"><span>artisan tea</span></div><div class="separator"></div>';
+    document.body.append(tooltip);
+    return tooltip;
+  };
+
+  runtime.settings.settingsMap.showConsumTips.isTrue = true;
+  let tooltip = makeTooltip();
+  await runtime.api.handleTooltipItem(tooltip);
+  assert.match(tooltip.textContent, /Consumable efficiency: -/);
+  tooltip.remove();
+
+  runtime.settings.settingsMap.showConsumTips.isTrue = false;
+  tooltip = makeTooltip();
+  await runtime.api.handleTooltipItem(tooltip);
+  assert.doesNotMatch(tooltip.textContent, /Consumable efficiency/);
+  tooltip.remove();
+
+  runtime.settings.settingsMap.showConsumTips.isTrue = true;
+  runtime.state.initData_itemDetailMap[ITEM.artisanTea].consumableDetail = {};
+  tooltip = makeTooltip();
+  await runtime.api.handleTooltipItem(tooltip);
+  assert.doesNotMatch(tooltip.textContent, /Consumable efficiency/);
+  tooltip.remove();
+
+  runtime.state.initData_itemDetailMap[ITEM.artisanTea].consumableDetail = {
+    hitpointRestore: 500,
+  };
+  runtime.api.shouldSuppressMarketFeatures = () => true;
+  tooltip = makeTooltip();
+  await runtime.api.handleTooltipItem(tooltip);
+  assert.doesNotMatch(tooltip.textContent, /Consumable efficiency/);
+  tooltip.remove();
+
+  runtime.api.fetchMarketJSON = originalFetchMarketJSON;
+  runtime.api.getFairValue = originalGetFairValue;
+  runtime.api.shouldSuppressMarketFeatures =
+    originalShouldSuppressMarketFeatures;
   runtime.settings.settingsMap.itemTooltip_profit.isTrue = true;
   runtime.config.isZH = true;
 });

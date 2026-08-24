@@ -7,6 +7,8 @@ const COWBELL_TAX_RATE = 0.18;
 const MARKET_MAX_PRICE = 1_000_000_000_000;
 const TEST_MARKET_REFRESH_MS = 10 * 60 * 1000;
 const PRODUCTION_MARKET_REFRESH_MS = 6 * 60 * 60 * 1000;
+const MARKET_FALLBACK_URL =
+  "https://q7.nainai.eu.org/game_data/marketplace.json";
 
 let assetValuationMarketSnapshot = null;
 let assetValuationMarketDirty = false;
@@ -31,7 +33,7 @@ function getMarketApiUrl(hostname = globalThis.location?.hostname ?? "") {
     case "test":
       return "https://test.milkywayidle.com/game_data/marketplace.json";
     case "china":
-      return "https://www.milkywayidlecn.com/game_data/marketplace.json";
+      return "https://milkywayidlecn.com/game_data/marketplace.json";
     default:
       return "https://www.milkywayidle.com/game_data/marketplace.json";
   }
@@ -214,23 +216,84 @@ function normalizeMarketPrice(price, minimum = 1, maximum = MARKET_MAX_PRICE) {
   return Math.min(Math.max(normalized, minimum), maximum);
 }
 
-export function parseCompactNumber(value) {
+function normalizeGameNumberToken(token) {
+  let normalized = String(token ?? "").replaceAll(/[\s\u00a0\u202f]/g, "");
+  if (!/^[+-]?(?:\d[\d.,]*|[.,]\d+)$/.test(normalized)) return null;
+
+  const sign = normalized.startsWith("-")
+    ? "-"
+    : normalized.startsWith("+")
+      ? "+"
+      : "";
+  if (sign) normalized = normalized.slice(1);
+  const dotCount = (normalized.match(/\./g) ?? []).length;
+  const commaCount = (normalized.match(/,/g) ?? []).length;
+  let decimalIndex = -1;
+
+  if (dotCount && commaCount) {
+    decimalIndex = Math.max(
+      normalized.lastIndexOf("."),
+      normalized.lastIndexOf(","),
+    );
+  } else if (dotCount || commaCount) {
+    const separator = dotCount ? "." : ",";
+    const parts = normalized.split(separator);
+    if (parts.length === 2 && parts[0] === "") {
+      decimalIndex = 0;
+    } else if (parts.length > 2) {
+      const looksGrouped =
+        parts[0].length >= 1 &&
+        parts[0].length <= 3 &&
+        parts.slice(1).every((part) => part.length === 3);
+      if (!looksGrouped) decimalIndex = normalized.lastIndexOf(separator);
+    } else {
+      const fractionLength = parts[1]?.length ?? 0;
+      if (fractionLength > 0 && fractionLength <= 2) {
+        decimalIndex = normalized.lastIndexOf(separator);
+      } else if (
+        fractionLength > 0 &&
+        separator === runtime.config.DECIMAL_SEPERATOR &&
+        separator !== runtime.config.THOUSAND_SEPERATOR
+      ) {
+        decimalIndex = normalized.lastIndexOf(separator);
+      }
+    }
+  }
+
+  if (decimalIndex >= 0) {
+    const whole = normalized.slice(0, decimalIndex).replaceAll(/[.,]/g, "");
+    const fraction = normalized.slice(decimalIndex + 1).replaceAll(/[.,]/g, "");
+    if (!fraction) return null;
+    normalized = `${whole || "0"}.${fraction}`;
+  } else {
+    normalized = normalized.replaceAll(/[.,]/g, "");
+  }
+  return `${sign}${normalized}`;
+}
+
+export function parseGameNumber(value, { allowCompactSuffix = false } = {}) {
   if (typeof value === "number") return value;
-  const thousandSeparator = runtime.config.THOUSAND_SEPERATOR ?? ",";
-  const decimalSeparator = runtime.config.DECIMAL_SEPERATOR || ".";
-  let normalized = String(value ?? "")
+  const source = String(value ?? "")
     .trim()
     .toLowerCase();
-  if (thousandSeparator) {
-    normalized = normalized.replaceAll(thousandSeparator, "");
-  }
-  normalized = normalized
-    .replaceAll(/[\s\u00a0\u202f]/g, "")
-    .replace(decimalSeparator, ".");
-  const match = normalized.match(/^([+-]?(?:\d+\.?\d*|\.\d+))\s*([kmbt])?$/i);
+  const suffixPattern = allowCompactSuffix ? "([kmbt])?" : "";
+  const match = source.match(
+    new RegExp(
+      `^([+-]?(?:\\d[\\d\\s\\u00a0\\u202f.,]*|[.,]\\d+))\\s*${suffixPattern}$`,
+      "i",
+    ),
+  );
   if (!match) return Number.NaN;
+  const normalized = normalizeGameNumberToken(match[1]);
+  if (!normalized) return Number.NaN;
+  const number = Number(normalized);
+  if (!Number.isFinite(number)) return Number.NaN;
   const multipliers = { k: 1e3, m: 1e6, b: 1e9, t: 1e12 };
-  return Number(match[1]) * (multipliers[match[2]] ?? 1);
+  return number * (multipliers[match[2]] ?? 1);
+}
+
+export function parseCompactNumber(value) {
+  return parseGameNumber(value, { allowCompactSuffix: true });
 }
 
 function getNumberLocale() {
@@ -421,7 +484,7 @@ function setMarketFetchFailure(reasonZh, reasonEn) {
   );
 }
 
-function requestMarketJson() {
+function requestMarketJson(url = getMarketApiUrl()) {
   const sendRequest =
     typeof GM !== "undefined" && typeof GM.xmlHttpRequest === "function"
       ? GM.xmlHttpRequest
@@ -441,7 +504,7 @@ function requestMarketJson() {
     };
     watchdog = setTimeout(() => finish(null), 5_500);
     const options = {
-      url: getMarketApiUrl(),
+      url,
       method: "GET",
       timeout: 5000,
       onload: finish,
@@ -476,7 +539,10 @@ async function ensureMarketValueSource() {
   return Boolean(await fetchMarketJSON());
 }
 
-async function fetchMarketJSON(forceFetch = false) {
+async function fetchMarketJSON(
+  forceFetch = false,
+  hostname = globalThis.location?.hostname ?? "",
+) {
   const cacheTimestamp = Number(
     localStorage.getItem("MWITools_marketAPI_timestamp"),
   );
@@ -485,26 +551,42 @@ async function fetchMarketJSON(forceFetch = false) {
     !forceFetch &&
     cachedJson &&
     cacheTimestamp &&
-    Date.now() - cacheTimestamp < getMarketRefreshInterval()
+    Date.now() - cacheTimestamp < getMarketRefreshInterval(hostname)
   ) {
     return validateMarketJsonFetch(cachedJson, false);
   }
 
-  const response = await requestMarketJson();
+  const response = await requestMarketJson(getMarketApiUrl(hostname));
   const jsonObj = validateMarketJsonFetch(
-    response?.status === 200 ? response.responseText : null,
+    response?.status >= 200 && response?.status < 300
+      ? response.responseText
+      : null,
     true,
   );
   if (jsonObj) {
     return jsonObj;
   }
 
-  setMarketFetchFailure("市场 API 请求失败", "Market API request failed");
+  if (getMarketEnvironment(hostname) !== "test") {
+    const fallbackResponse = await requestMarketJson(MARKET_FALLBACK_URL);
+    const fallbackJson = validateMarketJsonFetch(
+      fallbackResponse?.status >= 200 && fallbackResponse?.status < 300
+        ? fallbackResponse.responseText
+        : null,
+      true,
+    );
+    if (fallbackJson) return fallbackJson;
+  }
+
+  setMarketFetchFailure(
+    "市场主接口和备用接口请求失败",
+    "Primary and fallback market API requests failed",
+  );
   if (cachedJson) {
     const cached = validateMarketJsonFetch(cachedJson, false);
     if (cached) return cached;
   }
-  if (getMarketEnvironment() === "test") return null;
+  if (getMarketEnvironment(hostname) === "test") return null;
   return validateMarketJsonFetch(getLocalMarketBackup(), false);
 }
 
@@ -578,6 +660,7 @@ Object.assign(runtime.api, {
   getMarketEnvironment,
   getMarketApiUrl,
   getMarketRefreshInterval,
+  getMarketFallbackUrl: () => MARKET_FALLBACK_URL,
   getAskPrice,
   getBidPrice,
   getFairValue,
@@ -593,6 +676,7 @@ Object.assign(runtime.api, {
   getNetSellPriceAtAsk,
   getMarketPriceIncrement,
   normalizeMarketPrice,
+  parseGameNumber,
   parseCompactNumber,
   numberFormatter,
   formatExactNumber,
@@ -602,6 +686,7 @@ Object.assign(runtime.api, {
   parseStoredMarketItemValues,
   loadMarketItemValuesFromStorage,
   validateMarketJsonFetch,
+  requestMarketJson,
   fetchMarketJSON,
   hasMarketValueSource,
   ensureMarketValueSource,

@@ -73,10 +73,41 @@ runtime.state.initData_itemDetailMap = {
 runtime.state.itemEnNameToHridMap = { Milk: "/items/milk" };
 runtime.api.fetchMarketJSON = async () => runtime.state.marketApiJson;
 runtime.api.getSelfBuildScores = async () => ({
-  battle: { house: 1, abilities: 2, equipment: 3, total: 6 },
-  skilling: { house: 1, tools: 4, equipment: 5, total: 10, available: true },
+  battle: { house: 1, abilities: 2, equipment: 3, shrine: null, total: 6 },
+  skilling: {
+    house: 1,
+    tools: 4,
+    equipment: 5,
+    shrine: null,
+    total: 10,
+    available: true,
+  },
   assets: { allHouses: 10, allAbilities: 20 },
   equipmentHidden: false,
+});
+
+test("inventory total assets expose signed today P/L only with a prior record", () => {
+  const originalHistory = runtime.api.assetHistory;
+  runtime.api.assetHistory = {
+    getComparison: () => ({
+      gapDays: 1,
+      record: { values: { total: 8_000 } },
+    }),
+  };
+  assert.match(
+    runtime.api.inventoryTodayProfitHtml({ total: 10_000 }),
+    /is-positive[^>]*>（\+2K）/,
+  );
+  runtime.api.assetHistory = {
+    getComparison: () => ({
+      gapDays: 2,
+      record: { values: { total: 7_000 } },
+    }),
+  };
+  assert.equal(runtime.api.inventoryTodayProfitHtml({ total: 10_000 }), "");
+  runtime.api.assetHistory = { getComparison: () => null };
+  assert.equal(runtime.api.inventoryTodayProfitHtml({ total: 10_000 }), "");
+  runtime.api.assetHistory = originalHistory;
 });
 
 test("inventory sorting uses derived values when an item has no order-book price", () => {
@@ -112,6 +143,40 @@ test("inventory sorting uses derived values when an item has no order-book price
     runtime.api.getInventorySortUnitValue("/items/listed", 0, "bid"),
     7_000,
   );
+
+  runtime.api.getAssetValue = originalGetAssetValue;
+  runtime.api.getFairValue = originalGetFairValue;
+  runtime.api.getAskPrice = originalGetAskPrice;
+  runtime.api.getBidPrice = originalGetBidPrice;
+});
+
+test("task token value sorting follows its independent asset switch", () => {
+  const originalGetAssetValue = runtime.api.getAssetValue;
+  const originalGetFairValue = runtime.api.getFairValue;
+  const originalGetAskPrice = runtime.api.getAskPrice;
+  const originalGetBidPrice = runtime.api.getBidPrice;
+  runtime.api.getAssetValue = () => 5_000;
+  runtime.api.getFairValue = () => 4_000;
+  runtime.api.getAskPrice = () => 6_000;
+  runtime.api.getBidPrice = () => 3_000;
+
+  runtime.settings.settingsMap.includeTaskTokensInAssets.isTrue = false;
+  for (const order of ["fair", "ask", "bid"]) {
+    assert.equal(
+      runtime.api.getInventorySortUnitValue("/items/task_token", 0, order),
+      0,
+    );
+  }
+  runtime.settings.settingsMap.includeTaskTokensInAssets.isTrue = true;
+  assert.equal(
+    runtime.api.getInventorySortUnitValue("/items/task_token", 0, "fair"),
+    5_000,
+  );
+  assert.equal(
+    runtime.api.getInventorySortUnitValue("/items/task_token", 0, "ask"),
+    6_000,
+  );
+  runtime.settings.settingsMap.includeTaskTokensInAssets.isTrue = false;
 
   runtime.api.getAssetValue = originalGetAssetValue;
   runtime.api.getFairValue = originalGetFairValue;
@@ -320,12 +385,20 @@ test("inventory asset summaries rerender without restoring the removed header UI
     /房屋：\s*1\.0/,
   );
   assert.match(
+    document.querySelector("#buildScores").textContent,
+    /战斗神龛：\s*—/,
+  );
+  assert.match(
     document.querySelector("#skillingScores").textContent,
     /房屋：\s*1\.0/,
   );
   assert.match(
     document.querySelector("#skillingScores").textContent,
     /工具：\s*4\.0/,
+  );
+  assert.match(
+    document.querySelector("#skillingScores").textContent,
+    /生活神龛：\s*—/,
   );
   assert.match(
     document.querySelector("#toggleNetWorth").textContent,
@@ -405,6 +478,14 @@ test("inventory asset summaries rerender without restoring the removed header UI
   ]) {
     assert.match(englishAssets.textContent, new RegExp(label));
   }
+  assert.match(
+    document.querySelector("#buildScores").textContent,
+    /Combat shrine:\s*—/,
+  );
+  assert.match(
+    document.querySelector("#skillingScores").textContent,
+    /Skilling shrine:\s*—/,
+  );
   assert.doesNotMatch(englishAssets.textContent, /value/i);
   runtime.config.isZH = true;
   await runtime.api.calculateNetworth();
@@ -530,7 +611,7 @@ test("listing values use explicit balances and never infer buy reserves", () => 
   assert.deepEqual(totals, { fair: 15_890, ask: 16_960, bid: 14_820 });
 });
 
-test("guild currencies move to fixed assets while task tokens stay inventory", async () => {
+test("task tokens join inventory assets only when their switch is enabled", async () => {
   const originalCharacterId = runtime.state.currentCharacterId;
   runtime.state.currentCharacterId = "guild-currency-display";
   runtime.state.initData_itemDetailMap = {
@@ -599,6 +680,7 @@ test("guild currencies move to fixed assets while task tokens stay inventory", a
   ];
   runtime.state.initData_guildBuffDetailMap = {
     "/guild_buffs/test": {
+      isCombat: true,
       levelCosts: [
         null,
         {
@@ -610,6 +692,9 @@ test("guild currencies move to fixed assets while task tokens stay inventory", a
   };
   runtime.state.guildBuffLevels = { "/guild_buffs/test": 1 };
   runtime.state.guildDataLoaded = true;
+  await runtime.settings.set("includeTaskTokensInAssets", false, {
+    persist: false,
+  });
   runtime.api.invalidateAssetValueCache();
 
   await runtime.api.calculateNetworth({ force: true });
@@ -617,7 +702,7 @@ test("guild currencies move to fixed assets while task tokens stay inventory", a
 
   assert.match(
     document.querySelector("#currentAssets").textContent,
-    /库存：10\.4K/,
+    /库存：10K/,
   );
   assert.match(
     document.querySelector("#nonCurrentAssets").textContent,
@@ -626,6 +711,16 @@ test("guild currencies move to fixed assets while task tokens stay inventory", a
   assert.match(
     document.querySelector("#nonCurrentAssets").textContent,
     /神龛：150/,
+  );
+
+  await runtime.settings.set("includeTaskTokensInAssets", true, {
+    persist: false,
+  });
+  runtime.api.invalidateAssetValueCache();
+  await runtime.api.calculateNetworth({ force: true });
+  assert.match(
+    document.querySelector("#currentAssets").textContent,
+    /库存：10\.4K/,
   );
 
   await runtime.settings.set("includeCowbellsInAssets", true);
@@ -637,6 +732,9 @@ test("guild currencies move to fixed assets while task tokens stay inventory", a
   assert.equal(freshSnapshot.values.nonTradableTokens, 450);
 
   await runtime.settings.set("includeCowbellsInAssets", false);
+  await runtime.settings.set("includeTaskTokensInAssets", false, {
+    persist: false,
+  });
   runtime.state.currentCharacterId = originalCharacterId;
 });
 
@@ -673,6 +771,10 @@ test("optional token setting excludes the same stacks from inventory category va
   );
   runtime.api.getAssetValue = () => 10;
 
+  await runtime.settings.set("includeTaskTokensInAssets", true, {
+    persist: false,
+  });
+
   await runtime.settings.set("includeGuildDungeonTokensInAssets", true, {
     persist: false,
   });
@@ -694,9 +796,40 @@ test("optional token setting excludes the same stacks from inventory category va
   await runtime.settings.set("includeGuildDungeonTokensInAssets", true, {
     persist: false,
   });
+  await runtime.settings.set("includeTaskTokensInAssets", false, {
+    persist: false,
+  });
   runtime.state.initData_characterItems = previousItems;
   runtime.state.initData_itemDetailMap = previousDetails;
   runtime.api.getAssetValue = previousAsset;
+});
+
+test("currency category value includes coins without a market record", () => {
+  const previousItems = runtime.state.initData_characterItems;
+  const previousDetails = runtime.state.initData_itemDetailMap;
+  runtime.state.initData_characterItems = [
+    {
+      itemHrid: "/items/coin",
+      itemLocationHrid: "/item_locations/inventory",
+      enhancementLevel: 0,
+      count: 250,
+    },
+  ];
+  runtime.state.initData_itemDetailMap = {
+    "/items/coin": { categoryHrid: "/item_categories/currency" },
+  };
+  runtime.api.invalidateAssetValueCache();
+
+  assert.equal(
+    runtime.api
+      .calculateInventoryCategoryValues()
+      .get("/item_categories/currency"),
+    250,
+  );
+
+  runtime.state.initData_characterItems = previousItems;
+  runtime.state.initData_itemDetailMap = previousDetails;
+  runtime.api.invalidateAssetValueCache();
 });
 
 test("market value sorting ranks every stack descending inside its category", async () => {

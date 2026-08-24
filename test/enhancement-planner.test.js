@@ -277,6 +277,40 @@ test("planner can force regular protection mirrors and disable philosopher synth
   assert.equal(mirrorPlan.protectionUnitCost, 80_000);
 });
 
+test("refined +14 back gear can combine forced protection mirrors with philosopher synthesis", () => {
+  const values = prices({
+    "/items/target": 1,
+    "/items/material": 1,
+    "/items/mirror_of_protection": 80_000,
+    "/items/philosophers_mirror": 1,
+    "/items/ultra_enhancing_tea": 1,
+    "/items/blessed_tea": 1,
+    "/items/refining_shard": 1,
+  });
+  const plan = calculateEnhancementPlan({
+    itemHrid: "/items/target_refined",
+    targetLevel: 14,
+    itemDetailMap: itemDetailMap(150),
+    actionDetailMap: {
+      "/actions/refine_target": {
+        upgradeItemHrid: "/items/target",
+        inputItems: [{ itemHrid: "/items/refining_shard", count: 100 }],
+        outputItems: [{ itemHrid: "/items/target_refined", count: 1 }],
+      },
+    },
+    bonusMultiplierTable: MULTIPLIERS,
+    getFairValue: (hrid) => values[hrid] ?? 0,
+    forcedProtectionItemHrid: "/items/mirror_of_protection",
+    allowPhilosopherMirror: true,
+  });
+
+  assert.equal(plan.status, "complete");
+  assert.ok(plan.philosopherStart !== null);
+  assert.ok(plan.expectedPhilosopherMirrorCount > 0);
+  assert.equal(plan.protectionItemHrid, null);
+  assert.equal(plan.refinementCost, 100);
+});
+
 test("planner compares resolved base cost with protection items and mirrors", () => {
   const mirrorValues = prices({
     "/items/target": 100_000,

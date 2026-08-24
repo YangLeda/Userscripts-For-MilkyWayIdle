@@ -1,5 +1,6 @@
 import { runtime } from "../core/runtime.js";
 import { createFrameScheduler } from "../core/frame-scheduler.js";
+import { subscribeMutationChannel } from "../core/mutation-channel.js";
 
 function removeAll(selector) {
   document.querySelectorAll(selector).forEach((node) => node.remove());
@@ -7,24 +8,29 @@ function removeAll(selector) {
 
 function observeRelevantDom(scope, selector, callback) {
   const scheduler = createFrameScheduler(callback);
-  const MutationObserverRef =
-    globalThis.MutationObserver ?? document.defaultView?.MutationObserver;
-  const observer = new MutationObserverRef((records) => {
-    const relevant = records.some((record) => {
-      const target =
-        record.target?.nodeType === 1
-          ? record.target
-          : record.target?.parentElement;
-      if (target?.closest?.(selector)) return true;
-      return [...record.addedNodes, ...record.removedNodes].some(
-        (node) =>
-          node?.nodeType === 1 &&
-          (node.matches?.(selector) || node.querySelector?.(selector)),
-      );
-    });
-    if (relevant) scheduler.schedule();
-  });
-  scope.observer(observer, document.body, { childList: true, subtree: true });
+  subscribeMutationChannel(
+    {
+      name: "legacy-dom",
+      target: document.body,
+      options: { childList: true, subtree: true },
+      scope,
+    },
+    (records) => {
+      const relevant = records.some((record) => {
+        const target =
+          record.target?.nodeType === 1
+            ? record.target
+            : record.target?.parentElement;
+        if (target?.closest?.(selector)) return true;
+        return [...record.addedNodes, ...record.removedNodes].some(
+          (node) =>
+            node?.nodeType === 1 &&
+            (node.matches?.(selector) || node.querySelector?.(selector)),
+        );
+      });
+      if (relevant) scheduler.schedule();
+    },
+  );
   scope.add(() => scheduler.cancel());
   return scheduler;
 }
@@ -90,6 +96,9 @@ const adapters = {
   },
   actionQueue: {
     scope: "character",
+    initialize({ scope }) {
+      runtime.api.observeActionQueueMenus?.(scope);
+    },
     cleanup() {
       runtime.api.disconnectActionQueueObservers?.();
       removeAll(".script_actionTime,#script_queueTotalTime");

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { runtime } from "../src/core/runtime.js";
-import "../src/data/translations.js";
+import "../src/core/game-data.js";
 import "../src/core/state.js";
 import "../src/core/market.js";
 import "../src/core/asset-values.js";
@@ -260,6 +260,23 @@ test("action updates merge by string id, deduplicate, and follow ordinal order",
   assert.deepEqual(
     runtime.state.currentActionsHridList.map(({ id }) => String(id)),
     ["1"],
+  );
+});
+
+test("an action without an ordinal remains the active queue head", () => {
+  runtime.api.applyGameMessage({
+    type: "init_character_data",
+    characterID: "queue-active-character",
+    characterSkills: [],
+    characterItems: [],
+    characterActions: [
+      { id: "queued", actionHrid: "/actions/queued", ordinal: 1 },
+      { id: "active", actionHrid: "/actions/active", currentCount: 5 },
+    ],
+  });
+  assert.deepEqual(
+    runtime.state.currentActionsHridList.map(({ id }) => id),
+    ["active", "queued"],
   );
 });
 

@@ -4,6 +4,7 @@ import {
   itemName as localizedItemName,
   localize,
 } from "../core/localization.js";
+import { getGameSpriteHref } from "../core/game-assets.js";
 
 const PANEL_ID = "mwitools-production-profit-panel";
 const STYLE_ID = "mwitools-production-profit-panel-style";
@@ -67,38 +68,15 @@ function actionName(actionHrid, detail) {
   return localizedActionName(actionHrid, { detail });
 }
 
-function findItemsSpriteBase() {
-  for (const entry of globalThis.performance?.getEntriesByType?.("resource") ??
-    []) {
-    if (entry.name?.includes("items_sprite") && entry.name.endsWith(".svg")) {
-      try {
-        return new URL(entry.name).pathname;
-      } catch {
-        return entry.name;
-      }
-    }
-  }
-  const use = document.querySelector(
-    'svg use[href*="items_sprite"],svg use[xlink\\:href*="items_sprite"]',
-  );
-  const href =
-    use?.getAttribute("href") ?? use?.getAttribute("xlink:href") ?? "";
-  return href.includes("#") ? href.split("#")[0] : "";
-}
-
 function renderItemIcon(itemHrid, name) {
-  const bare = String(itemHrid ?? "")
-    .split("/")
-    .at(-1);
-  const sprite = findItemsSpriteBase();
-  if (!bare || !sprite) {
+  const href = getGameSpriteHref("items", itemHrid);
+  if (!href) {
     return `<span class="mwi-profit-icon-fallback">${escapeHtml(
       String(name || "?")
         .trim()
         .charAt(0) || "?",
     )}</span>`;
   }
-  const href = `${sprite}#${bare}`;
   return `<svg class="mwi-profit-icon" viewBox="0 0 32 32" aria-label="${escapeHtml(name)}"><use href="${escapeHtml(href)}" xlink:href="${escapeHtml(href)}"></use></svg>`;
 }
 
@@ -150,6 +128,7 @@ function addStyles() {
     .mwi-profit-valuation-row[data-mode="conservative"] { --mwi-valuation-color:#e1b65d; }
     .mwi-profit-valuation-row[data-mode="aggressive"] { --mwi-valuation-color:#68c98e; }
     .mwi-profit-valuation-row.mwi-loot-valuation-row { grid-template-columns:126px repeat(3,minmax(0,1fr)); }
+    .mwi-profit-valuation-row.mwi-loot-valuation-row.has-entry-key { grid-template-columns:126px repeat(4,minmax(0,1fr)); }
     .mwi-profit-valuation-row.incomplete { opacity:.72; }
     .mwi-profit-valuation-name { display:flex; min-width:0; flex-direction:column; justify-content:center; gap:1px; padding:5px 8px; border-right:1px solid rgba(255,255,255,.08); }
     .mwi-profit-valuation-title { color:#fff; font-size:calc(10.5px * var(--mwi-hover-font-scale,1)); font-weight:750; line-height:1.2; }
@@ -576,6 +555,7 @@ function renderLootChestPanel(panel, itemHrid, chest, options = {}) {
   const pinned = Boolean(options.pinned);
   const productName = itemName(itemHrid);
   const hasKey = Boolean(chest.keyItemHrid);
+  const hasEntryKey = Boolean(chest.entryKeyItemHrid);
   const statusClass = chest.complete ? "complete" : "partial";
   const statusLabel = chest.complete
     ? t("完整计价", "Fully priced")
@@ -587,7 +567,7 @@ function renderLootChestPanel(panel, itemHrid, chest, options = {}) {
       <div class="mwi-profit-header-icon">${renderItemIcon(itemHrid, productName)}</div>
       <div class="mwi-profit-header-main">
         <div class="mwi-profit-title">${escapeHtml(productName)}</div>
-        <div class="mwi-profit-subtitle">${escapeHtml(hasKey ? t("开箱期望 · 已扣钥匙成本", "Opening estimate · net of key cost") : t("开箱期望", "Opening estimate"))}</div>
+        <div class="mwi-profit-subtitle">${escapeHtml(hasEntryKey ? t("开箱期望 · 已扣开箱钥匙与门票钥匙成本", "Opening estimate · net of chest and entry key costs") : hasKey ? t("开箱期望 · 已扣钥匙成本", "Opening estimate · net of key cost") : t("开箱期望", "Opening estimate"))}</div>
       </div>
       <div class="mwi-profit-status ${statusClass}">${statusLabel}</div>
       ${pinned ? `<button type="button" class="mwi-profit-close" aria-label="${t("关闭", "Close")}" data-mwi-loot-close="1">×</button>` : ""}
@@ -620,13 +600,13 @@ function renderLootChestPanel(panel, itemHrid, chest, options = {}) {
   panel.insertAdjacentHTML(
     "beforeend",
     `<div class="mwi-profit-valuations">
-      <section class="mwi-profit-valuation-row mwi-loot-valuation-row${chest.complete ? "" : " incomplete"}" data-mode="fair">
+      <section class="mwi-profit-valuation-row mwi-loot-valuation-row${hasEntryKey ? " has-entry-key" : ""}${chest.complete ? "" : " incomplete"}" data-mode="fair">
         <div class="mwi-profit-valuation-name">
           <div class="mwi-profit-valuation-title">${t("期望价值", "Expected value")}</div>
           <div class="mwi-profit-valuation-state">${escapeHtml(`${sellLabel} · ${keyLabel}`)}</div>
         </div>
         ${renderValuationMetric(t("毛期望价值", "Gross value"), chest.grossValue)}
-        ${renderValuationMetric(t("钥匙成本", "Key cost"), hasKey && !chest.keyComplete ? null : chest.keyCost)}
+        ${hasEntryKey ? `${renderValuationMetric(t("开箱钥匙", "Chest key"), hasKey && !chest.chestKeyComplete ? null : chest.chestKeyCost)}${renderValuationMetric(t("门票钥匙", "Entry key"), chest.entryKeyComplete ? chest.entryKeyCost : null)}` : renderValuationMetric(t("钥匙成本", "Key cost"), hasKey && !chest.keyComplete ? null : chest.keyCost)}
         ${renderValuationMetric(t("净期望价值", "Net value"), chest.netValue, true)}
       </section>
     </div>`,

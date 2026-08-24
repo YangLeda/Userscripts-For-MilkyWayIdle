@@ -11,6 +11,7 @@ globalThis.Element = dom.window.Element;
 globalThis.localStorage = dom.window.localStorage;
 globalThis.location = dom.window.location;
 globalThis.window = dom.window;
+localStorage.setItem("i18nextLng", "zh-CN");
 const intervals = new Map();
 let nextInterval = 1;
 globalThis.setInterval = (callback) => {
@@ -23,12 +24,21 @@ const settleDom = () => new Promise((resolve) => setTimeout(resolve, 30));
 
 const { runtime } = await import("../src/core/runtime.js");
 await import("../src/core/config.js");
-await import("../src/data/translations.js");
+await import("../src/core/game-data.js");
 await import("../src/core/state.js");
 await import("../src/core/market.js");
 await import("../src/core/action-projection.js");
 await import("../src/core/procurement.js");
 await import("../src/core/planning.js");
+const { registerGameLocaleResources } =
+  await import("../src/core/game-localization.js");
+registerGameLocaleResources("zh", {
+  itemNames: { "/items/nail": "钉子" },
+  actionNames: { "/actions/crafting/nail": "制作钉子" },
+  monsterNames: { "/monsters/rat": "老鼠" },
+  abilityNames: { "/abilities/strike": "猛击" },
+  houseRoomNames: { "/house_rooms/workshop": "工作室" },
+});
 runtime.config.isZH = true;
 runtime.api.numberFormatter = (value) => {
   const number = Number(value);
@@ -45,12 +55,14 @@ runtime.api.getSelfBuildScores = async () => ({
   assets: { allHouses: 0, allAbilities: 0 },
 });
 runtime.api.getGuildShrineValue = () => 0;
-const { AssetHistoryStore } =
+const { AssetHistoryStore, getUtc8DayKey } =
   await import("../src/features/asset-history/10-store.js");
 const { AssetCenter } =
   await import("../src/features/asset-history/25-center.js");
 const {
+  ASSET_COMPONENT_SHARE_TEMPLATE_COUNT,
   ASSET_SHARE_TEMPLATE_COUNT,
+  buildAssetComponentShareMessage,
   buildAssetShareMessage,
   createAssetHistoryUi,
   pasteAssetShareToChat,
@@ -78,6 +90,71 @@ function gameShell(labels = ["库存", "装备", "技能", "房屋", "配装"]) 
   document.body.appendChild(shell);
   return shell;
 }
+
+test("P/L summary separates liquid and non-current changes on the next row", () => {
+  document.body.replaceChildren();
+  intervals.clear();
+  gameShell();
+  const scope = runtime.createCleanupScope();
+  const store = new AssetHistoryStore(localStorage);
+  const scopeKey = "production:pl-cards";
+  const today = getUtc8DayKey();
+  const yesterday = new Date(Date.parse(`${today}T00:00:00Z`) - 86_400_000)
+    .toISOString()
+    .slice(0, 10);
+  store.insertDay(
+    yesterday,
+    {
+      equipment: 100,
+      inventory: 200,
+      marketListings: 300,
+      houses: 400,
+      abilities: 500,
+      nonTradableTokens: 600,
+      shrine: 700,
+    },
+    scopeKey,
+  );
+  const ui = createAssetHistoryUi({ scope, store, scopeKey });
+  document.querySelector("#mwitools-asset-history-tab").click();
+  ui.update({
+    values: {
+      total: 3_100,
+      liquid: 750,
+      fixed: 2_350,
+      equipment: 150,
+      inventory: 250,
+      marketListings: 350,
+      houses: 450,
+      abilities: 550,
+      nonTradableTokens: 650,
+      shrine: 700,
+    },
+  });
+  assert.equal(
+    document.querySelector("#mwi-asset-liquid-change").textContent,
+    "+150",
+  );
+  assert.equal(
+    document.querySelector("#mwi-asset-fixed-change").textContent,
+    "+150",
+  );
+  assert.deepEqual(
+    [...document.querySelectorAll(".mwi-asset-summary .mwi-asset-card")].map(
+      (card) => card.querySelector(".mwi-asset-card-label").textContent,
+    ),
+    [
+      "当前总资产",
+      "总盈亏",
+      "流动资产盈亏",
+      "非流动资产盈亏",
+      "盈亏比例",
+      "近 7 日平均",
+    ],
+  );
+  ui.destroy();
+  scope.cleanup();
+});
 
 test("P/L mounts beside character tabs in non-English game languages", () => {
   document.body.replaceChildren();
@@ -186,7 +263,7 @@ test("规划 mounts beside P/L and keeps icon pickers stable during updates", as
     /items_sprite/,
   );
   assert.equal(results.querySelectorAll(".planning-option").length, 1);
-  assert.match(results.textContent, /Nail/);
+  assert.match(results.textContent, /钉子/);
   assert.doesNotMatch(results.textContent, /Board/);
 
   runtime.api.procurement.emit("inventory:change", {});
@@ -331,7 +408,7 @@ test("规划 mounts beside P/L and keeps icon pickers stable during updates", as
   const englishPanel = document.querySelector("#mwitools-planning-panel");
   assert.match(
     englishPanel.querySelector(".planning-picker-copy").textContent,
-    /Workshop/,
+    /工作室/,
   );
   assert.deepEqual(
     [...englishPanel.querySelectorAll(".planning-policy-switch button")]
@@ -405,6 +482,128 @@ test("asset sharing provides separate Chinese and English profit/loss phrases", 
   assert.deepEqual(observedValues, ["", message]);
   assert.equal(input.value, message);
   assert.equal(document.activeElement, input);
+});
+
+test("component asset sharing has bilingual rise, fall, and flat phrase pools", () => {
+  assert.ok(ASSET_COMPONENT_SHARE_TEMPLATE_COUNT >= 10);
+  const components = [
+    ["equipment", "装备", "Equipment"],
+    ["inventory", "库存", "Inventory"],
+    ["marketListings", "订单", "Market listings"],
+    ["houses", "房屋", "Houses"],
+    ["abilities", "技能", "Abilities"],
+    ["nonTradableTokens", "不可交易代币", "Non-tradable tokens"],
+    ["shrine", "神龛", "Shrine"],
+  ];
+  for (const isZH of [true, false]) {
+    runtime.config.isZH = isZH;
+    for (const [key, zh, en] of components) {
+      for (const [change, percent] of [
+        [250, 25],
+        [-250, -20],
+        [0, 0],
+      ]) {
+        const messages = new Set(
+          Array.from(
+            { length: ASSET_COMPONENT_SHARE_TEMPLATE_COUNT },
+            (_, index) =>
+              buildAssetComponentShareMessage(
+                {
+                  key,
+                  current: 1_000,
+                  change,
+                  percent,
+                  gapDays: 3,
+                },
+                index,
+              ),
+          ),
+        );
+        assert.equal(messages.size, ASSET_COMPONENT_SHARE_TEMPLATE_COUNT);
+        for (const message of messages) {
+          assert.match(message, new RegExp(isZH ? zh : en, "i"));
+          assert.match(message, /1,000/);
+          assert.match(message, isZH ? /相比 3 天前/ : /vs 3 days ago/i);
+          assert.match(message, new RegExp(`${Math.abs(change)}`));
+          assert.match(message, new RegExp(`${Math.abs(percent).toFixed(2)}%`));
+        }
+      }
+    }
+  }
+  runtime.config.isZH = true;
+  assert.match(
+    buildAssetComponentShareMessage({
+      key: "equipment",
+      current: 500,
+      change: 500,
+      percent: null,
+      gapDays: 1,
+    }),
+    /由 0 起步（无可比百分比）/,
+  );
+  assert.equal(
+    buildAssetComponentShareMessage({
+      key: "total",
+      current: 500,
+      change: 100,
+      percent: 25,
+    }),
+    "",
+  );
+});
+
+test("component asset rows paste their own comparison report into chat", () => {
+  document.body.replaceChildren();
+  intervals.clear();
+  const shell = gameShell();
+  const scope = runtime.createCleanupScope();
+  const scopeKey = "production:component-share";
+  const store = new AssetHistoryStore(localStorage);
+  const dayKey = getUtc8DayKey();
+  const previousDate = new Date(`${dayKey}T00:00:00Z`);
+  previousDate.setUTCDate(previousDate.getUTCDate() - 1);
+  const previousDayKey = previousDate.toISOString().slice(0, 10);
+  const previous = {
+    equipment: 800,
+    inventory: 200,
+    marketListings: 300,
+    houses: 400,
+    abilities: 500,
+    nonTradableTokens: 600,
+    shrine: 700,
+  };
+  store.updateDay(previousDayKey, previous, scopeKey);
+  const ui = createAssetHistoryUi({ scope, store, scopeKey });
+  document.querySelector("#mwitools-asset-history-tab").click();
+  ui.update({
+    values: {
+      ...previous,
+      equipment: 1_000,
+    },
+  });
+  const input = document.createElement("input");
+  input.className = "Chat_chatInput__test";
+  document.body.append(input);
+  const equipmentButton = document.querySelector(
+    '[data-component-share="equipment"]',
+  );
+  assert.equal(equipmentButton.disabled, false);
+  assert.equal(
+    document.querySelector('[data-component-share="inventory"]').disabled,
+    false,
+  );
+  equipmentButton.click();
+  assert.match(input.value, /装备/);
+  assert.match(input.value, /相比 1 天前/);
+  assert.match(input.value, /200/);
+  assert.match(input.value, /25\.00%/);
+  assert.match(
+    document.querySelector(".mwi-asset-share-status").textContent,
+    /已放入聊天框/,
+  );
+  ui.destroy();
+  scope.cleanup();
+  shell.remove();
 });
 
 test("盈亏 visually suppresses native selection without mutating React tab state", async () => {
@@ -517,6 +716,87 @@ test("盈亏 visually suppresses native selection without mutating React tab sta
   scope.cleanup();
   assert.equal(document.querySelector("#mwitools-asset-history-tab"), null);
   assert.equal(document.querySelector("#mwitools-asset-history-panel"), null);
+});
+
+test("盈亏 settles after activation and does not rebuild its chart every frame", async () => {
+  document.body.replaceChildren();
+  intervals.clear();
+  const shell = gameShell();
+  const nativeContent = shell.querySelector("section");
+  const scope = runtime.createCleanupScope();
+  const store = new AssetHistoryStore(localStorage);
+  const frames = [];
+  const previousAnimationFrame = globalThis.requestAnimationFrame;
+  const previousCancelAnimationFrame = globalThis.cancelAnimationFrame;
+  const previousChart = globalThis.Chart;
+  const canvasPrototype = window.HTMLCanvasElement.prototype;
+  const previousGetContext = canvasPrototype.getContext;
+  let chartCreates = 0;
+  let chartDestroys = 0;
+  globalThis.requestAnimationFrame = (callback) => {
+    frames.push(callback);
+    return frames.length;
+  };
+  globalThis.cancelAnimationFrame = () => {};
+  canvasPrototype.getContext = () => ({});
+  globalThis.Chart = class {
+    constructor() {
+      chartCreates += 1;
+    }
+    destroy() {
+      chartDestroys += 1;
+    }
+  };
+  let ui = null;
+  const flushMutations = async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  };
+  const runFrame = async () => {
+    await flushMutations();
+    const queued = frames.splice(0);
+    queued.forEach((callback) => callback(performance.now()));
+    return queued.length;
+  };
+
+  try {
+    ui = createAssetHistoryUi({
+      scope,
+      store,
+      scopeKey: "production:quiescence",
+    });
+    document.querySelector("#mwitools-asset-history-tab").click();
+    assert.equal(chartCreates, 1);
+    assert.equal(await runFrame(), 1);
+    assert.equal(await runFrame(), 0);
+    assert.equal(await runFrame(), 0);
+    assert.equal(chartCreates, 1);
+    assert.equal(chartDestroys, 0);
+
+    nativeContent.hidden = false;
+    assert.equal(await runFrame(), 1);
+    assert.equal(nativeContent.hidden, true);
+    assert.equal(await runFrame(), 1);
+    assert.equal(await runFrame(), 0);
+    assert.equal(chartCreates, 1);
+    assert.equal(chartDestroys, 0);
+  } finally {
+    ui?.destroy();
+    scope.cleanup();
+    canvasPrototype.getContext = previousGetContext;
+    if (previousAnimationFrame === undefined) {
+      delete globalThis.requestAnimationFrame;
+    } else {
+      globalThis.requestAnimationFrame = previousAnimationFrame;
+    }
+    if (previousCancelAnimationFrame === undefined) {
+      delete globalThis.cancelAnimationFrame;
+    } else {
+      globalThis.cancelAnimationFrame = previousCancelAnimationFrame;
+    }
+    if (previousChart === undefined) delete globalThis.Chart;
+    else globalThis.Chart = previousChart;
+  }
 });
 
 test("mobile mounts P/L beside the visible character-management tabs", () => {
@@ -849,6 +1129,73 @@ test("asset center opens from the native P/L tab and cleans up its modal", () =>
   shell.remove();
 });
 
+test("asset charts only stay alive while their mobile surface is visible", () => {
+  document.body.replaceChildren();
+  localStorage.clear();
+  const previousChart = globalThis.Chart;
+  const canvasPrototype = window.HTMLCanvasElement.prototype;
+  const previousGetContext = canvasPrototype.getContext;
+  const chartInstances = [];
+  canvasPrototype.getContext = () => ({});
+  globalThis.Chart = class {
+    constructor() {
+      this.destroyed = false;
+      chartInstances.push(this);
+    }
+    destroy() {
+      this.destroyed = true;
+    }
+  };
+
+  const shell = gameShell();
+  const scope = runtime.createCleanupScope();
+  const ui = createAssetHistoryUi({
+    scope,
+    store: new AssetHistoryStore(localStorage),
+    scopeKey: "production:7",
+  });
+  const activeCharts = () =>
+    chartInstances.filter((instance) => !instance.destroyed);
+
+  try {
+    ui.update({ values: { total: 1_000 } });
+    assert.equal(chartInstances.length, 0);
+
+    document.querySelector("#mwitools-asset-history-tab").click();
+    assert.equal(activeCharts().length, 1);
+
+    document.querySelector("#mwi-asset-open-center").click();
+    assert.equal(activeCharts().length, 1);
+    assert.equal(
+      document.querySelector("#mwitools-asset-center-modal").hidden,
+      false,
+    );
+
+    document.querySelector("#mwitools-asset-center-modal [data-close]").click();
+    assert.equal(activeCharts().length, 1);
+
+    shell.querySelector("#house").click();
+    assert.equal(activeCharts().length, 0);
+    const createdBeforeHiddenUpdate = chartInstances.length;
+    ui.update({ values: { total: 2_000 } });
+    assert.equal(chartInstances.length, createdBeforeHiddenUpdate);
+
+    document.querySelector("#mwitools-asset-history-tab").click();
+    assert.equal(activeCharts().length, 1);
+    const createdBeforeDetach = chartInstances.length;
+    shell.remove();
+    ui.update({ values: { total: 3_000 } });
+    assert.equal(activeCharts().length, 0);
+    assert.equal(chartInstances.length, createdBeforeDetach);
+  } finally {
+    ui.destroy();
+    scope.cleanup();
+    canvasPrototype.getContext = previousGetContext;
+    if (previousChart === undefined) delete globalThis.Chart;
+    else globalThis.Chart = previousChart;
+  }
+});
+
 test("asset center keeps hidden component lines through live refreshes until close", () => {
   document.body.replaceChildren();
   localStorage.clear();
@@ -1083,4 +1430,91 @@ test("asset center inserts one editable record into a historical date gap", () =
   ui.destroy();
   scope.cleanup();
   shell.remove();
+});
+
+test("manual asset edits survive automatic snapshots and storage reloads", () => {
+  const data = new Map();
+  const storage = {
+    getItem: (key) => data.get(key) ?? null,
+    setItem: (key, value) => data.set(key, String(value)),
+  };
+  const store = new AssetHistoryStore(storage);
+  const scopeKey = "production:manual-edit";
+  const dayKey = getUtc8DayKey();
+  const editedValues = {
+    equipment: 100,
+    inventory: 200,
+    marketListings: 300,
+    houses: 400,
+    abilities: 500,
+    nonTradableTokens: 600,
+    shrine: 700,
+  };
+  let changes = 0;
+  store.subscribe(() => {
+    changes += 1;
+  });
+  store.updateDay(dayKey, editedValues, scopeKey);
+
+  assert.equal(
+    store.record(
+      {
+        complete: true,
+        recordedAt: new Date().toISOString(),
+        server: "production",
+        characterId: "manual-edit",
+        values: { ...editedValues, equipment: 9_999 },
+      },
+      scopeKey,
+    ),
+    false,
+  );
+
+  const reloaded = new AssetHistoryStore(storage);
+  assert.equal(reloaded.getRole(scopeKey).days[dayKey].values.equipment, 100);
+  assert.equal(reloaded.getRole(scopeKey).days[dayKey].edited, true);
+  assert.equal(changes, 1);
+});
+
+test("asset day writes merge stale instances and roll back failed persistence", () => {
+  const data = new Map();
+  let failWrites = false;
+  const storage = {
+    getItem: (key) => data.get(key) ?? null,
+    setItem(key, value) {
+      if (failWrites) throw new Error("quota");
+      data.set(key, String(value));
+    },
+  };
+  const first = new AssetHistoryStore(storage);
+  const stale = new AssetHistoryStore(storage);
+  const scopeKey = "production:multi-tab";
+  const values = (equipment) => ({
+    equipment,
+    inventory: 2,
+    marketListings: 3,
+    houses: 4,
+    abilities: 5,
+    nonTradableTokens: 6,
+    shrine: 7,
+  });
+  first.updateDay("2026-08-18", values(10), scopeKey);
+  stale.updateDay("2026-08-19", values(20), scopeKey);
+  assert.deepEqual(
+    new AssetHistoryStore(storage).list(scopeKey).map(([dayKey]) => dayKey),
+    ["2026-08-18", "2026-08-19"],
+  );
+
+  failWrites = true;
+  assert.throws(
+    () => stale.updateDay("2026-08-19", values(999), scopeKey),
+    /quota/,
+  );
+  failWrites = false;
+  assert.equal(stale.getRole(scopeKey).days["2026-08-19"].values.equipment, 20);
+  assert.equal(
+    new AssetHistoryStore(storage).getRole(scopeKey).days["2026-08-19"].values
+      .equipment,
+    20,
+  );
 });

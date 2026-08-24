@@ -21,7 +21,7 @@ test("generated userscript has a single valid metadata block", () => {
   assert.equal(output.indexOf("// ==UserScript=="), 0);
   assert.equal(output.match(/\/\/ ==UserScript==/g)?.length, 1);
   assert.equal(output.match(/\/\/ ==\/UserScript==/g)?.length, 1);
-  assert.match(output, /^\/\/ @version\s+26\.4\.10$/m);
+  assert.match(output, /^\/\/ @version\s+26\.4\.16$/m);
   assert.match(output, /^\/\/ @author\s+bot7420, shykai, Stella$/m);
   assert.match(
     output,
@@ -40,6 +40,7 @@ test("generated userscript has a single valid metadata block", () => {
     "// @match        https://www.milkywayidle.com/*",
     "// @match        https://test.milkywayidle.com/*",
     "// @match        https://www.milkywayidlecn.com/*",
+    "// @match        https://milkywayidlecn.com/*",
     "// @match        https://amvoidguy.github.io/MWICombatSimulatorTest/*",
     "// @match        https://shykai.github.io/MWICombatSimulatorTest/dist/*",
     "// @match        https://mooneycalc.netlify.app/*",
@@ -50,6 +51,10 @@ test("generated userscript has a single valid metadata block", () => {
     "// @grant        GM_notification",
     "// @grant        GM_getValue",
     "// @grant        GM_setValue",
+    "// @connect      www.milkywayidle.com",
+    "// @connect      test.milkywayidle.com",
+    "// @connect      www.milkywayidlecn.com",
+    "// @connect      test.milkywayidlecn.com",
     "// @connect      feedback.43.167.210.211.sslip.io",
     "// @connect      mwi-guild.43.167.210.211.sslip.io",
     "// @require      https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.3.3/chart.umd.min.js#sha256-AaB6aVBgu9b1y80d/HEgMq4AnFJ7K/Y+9tzK1/MrvF4=",
@@ -73,6 +78,9 @@ test("generated userscript has a single valid metadata block", () => {
   );
   assert.match(output, /["']1\.0\.51["']/);
   assert.match(output, /__MWI_DPS/);
+  assert.doesNotMatch(output, /ZHItemNames|ZHActionNames|ZHOthersDic/);
+  assert.doesNotMatch(output, /KNOWN_DUNGEON_ROSTERS/);
+  assert.match(output, /["']\/asset-manifest\.json["']/);
 });
 
 test("generated userscript is standalone JavaScript", () => {
@@ -133,4 +141,15 @@ test("development metadata only changes the userscript identity", async () => {
     normalizeIdentity(developmentBanner),
     normalizeIdentity(productionBanner),
   );
+});
+
+test("CloudFront publishing requests invalidation without status polling", async () => {
+  const workflow = await readFile(
+    new URL("../.github/workflows/publish-dist.yml", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(workflow, /aws cloudfront create-invalidation/);
+  assert.doesNotMatch(workflow, /cloudfront wait invalidation-completed/);
+  assert.doesNotMatch(workflow, /GetInvalidation/);
 });

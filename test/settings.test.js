@@ -11,6 +11,7 @@ globalThis.localStorage = dom.window.localStorage;
 globalThis.window = dom.window;
 globalThis.GM_getValue = (_key, fallback) => fallback;
 globalThis.GM_setValue = () => {};
+const SETTINGS_POPOVER_SCROLL_KEY = "MWITools_settings_popover_scroll_v1";
 
 localStorage.setItem(
   "script_settingsMap",
@@ -24,7 +25,7 @@ localStorage.setItem(
       isTrue: true,
     },
     removedOption: { id: "removed_option", isTrue: true },
-    removedConsumableTips: { id: "showConsumTips", isTrue: true },
+    legacyConsumableTips: { id: "showConsumTips", isTrue: true },
   }),
 );
 
@@ -62,6 +63,10 @@ test("legacy settings merge into current defaults", () => {
     true,
   );
   assert.equal(
+    runtime.settings.settingsMap.includeTaskTokensInAssets.isTrue,
+    false,
+  );
+  assert.equal(
     runtime.settings.settingsMap.hideReadyProductionShortage.isTrue,
     false,
   );
@@ -83,7 +88,11 @@ test("legacy settings merge into current defaults", () => {
   );
   assert.equal(runtime.settings.settingsMap.networth, undefined);
   assert.equal(runtime.settings.settingsMap.networkAlert, undefined);
-  assert.equal(runtime.settings.settingsMap.showConsumTips, undefined);
+  assert.equal(runtime.settings.settingsMap.showConsumTips.isTrue, true);
+  assert.equal(
+    runtime.settings.catalog.showConsumTips.parent,
+    "itemTooltip_prices",
+  );
   assert.equal(runtime.settings.settingsMap.showDamage.isTrue, false);
   assert.equal(runtime.settings.settingsMap.showDamageGraph, undefined);
   assert.equal(
@@ -97,7 +106,7 @@ test("legacy settings merge into current defaults", () => {
   assert.equal(stored.values.showDamageGraph, undefined);
   assert.equal(stored.values.damageGraphTransparentBackground, undefined);
   assert.equal(stored.values.profitValuationMode, undefined);
-  assert.equal(stored.values.showConsumTips, undefined);
+  assert.equal(stored.values.showConsumTips, true);
   assert.equal(runtime.settings.settingsMap.profitValuationMode, undefined);
   assert.equal(runtime.settings.catalog.displayCapMM.hidden, undefined);
   assert.equal(runtime.settings.catalog.displayCapMM.group, "general");
@@ -349,6 +358,7 @@ test("the settings catalog exposes every persisted setting and enum preference",
 });
 
 test("card settings render every visible setting with nested children and search", async (t) => {
+  localStorage.removeItem(SETTINGS_POPOVER_SCROLL_KEY);
   document.body.innerHTML = `
     <header><div id="identity"><div class="Header_totalLevel__test">总等级: 2178</div></div></header>
     <div class="SettingsPanel_settingsPanel__test">
@@ -454,6 +464,17 @@ test("card settings render every visible setting with nested children and search
     [...summaryMode.options].map((option) => option.value),
     ["collapsed", "expanded", "off"],
   );
+  const quickHours = root.querySelector('input[aria-label="快捷小时"]');
+  const quickCounts = root.querySelector('input[aria-label="快捷次数"]');
+  assert.equal(quickHours.value, "0.5,1,2,3,4,5,6,10,12,24");
+  assert.equal(quickCounts.value, "10,100,300,500,1000,2000");
+  quickHours.value = "0.25, 2, 8";
+  quickHours.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+  await new Promise((resolve) => setTimeout(resolve));
+  assert.equal(
+    runtime.settings.getPreference("productionQuickHours"),
+    "0.25, 2, 8",
+  );
   const fontScale = root.querySelector('select[aria-label="插件字号"]');
   assert.ok(fontScale);
   assert.deepEqual(
@@ -510,12 +531,17 @@ test("card settings render every visible setting with nested children and search
   await new Promise((resolve) => setTimeout(resolve));
   assert.equal(runtime.settings.get("lootSellAtAsk"), false);
   assert.equal(lootSellToggle.checked, false);
+  popover.scrollTop = 640;
+  popover.dispatchEvent(new dom.window.Event("scroll"));
+  assert.equal(localStorage.getItem(SETTINGS_POPOVER_SCROLL_KEY), "640");
   document.body.dispatchEvent(
     new dom.window.MouseEvent("click", { bubbles: true }),
   );
   assert.equal(popover.hidden, true);
   assert.equal(settingsButton.getAttribute("aria-expanded"), "false");
+  popover.scrollTop = 0;
   settingsButton.click();
+  assert.equal(popover.scrollTop, 640);
   settingsButton.click();
   assert.equal(popover.hidden, true);
   settingsButton.click();
@@ -560,6 +586,15 @@ test("card settings render every visible setting with nested children and search
   assert.equal(document.querySelector("#mwitools-settings-button"), null);
   assert.equal(document.querySelector("#mwitools-settings-popover"), null);
   assert.equal(document.querySelector("#mwitools-header-tools"), null);
+
+  await runtime.features.enable("settingsUi");
+  document.querySelector("#mwitools-settings-button").click();
+  assert.equal(
+    document.querySelector("#mwitools-settings-popover").scrollTop,
+    640,
+  );
+  await runtime.features.disable("settingsUi");
+  localStorage.removeItem(SETTINGS_POPOVER_SCROLL_KEY);
 });
 
 test("market autofill selects semantic plus and minus buttons", () => {

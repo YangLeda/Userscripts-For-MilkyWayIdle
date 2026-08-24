@@ -14,7 +14,7 @@ globalThis.Event = dom.window.Event;
 
 const { runtime } = await import("../src/core/runtime.js");
 await import("../src/core/config.js");
-await import("../src/data/translations.js");
+await import("../src/core/game-data.js");
 await import("../src/core/state.js");
 await import("../src/core/market.js");
 await import("../src/core/action-projection.js");
@@ -457,6 +457,75 @@ test("zero-count updates remove depleted stacks even when their stable id is omi
   assert.equal(procurement.getInventoryCount("/items/stone_key_fragment"), 0);
 
   runtime.state.initData_characterItems = previousItems;
+  procurement.loadCharacterData("character-a");
+});
+
+test("full inventory refresh expands project cart shortages without changing manual items", () => {
+  runtime.state.initData_characterItems = [
+    {
+      id: "refresh-log-stack",
+      itemHrid: "/items/log",
+      itemLocationHrid: "/item_locations/inventory",
+      enhancementLevel: 0,
+      count: 10,
+    },
+  ];
+  procurement.loadCharacterData("inventory-refresh");
+  procurement.clearCart({ includeStarred: true });
+  for (const plan of procurement.getPlans()) procurement.removePlan(plan.id);
+  const plan = procurement.createPlan("/actions/crafting/board", 6, [
+    {
+      itemHrid: "/items/log",
+      enhancementLevel: 0,
+      suggested: 12,
+      purchasable: true,
+    },
+  ]);
+  procurement.addProjectRequirementsToCart(plan.id);
+  procurement.addToCart({ itemHrid: "/items/log", quantity: 4 });
+  assert.deepEqual(procurement.getCartAllocationSummary("/items/log"), {
+    total: 6,
+    manual: 4,
+    planning: 0,
+    project: 2,
+    projects: { [plan.id]: 2 },
+  });
+
+  const result = procurement.replaceInventorySnapshot([
+    {
+      id: "refresh-log-stack",
+      itemHrid: "/items/log",
+      itemLocationHrid: "/item_locations/inventory",
+      enhancementLevel: 0,
+      count: 3,
+    },
+  ]);
+  assert.equal(result.changedItemCount, 1);
+  assert.equal(procurement.getInventoryCount("/items/log"), 3);
+  assert.deepEqual(procurement.getCartAllocationSummary("/items/log"), {
+    total: 13,
+    manual: 4,
+    planning: 0,
+    project: 9,
+    projects: { [plan.id]: 9 },
+  });
+
+  runtime.state.initData_characterItems = [
+    {
+      id: "log-stack",
+      itemHrid: "/items/log",
+      itemLocationHrid: "/item_locations/inventory",
+      enhancementLevel: 0,
+      count: 5,
+    },
+    {
+      id: "nail-stack",
+      itemHrid: "/items/nail",
+      itemLocationHrid: "/item_locations/inventory",
+      enhancementLevel: 0,
+      count: 1,
+    },
+  ];
   procurement.loadCharacterData("character-a");
 });
 

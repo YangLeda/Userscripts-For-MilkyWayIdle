@@ -25,6 +25,7 @@ const Session = (() => {
     taken: {},
     takenSources: {},
     kills: {},
+    accuracy: {},
   };
   let fragmentPrefix = null; // tier 续接时合并上一段，且不把换层等待计入时长
   const playerDamage = new Map();
@@ -33,6 +34,7 @@ const Session = (() => {
   const playerKills = new Map();
   const playerTaken = new Map(); // dégâts reçus par joueur (mode Recount)
   const playerTakenSources = new Map(); // 玩家 → Map(怪物＋技能来源 → 承伤)
+  const playerAccuracy = new Map(); // 玩家 → { attempts, hits, monsters: Map }
 
   // Buffer circulaire pour le graph DPS (panneau principal) : 150 points de
   // 2s = 5 min glissantes. Adapté au combat classique (sessions courtes,
@@ -76,6 +78,113 @@ const Session = (() => {
       );
       target.set(name, map);
     });
+  };
+  const accuracyObject = (map) =>
+    Object.fromEntries(
+      Array.from(map, ([name, value]) => [
+        name,
+        {
+          attempts: Number(value.attempts) || 0,
+          hits: Number(value.hits) || 0,
+          monsters: Object.fromEntries(value.monsters || []),
+        },
+      ]),
+    );
+  const restoreAccuracy = (target, raw) => {
+    target.clear();
+    Object.entries(raw || {}).forEach(([name, value]) => {
+      const monsters = new Map();
+      Object.entries((value && value.monsters) || {}).forEach(
+        ([key, monster]) => {
+          const attempts = Number(monster && monster.attempts) || 0;
+          if (!(attempts > 0)) return;
+          monsters.set(key, {
+            monsterName: String((monster && monster.monsterName) || ""),
+            monsterHrid: String((monster && monster.monsterHrid) || ""),
+            attempts,
+            hits: Math.max(
+              0,
+              Math.min(attempts, Number(monster && monster.hits) || 0),
+            ),
+          });
+        },
+      );
+      const attempts = Number(value && value.attempts) || 0;
+      if (!(attempts > 0) && !monsters.size) return;
+      target.set(name, {
+        attempts,
+        hits: Math.max(0, Math.min(attempts, Number(value && value.hits) || 0)),
+        monsters,
+      });
+    });
+  };
+  const accuracyDelta = (map, base = {}) =>
+    Object.fromEntries(
+      Array.from(map, ([name, value]) => {
+        const previous = base[name] || {},
+          previousMonsters = previous.monsters || {};
+        const monsters = Object.fromEntries(
+          Array.from(value.monsters || [], ([key, monster]) => {
+            const old = previousMonsters[key] || {},
+              attempts =
+                (Number(monster.attempts) || 0) - (Number(old.attempts) || 0),
+              hits = (Number(monster.hits) || 0) - (Number(old.hits) || 0);
+            return [
+              key,
+              {
+                monsterName: monster.monsterName || old.monsterName || "",
+                monsterHrid: monster.monsterHrid || old.monsterHrid || "",
+                attempts,
+                hits,
+              },
+            ];
+          }).filter(([, monster]) => monster.attempts > 0),
+        );
+        const attempts =
+            (Number(value.attempts) || 0) - (Number(previous.attempts) || 0),
+          hits = (Number(value.hits) || 0) - (Number(previous.hits) || 0);
+        return [name, { attempts, hits, monsters }];
+      }).filter(
+        ([, value]) => value.attempts > 0 || Object.keys(value.monsters).length,
+      ),
+    );
+  const accuracyBaseFromDelta = (map, delta = {}) => {
+    const base = accuracyObject(map);
+    Object.entries(delta || {}).forEach(([name, value]) => {
+      if (!base[name]) return;
+      base[name].attempts = Math.max(
+        0,
+        (Number(base[name].attempts) || 0) -
+          (Number(value && value.attempts) || 0),
+      );
+      base[name].hits = Math.max(
+        0,
+        (Number(base[name].hits) || 0) - (Number(value && value.hits) || 0),
+      );
+      Object.entries((value && value.monsters) || {}).forEach(
+        ([key, monster]) => {
+          if (!base[name].monsters[key]) return;
+          base[name].monsters[key].attempts = Math.max(
+            0,
+            (Number(base[name].monsters[key].attempts) || 0) -
+              (Number(monster && monster.attempts) || 0),
+          );
+          base[name].monsters[key].hits = Math.max(
+            0,
+            (Number(base[name].monsters[key].hits) || 0) -
+              (Number(monster && monster.hits) || 0),
+          );
+          if (!(base[name].monsters[key].attempts > 0))
+            delete base[name].monsters[key];
+        },
+      );
+      if (
+        !(base[name].attempts > 0) &&
+        !Object.keys(base[name].monsters).length
+      )
+        delete base[name];
+    });
+    return base;
   };
   const nestedDelta = (map, base = {}) =>
     Object.fromEntries(
@@ -123,6 +232,7 @@ const Session = (() => {
           fragmentBase.takenSources,
         ),
         kills: mapDelta(playerKills, fragmentBase.kills),
+        accuracy: accuracyDelta(playerAccuracy, fragmentBase.accuracy),
       },
     };
   }
@@ -137,6 +247,7 @@ const Session = (() => {
       taken: mapObject(playerTaken),
       takenSources: nestedMapObject(playerTakenSources),
       kills: mapObject(playerKills),
+      accuracy: accuracyObject(playerAccuracy),
     };
     fragmentPrefix = null;
   }
@@ -199,6 +310,7 @@ const Session = (() => {
       playerKills.clear();
       playerTaken.clear();
       playerTakenSources.clear();
+      playerAccuracy.clear();
       dmgBuckets.fill(0);
       bossBuckets.fill(false);
       curBucket = 0;
@@ -220,6 +332,7 @@ const Session = (() => {
         taken: {},
         takenSources: {},
         kills: {},
+        accuracy: {},
       };
       fragmentPrefix = null;
     },
@@ -293,6 +406,7 @@ const Session = (() => {
         taken: baseFrom(playerTaken, deltas.taken),
         takenSources: takenSourceBase,
         kills: baseFrom(playerKills, deltas.kills),
+        accuracy: accuracyBaseFromDelta(playerAccuracy, deltas.accuracy),
       };
       fragmentPrefix = {
         startedAt: previous.startedAt,
@@ -329,6 +443,7 @@ const Session = (() => {
           taken: mapObject(playerTaken),
           takenSources: nestedMapObject(playerTakenSources),
           kills: mapObject(playerKills),
+          accuracy: accuracyObject(playerAccuracy),
         },
         classes: Object.fromEntries(
           this.getAllPlayerNames().map((n) => [n, ClassSystem.classFor(n)]),
@@ -358,6 +473,7 @@ const Session = (() => {
       restoreMap(playerTaken, s.players && s.players.taken);
       restoreNestedMap(playerTakenSources, s.players && s.players.takenSources);
       restoreMap(playerKills, s.players && s.players.kills);
+      restoreAccuracy(playerAccuracy, s.players && s.players.accuracy);
       ClassSystem.applyClasses(s.classes);
       fragments = Array.isArray(s.fragments) ? s.fragments : [];
       fragmentStart = null;
@@ -424,6 +540,36 @@ const Session = (() => {
     addPlayerKill(n) {
       playerKills.set(n, (playerKills.get(n) || 0) + 1);
     },
+    addPlayerAccuracy(n, hit, targets = []) {
+      if (!n) return;
+      const value = playerAccuracy.get(n) || {
+        attempts: 0,
+        hits: 0,
+        monsters: new Map(),
+      };
+      value.attempts++;
+      if (hit) value.hits++;
+      const seen = new Set();
+      (Array.isArray(targets) ? targets : []).forEach((target) => {
+        const monsterName = String((target && target.monsterName) || ""),
+          monsterHrid = String((target && target.monsterHrid) || ""),
+          key = monsterHrid || "name:" + monsterName;
+        if (!key || key === "name:" || seen.has(key)) return;
+        seen.add(key);
+        const monster = value.monsters.get(key) || {
+          monsterName,
+          monsterHrid,
+          attempts: 0,
+          hits: 0,
+        };
+        monster.monsterName = monster.monsterName || monsterName;
+        monster.monsterHrid = monster.monsterHrid || monsterHrid;
+        monster.attempts++;
+        if (target.hit) monster.hits++;
+        value.monsters.set(key, monster);
+      });
+      playerAccuracy.set(n, value);
+    },
     // Fusionne les stats d'un ancien label (ex: fallback "Joueur6") vers le
     // nom réel confirmé, au lieu de laisser deux lignes distinctes pour la
     // même personne. Utilisé quand la résolution de noms du Trial de guilde
@@ -458,6 +604,29 @@ const Session = (() => {
           );
         playerTakenSources.set(newName, target);
         playerTakenSources.delete(oldName);
+      }
+      if (playerAccuracy.has(oldName)) {
+        const source = playerAccuracy.get(oldName),
+          target = playerAccuracy.get(newName) || {
+            attempts: 0,
+            hits: 0,
+            monsters: new Map(),
+          };
+        target.attempts += Number(source.attempts) || 0;
+        target.hits += Number(source.hits) || 0;
+        source.monsters.forEach((monster, key) => {
+          const current = target.monsters.get(key) || {
+            monsterName: monster.monsterName || "",
+            monsterHrid: monster.monsterHrid || "",
+            attempts: 0,
+            hits: 0,
+          };
+          current.attempts += Number(monster.attempts) || 0;
+          current.hits += Number(monster.hits) || 0;
+          target.monsters.set(key, current);
+        });
+        playerAccuracy.set(newName, target);
+        playerAccuracy.delete(oldName);
       }
     },
     getTeamDps() {
@@ -502,6 +671,15 @@ const Session = (() => {
     getPlayerKills(n) {
       return playerKills.get(n) || 0;
     },
+    getPlayerAccuracy(n) {
+      const value = playerAccuracy.get(n);
+      if (!value) return null;
+      return {
+        attempts: Number(value.attempts) || 0,
+        hits: Number(value.hits) || 0,
+        monsters: Object.fromEntries(value.monsters || []),
+      };
+    },
     getElapsedSeconds() {
       return elapsed();
     },
@@ -512,6 +690,8 @@ const Session = (() => {
           ...playerKills.keys(),
           ...playerHealing.keys(),
           ...playerTaken.keys(),
+          ...playerAccuracy.keys(),
+          ...Object.keys(meta.accuracyProfiles || {}),
         ]),
       );
     },
@@ -565,7 +745,7 @@ const Diagnostics = (() => {
   let orphLog = 0;
   const w = (cnt, msg) => {
     if (cnt < MAX) {
-      console.warn("[KikiMeter] " + msg);
+      console.warn("[MWI DPS Tracker] " + msg);
       return cnt + 1;
     }
     return cnt;
@@ -617,11 +797,13 @@ const Capture = (() => {
       active = true;
       log = [];
       counts = {};
-      console.info("[KikiMeter] 已开始抓取战斗消息。");
+      console.info("[MWI DPS Tracker] 已开始抓取战斗消息。");
     },
     stop() {
       active = false;
-      console.info("[KikiMeter] 已停止抓取，共 " + log.length + " 条消息。");
+      console.info(
+        "[MWI DPS Tracker] 已停止抓取，共 " + log.length + " 条消息。",
+      );
     },
     record(type, payload) {
       if (!active) return;

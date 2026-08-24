@@ -1,4 +1,5 @@
 import { runtime } from "../core/runtime.js";
+import { getGameSpriteHref } from "../core/game-assets.js";
 
 /*
  * Battle buff/debuff overlay. Ported from the standalone "牛牛战斗Buff显示"
@@ -8,76 +9,130 @@ import { runtime } from "../core/runtime.js";
  */
 
 const STYLE_ID = "mwi-buff-style";
-const FALLBACK_SPRITE_URL = "/static/media/abilities_sprite.fdd1b4de.svg";
+const STATIC_EFFECT_CAPACITY = 3;
+const MARQUEE_SPEED_PX_PER_SECOND = 24;
+let abilityEffectIndexSource = null;
+let abilityEffectIndex = null;
 
-// Ability hrid -> approximate buff duration in seconds.
-const BUFFS = new Map([
-  ["/abilities/mana_spring", 10],
-  ["/abilities/taunt", 65],
-  ["/abilities/provoke", 65],
-  ["/abilities/toughness", 20],
-  ["/abilities/elusiveness", 20],
-  ["/abilities/precision", 20],
-  ["/abilities/berserk", 20],
-  ["/abilities/elemental_affinity", 20],
-  ["/abilities/frenzy", 20],
-  ["/abilities/spike_shell", 30],
-  ["/abilities/retribution", 30],
-  ["/abilities/vampirism", 20],
-  ["/abilities/insanity", 12],
-  ["/abilities/invincible", 12],
-  ["/abilities/fierce_aura", 120],
-  ["/abilities/guardian_aura", 120],
-  ["/abilities/mystic_aura", 120],
-  ["/abilities/speed_aura", 120],
-  ["/abilities/critical_aura", 120],
-]);
-const DEBUFFS = new Map([
-  ["/abilities/puncture", 10],
-  ["/abilities/maim", 12],
-  ["/abilities/crippling_slash", 12],
-  ["/abilities/fracturing_impact", 12],
-  ["/abilities/pestilent_shot", 12],
-  ["/abilities/ice_spear", 8],
-  ["/abilities/frost_surge", 9],
-  ["/abilities/toxic_pollen", 10],
-  ["/abilities/smoke_burst", 8],
-]);
-const SINGLE_TARGET_DEBUFFS = new Set([
-  "/abilities/puncture",
-  "/abilities/maim",
-  "/abilities/pestilent_shot",
-  "/abilities/smoke_burst",
-]);
-const TEAM_BUFFS = new Set([
-  "/abilities/mana_spring",
-  "/abilities/fierce_aura",
-  "/abilities/guardian_aura",
-  "/abilities/mystic_aura",
-  "/abilities/speed_aura",
-  "/abilities/critical_aura",
-]);
-
-function abilityId(hrid) {
-  const parts = hrid.split("/");
-  return parts[parts.length - 1] || hrid;
+function normalizedEffectToken(value) {
+  return String(value ?? "")
+    .toLowerCase()
+    .replaceAll(/[^a-z]/g, "");
 }
+
+function targetsEnemy(targetType) {
+  return /enem(?:y|ies)/.test(targetType);
+}
+
+function buildAbilityEffectIndex() {
+  const source = runtime.state.initData_abilityDetailMap ?? {};
+  if (source === abilityEffectIndexSource && abilityEffectIndex) {
+    return abilityEffectIndex;
+  }
+  const index = {
+    buffs: new Map(),
+    debuffs: new Map(),
+    teamBuffs: new Set(),
+    singleTargetDebuffs: new Set(),
+    allTargetDebuffs: new Set(),
+    buffSources: new Map(),
+  };
+  const entries =
+    source instanceof Map ? source.entries() : Object.entries(source);
+  for (const [abilityHrid, detail] of entries) {
+    const effects = detail?.abilityEffects ?? [];
+    const inheritedEnemyTarget = effects
+      .map((effect) => normalizedEffectToken(effect?.targetType))
+      .find(targetsEnemy);
+    for (const effect of effects) {
+      const durations = (effect?.buffs ?? [])
+        .map((buff) => Number(buff?.duration) / 1e9)
+        .filter((duration) => Number.isFinite(duration) && duration > 0);
+      if (!durations.length) continue;
+      const duration = Math.max(...durations);
+      const effectType = normalizedEffectToken(effect?.effectType);
+      const explicitDebuff = effectType.includes("debuff");
+      const explicitBuff = !explicitDebuff && effectType.includes("buff");
+      let targetType = normalizedEffectToken(effect?.targetType);
+      const inferredDebuff = !explicitBuff && targetsEnemy(targetType);
+      const kind = explicitDebuff || inferredDebuff ? "debuff" : "buff";
+      if (!targetType && kind === "debuff") {
+        targetType = inheritedEnemyTarget || "enemy";
+      }
+      const durationsByAbility =
+        kind === "debuff" ? index.debuffs : index.buffs;
+      durationsByAbility.set(
+        abilityHrid,
+        Math.max(duration, durationsByAbility.get(abilityHrid) ?? 0),
+      );
+      if (kind === "buff" && targetType.includes("allallies")) {
+        index.teamBuffs.add(abilityHrid);
+      }
+      if (kind === "debuff") {
+        if (targetType.includes("allenemies")) {
+          index.allTargetDebuffs.add(abilityHrid);
+        } else {
+          index.singleTargetDebuffs.add(abilityHrid);
+        }
+      }
+      for (const buff of effect?.buffs ?? []) {
+        const uniqueHrid = String(buff?.uniqueHrid ?? "");
+        if (!uniqueHrid) continue;
+        index.buffSources.set(uniqueHrid, {
+          abilityHrid,
+          duration,
+          kind,
+        });
+      }
+    }
+  }
+  abilityEffectIndexSource = source;
+  abilityEffectIndex = index;
+  return index;
+}
+
+function dynamicCollection(key) {
+  return Object.freeze({
+    has(value) {
+      return buildAbilityEffectIndex()[key].has(value);
+    },
+    get(value) {
+      return buildAbilityEffectIndex()[key].get(value);
+    },
+    [Symbol.iterator]() {
+      return buildAbilityEffectIndex()[key][Symbol.iterator]();
+    },
+  });
+}
+
+const BUFFS = dynamicCollection("buffs");
+const DEBUFFS = dynamicCollection("debuffs");
+const TEAM_BUFFS = dynamicCollection("teamBuffs");
+const SINGLE_TARGET_DEBUFFS = dynamicCollection("singleTargetDebuffs");
+const ALL_TARGET_DEBUFFS = dynamicCollection("allTargetDebuffs");
 
 function ensureBuffStyles(scope) {
   if (document.getElementById(STYLE_ID)) return;
   const style = document.createElement("style");
   style.id = STYLE_ID;
   style.textContent = `
-.mwi-has-buffbar{height:auto!important;min-height:0;overflow:visible!important}
-.mwi-buffbar{width:100%;box-sizing:border-box;display:flex;flex-wrap:wrap;gap:4px;margin-top:4px;align-items:center;justify-content:center}
-.mwi-chip{font:11px/1.2 "Trebuchet MS", Verdana, Arial, sans-serif;padding:2px 6px;border-radius:10px;white-space:nowrap;display:inline-flex;align-items:center;gap:4px;position:relative}
+	.mwi-has-buffbar{height:auto!important;min-height:0;overflow:visible!important}
+	.mwi-buff-shell{width:100%;height:21px;box-sizing:border-box;margin-top:4px}
+	.mwi-buffbar{position:relative;width:100%;height:21px;box-sizing:border-box;overflow:hidden}
+	.mwi-buff-track{width:100%;height:21px;display:flex;align-items:center}
+	.mwi-buff-sequence{width:100%;height:21px;display:flex;flex:none;gap:4px;align-items:center;justify-content:center}
+	.mwi-buffbar[data-scrolling="true"] .mwi-buff-track{width:max-content;animation:mwi-buff-marquee var(--mwi-marquee-duration,8s) linear infinite;will-change:transform}
+	.mwi-buffbar[data-scrolling="true"] .mwi-buff-sequence{width:max-content;justify-content:flex-start}
+	.mwi-chip{font:11px/1.2 "Trebuchet MS", Verdana, Arial, sans-serif;padding:2px 6px;border-radius:10px;white-space:nowrap;display:inline-flex;align-items:center;gap:4px;position:relative}
 .mwi-icon-wrap{position:relative;width:15px;height:15px;display:inline-block}
 .mwi-icon{width:15px;height:15px;display:block}
 .mwi-progress-ring{position:absolute;inset:-3px;border-radius:14px;pointer-events:none;mask:linear-gradient(#000 0 0);-webkit-mask:linear-gradient(#000 0 0)}
 .mwi-progress-ring::before{content:"";position:absolute;inset:0;border-radius:inherit;padding:3px;background:conic-gradient(var(--mwi-ring-color) 0deg var(--mwi-ring-deg), transparent var(--mwi-ring-deg) 360deg);-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude}
-.mwi-buff{background:#e7f4e4;color:#1e4d1a;border:1px solid #7fbf7a}
-.mwi-debuff{background:#fbe3e3;color:#6b1a1a;border:1px solid #d17b7b}
-`;
+	.mwi-buff{background:#e7f4e4;color:#1e4d1a;border:1px solid #7fbf7a}
+	.mwi-debuff{background:#fbe3e3;color:#6b1a1a;border:1px solid #d17b7b}
+	@keyframes mwi-buff-marquee{to{transform:translate3d(calc(-1 * var(--mwi-marquee-distance,0px)),0,0)}}
+	@media (prefers-reduced-motion:reduce){.mwi-buffbar[data-scrolling="true"]{overflow-x:auto}.mwi-buffbar[data-scrolling="true"] .mwi-buff-track{animation:none;will-change:auto}.mwi-buffbar[data-scrolling="true"] .mwi-buff-sequence[aria-hidden="true"]{display:none}}
+	`;
   (document.head || document.documentElement).appendChild(style);
   scope.add(() => style.remove());
 }
@@ -92,31 +147,6 @@ function createBuffTracker(scope) {
   const BATTLE_STATE = { players: new Map(), monsters: new Map() };
   const PENDING_BUFFS = [];
   const PENDING_DEBUFFS = [];
-  let abilitySpriteBase = null;
-
-  function getAbilitySpriteBase() {
-    if (abilitySpriteBase) return abilitySpriteBase;
-    const selectors = [
-      'use[href*="abilities_sprite"]',
-      'use[xlink\\:href*="abilities_sprite"]',
-      'img[src*="abilities_sprite"]',
-      'link[href*="abilities_sprite"]',
-    ];
-    for (const selector of selectors) {
-      const node = document.querySelector(selector);
-      if (!node) continue;
-      const href =
-        node.getAttribute("href") ||
-        node.getAttribute("xlink:href") ||
-        node.getAttribute("src");
-      if (typeof href === "string" && href.includes("abilities_sprite")) {
-        abilitySpriteBase = href.split("#")[0];
-        return abilitySpriteBase;
-      }
-    }
-    abilitySpriteBase = FALLBACK_SPRITE_URL;
-    return abilitySpriteBase;
-  }
 
   function getUnitElements(areaClass) {
     const area = document.querySelector(`[class*="${areaClass}"]`);
@@ -136,22 +166,31 @@ function createBuffTracker(scope) {
   }
 
   function ensureBuffBar(unitEl) {
-    let bar = unitEl.querySelector(".mwi-buffbar");
-    if (!bar) {
+    let shell = unitEl.querySelector(".mwi-buff-shell");
+    let bar = shell?.querySelector(".mwi-buffbar");
+    if (!shell || !bar) {
+      shell = document.createElement("div");
+      shell.className = "mwi-buff-shell";
       bar = document.createElement("div");
       bar.className = "mwi-buffbar";
-      // Nest the bar inside the unit's status column. It stays in flow (so it
-      // never overlaps neighbouring units) and wraps to multiple rows when the
-      // icons exceed the fixed status width, keeping every buff visible.
+      shell.append(bar);
+      // Nest the fixed single-row viewport inside the unit's status column so
+      // it stays in flow and never overlaps neighbouring units.
       const statusHost =
         unitEl.querySelector('[class*="CombatUnit_status"]') ?? unitEl;
-      // The game gives the status column a fixed height, which would clip the
-      // wrapped rows. Flag only this host so it grows to fit the bar without
-      // touching any other status column's layout.
       statusHost.classList.add("mwi-has-buffbar");
-      statusHost.appendChild(bar);
+      statusHost.appendChild(shell);
     }
     return bar;
+  }
+
+  function ensureBattleBuffBars(units = getBattleUnits()) {
+    for (const unitList of Object.values(units)) {
+      unitList.forEach((unitEl) => {
+        if (unitEl) ensureBuffBar(unitEl);
+      });
+    }
+    return units;
   }
 
   function getState(unitEl) {
@@ -206,7 +245,10 @@ function createBuffTracker(scope) {
       const state = UNIT_STATE.get(unitEl);
       if (state) state.effects.clear();
       const bar = unitEl.querySelector(".mwi-buffbar");
-      if (bar) bar.innerHTML = "";
+      if (bar) {
+        bar.replaceChildren();
+        delete bar.dataset.scrolling;
+      }
     }
   }
 
@@ -218,6 +260,7 @@ function createBuffTracker(scope) {
 
   function handleNewBattle(signal) {
     resetForNewBattle();
+    ensureBattleBuffBars();
     clearMonsterBuffs();
     seedStateFromCombatant(signal.players, BATTLE_STATE.players);
     seedStateFromCombatant(signal.monsters, BATTLE_STATE.monsters);
@@ -304,15 +347,26 @@ function createBuffTracker(scope) {
           });
       }
       if (!DEBUFFS.has(change.prevAction)) continue;
-      if (monsterHits.length === 0) continue;
       const casterIndex = Number(change.key);
       if (!Number.isInteger(casterIndex)) continue;
+      const livingTargets = [...BATTLE_STATE.monsters.entries()]
+        .filter(([, state]) => Number(state?.cHP) > 0)
+        .map(([key]) => Number(key))
+        .filter(Number.isInteger);
+      const targets = monsterHits.length
+        ? monsterHits
+        : buildAbilityEffectIndex().allTargetDebuffs.has(change.prevAction)
+          ? livingTargets
+          : livingTargets.length === 1
+            ? livingTargets
+            : [];
+      if (!targets.length) continue;
       PENDING_DEBUFFS.push({
         casterMap: "pMap",
         casterIndex,
         abilityHrid: change.prevAction,
         targetSide: "monsters",
-        targets: monsterHits,
+        targets,
       });
     }
 
@@ -330,16 +384,197 @@ function createBuffTracker(scope) {
           });
       }
       if (!DEBUFFS.has(change.prevAction)) continue;
-      if (playerHits.length === 0) continue;
       const casterIndex = Number(change.key);
       if (!Number.isInteger(casterIndex)) continue;
+      const livingTargets = [...BATTLE_STATE.players.entries()]
+        .filter(([, state]) => Number(state?.cHP) > 0)
+        .map(([key]) => Number(key))
+        .filter(Number.isInteger);
+      const targets = playerHits.length
+        ? playerHits
+        : buildAbilityEffectIndex().allTargetDebuffs.has(change.prevAction)
+          ? livingTargets
+          : livingTargets.length === 1
+            ? livingTargets
+            : [];
+      if (!targets.length) continue;
       PENDING_DEBUFFS.push({
         casterMap: "mMap",
         casterIndex,
         abilityHrid: change.prevAction,
         targetSide: "players",
-        targets: playerHits,
+        targets,
       });
+    }
+  }
+
+  function durationSeconds(value, fallback) {
+    const duration = Number(value);
+    if (!Number.isFinite(duration) || duration <= 0) return fallback;
+    if (duration > 86_400_000) return duration / 1e9;
+    if (duration > 1_000) return duration / 1_000;
+    return duration;
+  }
+
+  function applyAuthoritativeCombatBuffMaps(payload, units) {
+    const authoritativeEffects = new Set();
+    const effectKey = (mapName, unitIndex, kind, abilityHrid) =>
+      `${mapName}:${unitIndex}:${kind}:${abilityHrid}`;
+    for (const [mapName, unitList] of [
+      ["pMap", units.players],
+      ["mMap", units.monsters],
+    ]) {
+      const map = payload?.[mapName];
+      if (!map || typeof map !== "object") continue;
+      for (const [key, entity] of Object.entries(map)) {
+        if (
+          !entity?.combatBuffMap ||
+          typeof entity.combatBuffMap !== "object"
+        ) {
+          continue;
+        }
+        const unitEl = unitList[Number(key)];
+        if (!unitEl) continue;
+        for (const buff of Object.values(entity.combatBuffMap)) {
+          if (!buff || typeof buff !== "object") continue;
+          const uniqueHrid = String(buff.uniqueHrid ?? "");
+          const source = buildAbilityEffectIndex().buffSources.get(uniqueHrid);
+          const abilityHrid = String(
+            buff.sourceAbilityHrid ??
+              buff.abilityHrid ??
+              source?.abilityHrid ??
+              "",
+          );
+          if (!abilityHrid) continue;
+          const kind =
+            source?.kind ?? (DEBUFFS.has(abilityHrid) ? "debuff" : "buff");
+          const durationSec = durationSeconds(
+            buff.duration,
+            source?.duration ??
+              (kind === "debuff"
+                ? DEBUFFS.get(abilityHrid)
+                : BUFFS.get(abilityHrid)) ??
+              1,
+          );
+          const parsedStart = Date.parse(String(buff.startTime ?? ""));
+          const startedAt = Number.isFinite(parsedStart)
+            ? parsedStart
+            : Date.now();
+          const expiresAt = startedAt + durationSec * 1000;
+          if (expiresAt <= Date.now()) continue;
+          authoritativeEffects.add(
+            effectKey(mapName, Number(key), kind, abilityHrid),
+          );
+          updateUnitEffect(unitEl, kind, abilityHrid, durationSec, {
+            startedAt,
+            expiresAt,
+          });
+        }
+      }
+    }
+    return {
+      has(mapName, unitIndex, kind, abilityHrid) {
+        return authoritativeEffects.has(
+          effectKey(mapName, unitIndex, kind, abilityHrid),
+        );
+      },
+    };
+  }
+
+  function effectKey(kind, abilityHrid) {
+    return `${kind}\u001f${abilityHrid}`;
+  }
+
+  function createEffectChip(effect) {
+    const chip = document.createElement("span");
+    chip.className = `mwi-chip ${effect.kind === "buff" ? "mwi-buff" : "mwi-debuff"}`;
+    chip.dataset.effectKey = effectKey(effect.kind, effect.abilityHrid);
+    const iconWrap = document.createElement("span");
+    iconWrap.className = "mwi-icon-wrap";
+    const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    icon.setAttribute("role", "img");
+    icon.setAttribute("aria-label", runtime.config.isZH ? "技能" : "Ability");
+    icon.setAttribute("class", "Icon_icon__2LtL_ mwi-icon");
+    icon.setAttribute("width", "100%");
+    icon.setAttribute("height", "100%");
+    const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+    const spriteRef = getGameSpriteHref("abilities", effect.abilityHrid);
+    if (spriteRef) {
+      use.setAttribute("href", spriteRef);
+      use.setAttribute("xlink:href", spriteRef);
+      icon.appendChild(use);
+      iconWrap.appendChild(icon);
+    } else {
+      iconWrap.textContent = "?";
+    }
+    const ring = document.createElement("span");
+    ring.className = "mwi-progress-ring";
+    ring.style.setProperty(
+      "--mwi-ring-color",
+      effect.kind === "buff" ? "rgba(60,140,60,0.7)" : "rgba(180,60,60,0.7)",
+    );
+    chip.append(iconWrap, ring);
+    return chip;
+  }
+
+  function updateMarqueeMetrics(bar, effectCount) {
+    if (effectCount <= STATIC_EFFECT_CAPACITY) return;
+    const sequence = bar.querySelector(
+      '.mwi-buff-sequence:not([aria-hidden="true"])',
+    );
+    if (!sequence) return;
+    const distance = Math.max(sequence.scrollWidth || effectCount * 31, 1) + 4;
+    const duration = Math.max(4, distance / MARQUEE_SPEED_PX_PER_SECOND);
+    const distanceValue = `${distance}px`;
+    const durationValue = `${duration}s`;
+    if (
+      bar.style.getPropertyValue("--mwi-marquee-distance") !== distanceValue
+    ) {
+      bar.style.setProperty("--mwi-marquee-distance", distanceValue);
+    }
+    if (
+      bar.style.getPropertyValue("--mwi-marquee-duration") !== durationValue
+    ) {
+      bar.style.setProperty("--mwi-marquee-duration", durationValue);
+    }
+  }
+
+  function rebuildEffectTrack(bar, entries) {
+    const track = document.createElement("div");
+    track.className = "mwi-buff-track";
+    const sequence = document.createElement("div");
+    sequence.className = "mwi-buff-sequence";
+    for (const effect of entries) sequence.append(createEffectChip(effect));
+    track.append(sequence);
+    if (entries.length > STATIC_EFFECT_CAPACITY) {
+      const duplicate = sequence.cloneNode(true);
+      duplicate.setAttribute("aria-hidden", "true");
+      track.append(duplicate);
+      bar.dataset.scrolling = "true";
+    } else {
+      delete bar.dataset.scrolling;
+      bar.style.removeProperty("--mwi-marquee-distance");
+      bar.style.removeProperty("--mwi-marquee-duration");
+    }
+    bar.replaceChildren(track);
+    updateMarqueeMetrics(bar, entries.length);
+  }
+
+  function updateCountdownRings(bar, entries, now) {
+    for (const effect of entries) {
+      const total = Math.max(1, effect.durationSec);
+      const elapsed = Math.max(
+        0,
+        Math.min(total, (now - effect.startedAt) / 1000),
+      );
+      const degrees = Math.min(1, Math.max(0, elapsed / total)) * 360;
+      const key = effectKey(effect.kind, effect.abilityHrid);
+      for (const chip of bar.querySelectorAll(".mwi-chip")) {
+        if (chip.dataset.effectKey !== key) continue;
+        chip
+          .querySelector(".mwi-progress-ring")
+          ?.style.setProperty("--mwi-ring-deg", `${degrees}deg`);
+      }
     }
   }
 
@@ -347,64 +582,44 @@ function createBuffTracker(scope) {
     const state = getState(unitEl);
     const bar = ensureBuffBar(unitEl);
     const now = Date.now();
-    const entries = Array.from(state.effects.values()).filter(
-      (effect) => effect.expiresAt > now,
-    );
+    const entries = Array.from(state.effects.values())
+      .filter((effect) => effect.expiresAt > now)
+      .sort((a, b) => a.expiresAt - b.expiresAt);
     state.effects = new Map(
-      entries.map((effect) => [effect.abilityHrid, effect]),
+      entries.map((effect) => [
+        effectKey(effect.kind, effect.abilityHrid),
+        effect,
+      ]),
     );
-
-    bar.innerHTML = "";
-    for (const effect of entries.sort((a, b) => a.expiresAt - b.expiresAt)) {
-      const chip = document.createElement("span");
-      chip.className = `mwi-chip ${effect.kind === "buff" ? "mwi-buff" : "mwi-debuff"}`;
-      const iconWrap = document.createElement("span");
-      iconWrap.className = "mwi-icon-wrap";
-      const icon = document.createElementNS(
-        "http://www.w3.org/2000/svg",
-        "svg",
-      );
-      icon.setAttribute("role", "img");
-      icon.setAttribute("aria-label", runtime.config.isZH ? "技能" : "Ability");
-      icon.setAttribute("class", "Icon_icon__2LtL_ mwi-icon");
-      icon.setAttribute("width", "100%");
-      icon.setAttribute("height", "100%");
-      const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
-      const spriteBase = getAbilitySpriteBase();
-      const spriteRef = `${spriteBase}#${abilityId(effect.abilityHrid)}`;
-      use.setAttribute("href", spriteRef);
-      use.setAttribute("xlink:href", spriteRef);
-      icon.appendChild(use);
-      const total = Math.max(1, effect.durationSec);
-      const elapsed = Math.max(
-        0,
-        Math.min(total, (now - effect.startedAt) / 1000),
-      );
-      const progress = Math.min(1, Math.max(0, elapsed / total));
-      const degrees = progress * 360;
-      iconWrap.appendChild(icon);
-      chip.appendChild(iconWrap);
-      const ring = document.createElement("span");
-      ring.className = "mwi-progress-ring";
-      ring.style.setProperty("--mwi-ring-deg", `${degrees}deg`);
-      ring.style.setProperty(
-        "--mwi-ring-color",
-        effect.kind === "buff" ? "rgba(60,140,60,0.7)" : "rgba(180,60,60,0.7)",
-      );
-      chip.appendChild(ring);
-      bar.appendChild(chip);
+    const signature = entries
+      .map((effect) => effectKey(effect.kind, effect.abilityHrid))
+      .join("\u001e");
+    if (state.renderSignature !== signature) {
+      rebuildEffectTrack(bar, entries);
+      state.renderSignature = signature;
+    } else {
+      updateMarqueeMetrics(bar, entries.length);
     }
+    updateCountdownRings(bar, entries, now);
   }
 
-  function updateUnitEffect(unitEl, kind, abilityHrid, durationSec) {
+  function updateUnitEffect(
+    unitEl,
+    kind,
+    abilityHrid,
+    durationSec,
+    timing = {},
+  ) {
     const state = getState(unitEl);
     const now = Date.now();
-    state.effects.set(abilityHrid, {
+    const startedAt = Number(timing.startedAt) || now;
+    const expiresAt = Number(timing.expiresAt) || now + durationSec * 1000;
+    state.effects.set(effectKey(kind, abilityHrid), {
       abilityHrid,
       kind,
       durationSec,
-      startedAt: now,
-      expiresAt: now + durationSec * 1000,
+      startedAt,
+      expiresAt,
     });
     renderUnit(unitEl);
   }
@@ -412,10 +627,14 @@ function createBuffTracker(scope) {
   function applyBattleUpdated(payload) {
     const pMap = payload?.pMap;
     const mMap = payload?.mMap;
-    const units = getBattleUnits();
+    const units = ensureBattleBuffBars();
     if (units.players.length === 0 && units.monsters.length === 0) return;
     ensureBuffStyles(scope);
     updateBattleState(payload);
+    const authoritativeEffects = applyAuthoritativeCombatBuffMaps(
+      payload,
+      units,
+    );
 
     if (PENDING_BUFFS.length > 0) {
       const pending = PENDING_BUFFS.splice(0, PENDING_BUFFS.length);
@@ -426,14 +645,33 @@ function createBuffTracker(scope) {
         const unitList =
           item.mapName === "pMap" ? units.players : units.monsters;
         if (isTeamBuff) {
-          for (const unitEl of unitList) {
-            if (unitEl)
+          for (let unitIndex = 0; unitIndex < unitList.length; unitIndex += 1) {
+            const unitEl = unitList[unitIndex];
+            if (
+              unitEl &&
+              !authoritativeEffects.has(
+                item.mapName,
+                unitIndex,
+                "buff",
+                item.abilityHrid,
+              )
+            ) {
               updateUnitEffect(unitEl, "buff", item.abilityHrid, duration);
+            }
           }
         } else {
           const unitEl = unitList[item.casterIndex];
-          if (unitEl)
+          if (
+            unitEl &&
+            !authoritativeEffects.has(
+              item.mapName,
+              item.casterIndex,
+              "buff",
+              item.abilityHrid,
+            )
+          ) {
             updateUnitEffect(unitEl, "buff", item.abilityHrid, duration);
+          }
         }
       }
     }
@@ -445,6 +683,7 @@ function createBuffTracker(scope) {
         const duration = DEBUFFS.get(item.abilityHrid);
         const applyList =
           item.targetSide === "monsters" ? units.monsters : units.players;
+        const targetMapName = item.targetSide === "monsters" ? "mMap" : "pMap";
         // Single-target debuffs land on the first confirmed hit; others mark
         // every target that took damage this frame.
         const targets = SINGLE_TARGET_DEBUFFS.has(item.abilityHrid)
@@ -452,8 +691,17 @@ function createBuffTracker(scope) {
           : item.targets;
         for (const target of targets) {
           const unitEl = applyList[target];
-          if (unitEl)
+          if (
+            unitEl &&
+            !authoritativeEffects.has(
+              targetMapName,
+              target,
+              "debuff",
+              item.abilityHrid,
+            )
+          ) {
             updateUnitEffect(unitEl, "debuff", item.abilityHrid, duration);
+          }
         }
       }
     }
@@ -476,17 +724,27 @@ function createBuffTracker(scope) {
         if (typeof abilityHrid !== "string" || abilityHrid.length === 0)
           continue;
         if (!BUFFS.has(abilityHrid)) continue;
-
         const duration = BUFFS.get(abilityHrid);
         const keyIndex = Number.isInteger(Number(key)) ? Number(key) : idx;
 
         if (TEAM_BUFFS.has(abilityHrid)) {
-          for (const unitEl of unitList) {
-            if (unitEl) updateUnitEffect(unitEl, "buff", abilityHrid, duration);
+          for (let unitIndex = 0; unitIndex < unitList.length; unitIndex += 1) {
+            const unitEl = unitList[unitIndex];
+            if (
+              unitEl &&
+              !authoritativeEffects.has(mapName, unitIndex, "buff", abilityHrid)
+            ) {
+              updateUnitEffect(unitEl, "buff", abilityHrid, duration);
+            }
           }
         } else {
           const unitEl = unitList[keyIndex];
-          if (unitEl) updateUnitEffect(unitEl, "buff", abilityHrid, duration);
+          if (
+            unitEl &&
+            !authoritativeEffects.has(mapName, keyIndex, "buff", abilityHrid)
+          ) {
+            updateUnitEffect(unitEl, "buff", abilityHrid, duration);
+          }
         }
       }
     };
@@ -519,10 +777,13 @@ function createBuffTracker(scope) {
   function removeAllBuffBars() {
     const units = getBattleUnits();
     for (const unitEl of [...units.players, ...units.monsters]) {
+      const shell = unitEl?.querySelector(".mwi-buff-shell");
       const bar = unitEl?.querySelector(".mwi-buffbar");
-      if (bar) {
-        bar.closest(".mwi-has-buffbar")?.classList.remove("mwi-has-buffbar");
-        bar.remove();
+      if (shell || bar) {
+        (shell ?? bar)
+          .closest(".mwi-has-buffbar")
+          ?.classList.remove("mwi-has-buffbar");
+        (shell ?? bar).remove();
       }
     }
   }
@@ -531,6 +792,7 @@ function createBuffTracker(scope) {
     handleNewBattle,
     applyBattleUpdated,
     hasActiveEffects,
+    mountBuffBars: ensureBattleBuffBars,
     tickCountdowns,
     removeAllBuffBars,
   };
@@ -541,6 +803,8 @@ runtime.features.register({
   setting: "battleBuffs",
   initialize({ scope }) {
     const tracker = createBuffTracker(scope);
+    ensureBuffStyles(scope);
+    tracker.mountBuffBars();
     let countdownTimer = null;
     const tick = () => {
       countdownTimer = null;
@@ -576,5 +840,11 @@ runtime.features.register({
 
 // Exposed for tests and diagnostics.
 Object.assign(runtime.api, {
-  battleBuffs: { BUFFS, DEBUFFS, TEAM_BUFFS, SINGLE_TARGET_DEBUFFS },
+  battleBuffs: {
+    BUFFS,
+    DEBUFFS,
+    TEAM_BUFFS,
+    SINGLE_TARGET_DEBUFFS,
+    ALL_TARGET_DEBUFFS,
+  },
 });

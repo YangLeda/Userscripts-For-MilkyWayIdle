@@ -527,10 +527,22 @@ function handleMarketItemFilter(div, itemDetal) {
 /* 任务卡片显示战斗地图序号 */
 function handleTaskCard() {
   const taskNameDivs = document.querySelectorAll(
-    "div.RandomTask_randomTask__3B9fA div.RandomTask_name__1hl1b",
+    'div[class*="RandomTask_randomTask"] div[class*="RandomTask_name"]',
   );
   for (const div of taskNameDivs) {
     if (div.querySelector("span.script_taskMapIndex")) {
+      continue;
+    }
+
+    const card = div.closest('div[class*="RandomTask_randomTask"]');
+    if (card && "mwitoolsMapIndex" in card.dataset) {
+      const cachedIndex = Number(card.dataset.mwitoolsMapIndex);
+      if (cachedIndex > 0) {
+        div.insertAdjacentHTML(
+          "beforeend",
+          `<span class="script_taskMapIndex" style="text-align: right; color: ${runtime.config.SCRIPT_COLOR_MAIN};"> ${runtime.config.isZH ? "图" : "Z"}${cachedIndex}</span>`,
+        );
+      }
       continue;
     }
 

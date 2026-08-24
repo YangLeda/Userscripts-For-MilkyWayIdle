@@ -100,27 +100,58 @@ async function calculateHouseScores(characterHouseRoomMap) {
   return { combat, skilling, all };
 }
 
+function createEmptyShrineScores() {
+  return { battle: null, skilling: null };
+}
+
+function calculateGuildShrineScores(guildBuffLevels) {
+  if (typeof runtime.api.getGuildShrineValues !== "function") {
+    return createEmptyShrineScores();
+  }
+  const values =
+    guildBuffLevels === undefined
+      ? runtime.api.getGuildShrineValues()
+      : runtime.api.getGuildShrineValues(guildBuffLevels);
+  return {
+    battle: Number.isFinite(values?.battle) ? values.battle / SCORE_UNIT : null,
+    skilling: Number.isFinite(values?.skilling)
+      ? values.skilling / SCORE_UNIT
+      : null,
+  };
+}
+
 function createScoreResult({
   houseScores,
   abilityScore,
   allAbilityScore,
   gearScores,
+  shrineScores = createEmptyShrineScores(),
   equipmentHidden = false,
 }) {
   const battle = {
     house: houseScores.combat,
     abilities: abilityScore,
     equipment: gearScores.combatEquipment,
+    shrine: shrineScores.battle,
   };
-  battle.total = battle.house + battle.abilities + battle.equipment;
+  battle.total =
+    battle.house +
+    battle.abilities +
+    battle.equipment +
+    (Number.isFinite(battle.shrine) ? battle.shrine : 0);
 
   const skilling = {
     house: houseScores.skilling,
     tools: gearScores.skillingTools,
     equipment: gearScores.skillingEquipment,
+    shrine: shrineScores.skilling,
     available: !equipmentHidden,
   };
-  skilling.total = skilling.house + skilling.tools + skilling.equipment;
+  skilling.total =
+    skilling.house +
+    skilling.tools +
+    skilling.equipment +
+    (Number.isFinite(skilling.shrine) ? skilling.shrine : 0);
 
   return {
     battle,
@@ -140,6 +171,15 @@ async function getSelfBuildScores() {
     runtime.state.initData_characterHouseRoomMap,
   );
   const gearScores = calculateGearScores(runtime.state.initData_characterItems);
+  const guildBuffLevels = runtime.state.guildBuffLevels;
+  const hasGuildBuffLevels = Array.isArray(guildBuffLevels)
+    ? guildBuffLevels.length > 0
+    : Object.keys(guildBuffLevels ?? {}).length > 0;
+  const shrineScores =
+    runtime.state.guildDataLoaded &&
+    (Boolean(runtime.state.guild) || hasGuildBuffLevels)
+      ? calculateGuildShrineScores()
+      : createEmptyShrineScores();
 
   // 技能分：当前使用的战斗技能所需技能书总价，单位M
   let abilityScore = 0;
@@ -174,6 +214,7 @@ async function getSelfBuildScores() {
     abilityScore,
     allAbilityScore,
     gearScores,
+    shrineScores,
   });
 }
 
@@ -288,6 +329,8 @@ async function showBuildScoreOnProfile(profile_shared_obj) {
       : " (Equipment hidden)"
     : "";
   const hiddenValue = scores.equipmentHidden ? "-" : null;
+  const optionalScore = (value) =>
+    Number.isFinite(value) ? runtime.api.formatScore(value) : "—";
 
   const panel = await getInfoPanel();
   panel.style.height = "auto";
@@ -313,6 +356,10 @@ async function showBuildScoreOnProfile(profile_shared_obj) {
                             <span style="display: inline !important; color: var(--color-text-secondary, #9da6b2) !important; float: none !important;">${runtime.config.isZH ? "装备：" : "Equipment: "}</span>
                             <span style="display: inline !important; font-weight: 600 !important; color: #f3f5f7 !important; margin-left: 2px !important; float: none !important;">${hiddenValue ?? runtime.api.formatScore(scores.battle.equipment)}</span>
                     </p>
+                    <p style="display: block !important; margin: 2px 0 !important; padding: 3px 0 !important; text-align: left !important; width: fit-content !important; float: none !important;">
+                            <span style="display: inline !important; color: var(--color-text-secondary, #9da6b2) !important; float: none !important;">${runtime.config.isZH ? "战斗神龛：" : "Combat shrine: "}</span>
+                            <span style="display: inline !important; font-weight: 600 !important; color: #f3f5f7 !important; margin-left: 2px !important; float: none !important;">${optionalScore(scores.battle.shrine)}</span>
+                    </p>
             </section>
             <p id="toggleSkillingScores_profile" style="display: block !important; margin: 4px 0 !important; padding: 4px 0 !important; cursor: pointer !important; font-weight: 650 !important; text-align: left !important; width: fit-content !important; float: none !important;">
                     <span class="mwi-profile-toggle-icon" style="display: inline !important; font-weight: bold !important; margin-right: 4px !important; float: none !important;">+</span>
@@ -331,6 +378,10 @@ async function showBuildScoreOnProfile(profile_shared_obj) {
                     <p style="display: block !important; margin: 2px 0 !important; padding: 3px 0 !important; text-align: left !important; width: fit-content !important; float: none !important;">
                             <span style="display: inline !important; color: var(--color-text-secondary, #9da6b2) !important; float: none !important;">${runtime.config.isZH ? "装备：" : "Equipment: "}</span>
                             <span style="display: inline !important; font-weight: 600 !important; color: #f3f5f7 !important; margin-left: 2px !important; float: none !important;">${hiddenValue ?? runtime.api.formatScore(scores.skilling.equipment)}</span>
+                    </p>
+                    <p style="display: block !important; margin: 2px 0 !important; padding: 3px 0 !important; text-align: left !important; width: fit-content !important; float: none !important;">
+                            <span style="display: inline !important; color: var(--color-text-secondary, #9da6b2) !important; float: none !important;">${runtime.config.isZH ? "生活神龛：" : "Skilling shrine: "}</span>
+                            <span style="display: inline !important; font-weight: 600 !important; color: #f3f5f7 !important; margin-left: 2px !important; float: none !important;">${optionalScore(scores.skilling.shrine)}</span>
                     </p>
             </section>
         </section>`,
@@ -357,6 +408,12 @@ async function showBuildScoreOnProfile(profile_shared_obj) {
 async function getBuildScoreByProfile(profile_shared_obj) {
   const profile = profile_shared_obj.profile;
   const houseScores = await calculateHouseScores(profile.characterHouseRoomMap);
+  const shrineScores =
+    profile.guildId &&
+    profile.guildBuffLevelMap &&
+    typeof profile.guildBuffLevelMap === "object"
+      ? calculateGuildShrineScores(profile.guildBuffLevelMap)
+      : createEmptyShrineScores();
   const equipmentHidden = profile.hideWearableItems === true;
   const emptyGearScores = createEmptyGearScores();
   if (equipmentHidden) {
@@ -365,6 +422,7 @@ async function getBuildScoreByProfile(profile_shared_obj) {
       abilityScore: 0,
       allAbilityScore: 0,
       gearScores: emptyGearScores,
+      shrineScores,
       equipmentHidden: true,
     });
   }
@@ -398,6 +456,7 @@ async function getBuildScoreByProfile(profile_shared_obj) {
     abilityScore,
     allAbilityScore: 0,
     gearScores,
+    shrineScores,
   });
 }
 
@@ -459,6 +518,7 @@ Object.assign(runtime.api, {
   isSkillingHouse,
   calculateGearScores,
   calculateHouseScores,
+  calculateGuildShrineScores,
   calculateAbilityScore,
   getInfoPanel,
   showBuildScoreOnProfile,

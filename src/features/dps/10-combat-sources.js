@@ -1,5 +1,6 @@
 import { GameAssets, Settings, VERSION } from "./00-bootstrap.js";
 import { runtime } from "../../core/runtime.js";
+import { getLocalizedEntityName } from "../../core/game-localization.js";
 
 // ─── 职业识别、颜色与图标 ───────────────────────────────────────────────────
 const ClassSystem = (() => {
@@ -350,18 +351,28 @@ const ClassSystem = (() => {
   function setOverride(name, classId) {
     Settings.setClassOverride(name, classId === "auto" ? null : classId);
   }
+  function resolveBattleClass(name, player, source) {
+    const override = name ? Settings.getClassOverride(name) : null;
+    if (override) return override;
+    const known = name
+      ? detected.get(name) || Settings.getCachedClass(name) || UNKNOWN
+      : UNKNOWN;
+    const live = identify(player);
+    if (live === UNKNOWN) return known;
+    const ranged = new Set(["bow", "crossbow"]);
+    const onlyRangedIntervalChanged =
+      !weaponHridFromPlayer(player) && ranged.has(known) && ranged.has(live);
+    const classId = onlyRangedIntervalChanged ? known : live;
+    if (name && classId !== known) setDetected(name, classId, source);
+    return classId;
+  }
   function registerPlayers(players) {
     const out = {};
     (players || []).forEach((p) => {
       const name = (p.character && p.character.name) || p.name;
       syncWeaponCache(name, p);
-      const known = name ? classFor(name) : UNKNOWN;
-      const classId = known !== UNKNOWN ? known : identify(p);
-      if (name) {
-        if (known === UNKNOWN && classId !== UNKNOWN)
-          setDetected(name, classId);
-        out[name] = classId;
-      }
+      const classId = resolveBattleClass(name, p, "本场战斗人物属性");
+      if (name) out[name] = classId;
     });
     return out;
   }
@@ -378,12 +389,12 @@ const ClassSystem = (() => {
       "";
     syncWeaponCache(name, unit);
     const known = name ? classFor(name) : UNKNOWN;
-    const classId = known !== UNKNOWN ? known : identify(unit);
+    const classId = resolveBattleClass(name, unit, "战斗人物属性");
     if (!name || classId === UNKNOWN) return { name, classId, updated: false };
     return {
       name,
       classId,
-      updated: known === UNKNOWN && setDetected(name, classId, "战斗人物属性"),
+      updated: known !== classId,
       source: "combatDetails.combatStats",
     };
   }
@@ -640,7 +651,7 @@ const ClassDebug = (() => {
         })),
       }));
       return [
-        `=== MWI DPS Meter | Class Diagnostics | ${VERSION} ===`,
+        `=== MWI DPS Tracker | Class Diagnostics | ${VERSION} ===`,
         `Generated at: ${new Date().toLocaleString()}`,
         "Note: icons represent each class's signature weapon. The data below contains only class-identification fields.",
         `Recorded events: ${events.length}`,
@@ -649,7 +660,7 @@ const ClassDebug = (() => {
       ].join("\n");
     }
     const lines = [
-      `=== 银河奶牛DPS统计｜职业调试报告｜${VERSION} ===`,
+      `=== MWI DPS Tracker｜职业调试报告｜${VERSION} ===`,
       "生成时间：" + new Date().toLocaleString(),
       "说明：图标为职业代表武器；以下内容仅包含职业识别字段。",
       "记录事件数：" + events.length,
@@ -1219,7 +1230,7 @@ const ClassProbe = (() => {
     save();
     bus.dispatchEvent(new Event("change"));
     console.info(
-      "[KikiMeter] 全量入站消息采集已开始；点击“结束采集”才会停止。",
+      "[MWI DPS Tracker] 全量入站消息采集已开始；点击“结束采集”才会停止。",
     );
     return status();
   }
@@ -1238,7 +1249,7 @@ const ClassProbe = (() => {
     save();
     bus.dispatchEvent(new Event("change"));
     console.info(
-      "[KikiMeter] 全量入站消息采集已结束，共 " +
+      "[MWI DPS Tracker] 全量入站消息采集已结束，共 " +
         state.fullMessages.length +
         " 条消息。",
     );
@@ -1283,7 +1294,7 @@ const ClassProbe = (() => {
           "Full message bodies are kept only in this page's memory. Download them before refreshing or closing the page.";
       }
       return [
-        `=== MWI DPS Meter | Manual Full Incoming-Message Probe | ${VERSION} ===`,
+        `=== MWI DPS Tracker | Manual Full Incoming-Message Probe | ${VERSION} ===`,
         `Generated at: ${new Date().toLocaleString()}`,
         `Capture started: ${state.startedAt || "Not started"}`,
         `Capture ended: ${state.endedAt || (active ? "In progress" : "None")}`,
@@ -1299,7 +1310,7 @@ const ClassProbe = (() => {
       ].join("\n");
     }
     const lines = [
-      `=== 银河奶牛DPS统计｜手动全量入站消息探针｜${VERSION} ===`,
+      `=== MWI DPS Tracker｜手动全量入站消息探针｜${VERSION} ===`,
       "生成时间：" + new Date().toLocaleString(),
       "采样开始：" + (state.startedAt || "未开始"),
       "采样结束：" + (state.endedAt || (active ? "进行中" : "无")),
@@ -1446,11 +1457,13 @@ const ClassProbe = (() => {
   }
   function download() {
     if (!state.startedAt) {
-      console.warn("[KikiMeter] 尚未开始全量消息采集，已取消空报告下载。");
+      console.warn(
+        "[MWI DPS Tracker] 尚未开始全量消息采集，已取消空报告下载。",
+      );
       return null;
     }
     if (active) {
-      console.warn("[KikiMeter] 请先点击“结束采集”，再下载全量 MSG。");
+      console.warn("[MWI DPS Tracker] 请先点击“结束采集”，再下载全量 MSG。");
       return null;
     }
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
@@ -1584,7 +1597,7 @@ const DamageSources = (() => {
           .replace(/\b\w/g, (char) => char.toUpperCase())
       );
     return (
-      runtime.data.ZHOthersDic?.[value] ||
+      getLocalizedEntityName("ability", value) ||
       clientAbilityName(value) ||
       value
         .split("/")
@@ -1656,11 +1669,11 @@ const DamageSources = (() => {
           .pop()
           .replace(/_/g, " ")
           .replace(/\b\w/g, (char) => char.toUpperCase());
-      const chineseName =
-        runtime.data.ZHItemNames?.[value] ||
+      const localizedName =
+        getLocalizedEntityName("item", value) ||
         itemLabels[value]?.[0] ||
         englishName;
-      return english ? englishName + " Effect" : "武器特效：" + chineseName;
+      return english ? englishName + " Effect" : "武器特效：" + localizedName;
     }
     const tail = value
       .split("/")
@@ -1730,7 +1743,10 @@ const TakenSources = (() => {
   }
   function monsterLabel(detail) {
     if (Settings.getLanguage() !== "en") {
-      const officialName = runtime.data.ZHOthersDic?.[detail.monsterHrid];
+      const officialName = getLocalizedEntityName(
+        "monster",
+        detail.monsterHrid,
+      );
       if (officialName) return officialName;
     }
     if (detail.monsterName) return detail.monsterName;

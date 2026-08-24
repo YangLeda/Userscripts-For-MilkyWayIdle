@@ -4,8 +4,6 @@ import { parseCompactNumber } from "./market.js";
 
 const NAME_SELECTOR = '[class*="RandomTask_name"]';
 let cachedActionMap = null;
-let cachedZhActionNames = null;
-let cachedZhMonsterNames = null;
 let cachedLocale = "";
 let cachedActionLabels = new Map();
 
@@ -75,18 +73,9 @@ function cardRemaining(card) {
 
 function candidateLabels(task, actionHrid) {
   const actionMap = runtime.state.initData_actionDetailMap;
-  const zhActionNames = runtime.data.ZHActionNames;
-  const zhMonsterNames = runtime.data.ZHMonsterNames;
   const locale = getGameLocale();
-  if (
-    actionMap !== cachedActionMap ||
-    zhActionNames !== cachedZhActionNames ||
-    zhMonsterNames !== cachedZhMonsterNames ||
-    locale !== cachedLocale
-  ) {
+  if (actionMap !== cachedActionMap || locale !== cachedLocale) {
     cachedActionMap = actionMap;
-    cachedZhActionNames = zhActionNames;
-    cachedZhMonsterNames = zhMonsterNames;
     cachedLocale = locale;
     cachedActionLabels = new Map();
   }
@@ -99,9 +88,7 @@ function candidateLabels(task, actionHrid) {
   const labels = new Set(
     [
       detail?.name,
-      zhActionNames?.[actionHrid],
       getLocalizedEntityName("action", actionHrid, { locale }),
-      monsterHrid && zhMonsterNames?.[monsterHrid],
       monsterHrid && getLocalizedEntityName("monster", monsterHrid, { locale }),
       String(actionHrid ?? "")
         .split("/")

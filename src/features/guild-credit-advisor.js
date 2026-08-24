@@ -4,6 +4,7 @@ import {
   itemName as localizedItemName,
   localize,
 } from "../core/localization.js";
+import { getGameSpriteHref } from "../core/game-assets.js";
 
 const CARD_ID = "mwitools-guild-credit-advisor";
 const LEGACY_STYLE_ID = "mwitools-guild-credit-advisor-style";
@@ -367,34 +368,11 @@ function itemName(itemHrid) {
   return localizedItemName(itemHrid, { fallback: itemHrid });
 }
 
-function findItemsSpriteBase() {
-  for (const entry of globalThis.performance?.getEntriesByType?.("resource") ??
-    []) {
-    if (entry.name?.includes("items_sprite") && entry.name.endsWith(".svg")) {
-      try {
-        return new URL(entry.name).pathname;
-      } catch {
-        return entry.name;
-      }
-    }
-  }
-  const use = document.querySelector(
-    'svg use[href*="items_sprite"],svg use[xlink\\:href*="items_sprite"]',
-  );
-  const href =
-    use?.getAttribute("href") ?? use?.getAttribute("xlink:href") ?? "";
-  return href.includes("#") ? href.split("#")[0] : "";
-}
-
 function itemIconMarkup(itemHrid, name) {
-  const sprite = findItemsSpriteBase();
-  const bare = String(itemHrid ?? "")
-    .split("/")
-    .at(-1);
-  if (!sprite || !bare) {
+  const href = getGameSpriteHref("items", itemHrid);
+  if (!href) {
     return `<span class="icon-fallback" aria-label="${escapeHtml(name)}">?</span>`;
   }
-  const href = `${sprite}#${bare}`;
   return `<svg class="item-icon" viewBox="0 0 32 32" role="img" aria-label="${escapeHtml(name)}"><use href="${escapeHtml(href)}" xlink:href="${escapeHtml(href)}"></use></svg>`;
 }
 
@@ -427,6 +405,7 @@ function advisorStyles() {
     .copy{display:block;min-width:0}
     .name-line{display:flex;min-width:0;align-items:center;gap:5px}
     .name{min-width:0;overflow:hidden;color:#f5f6ff;font-size:11px;font-weight:700;text-overflow:ellipsis;white-space:nowrap}
+    .ratio{margin-top:2px;color:#aeb1c9;font:500 9px/1.1 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:nowrap}
     .tag{flex:0 0 auto;padding:1px 4px;border:1px solid color-mix(in srgb,var(--mwi-credit-accent,#43c4ad) 65%,#555976);border-radius:999px;color:var(--mwi-credit-accent,#43c4ad);font-size:8px;font-weight:700}
     .price{display:flex;align-items:baseline;justify-content:flex-end;gap:3px;color:var(--mwi-credit-accent,#43c4ad);font:750 12px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:nowrap}
     .price small{color:#aeb1c9;font:500 9px/1.2 inherit}
@@ -487,7 +466,7 @@ function rankRowMarkup(
   return `<div class="rank-row${index === 0 ? " best" : ""}${separate ? " current-row" : ""}">
     <span class="rank">${separate ? "—" : index + 1}</span>
     ${itemIconMarkup(option.itemHrid, name)}
-    <span class="copy"><span class="name-line"><span class="name" title="${escapeHtml(name)}">${escapeHtml(name)}</span>${current ? `<span class="tag">${escapeHtml(t("当前", "Current"))}</span>` : ""}</span></span>
+    <span class="copy"><span class="name-line"><span class="name" title="${escapeHtml(name)}">${escapeHtml(name)}</span>${current ? `<span class="tag">${escapeHtml(t("当前", "Current"))}</span>` : ""}</span><span class="ratio">${escapeHtml(formatExact(option.itemCount))} ${escapeHtml(t("个物品", "items"))} → ${escapeHtml(formatExact(option.creditCount))} ${escapeHtml(t("点信用", "credits"))}</span></span>
     <span class="price" title="${escapeHtml(formatExact(option.costPerCredit))}">${pricePrefix}${escapeHtml(formatNumber(option.costPerCredit))}<small>${escapeHtml(t("每信用点", "per credit"))}</small></span>
   </div>`;
 }

@@ -1,6 +1,14 @@
 import { runtime } from "../core/runtime.js";
 
 const WARNING_ID = "mwitools-duplicate-script-warning";
+const MUTED_DUPLICATES_KEY = "MWITools_muted_duplicate_scripts_v1";
+const DUPLICATE_IDS = Object.freeze({
+  "MWI 市场伴侣 / MWI Market Mate": "market-mate",
+  "银河奶牛 DPS 统计 / Galaxy Cow DPS": "galaxy-cow-dps",
+  "Everyday Profit Plus Fixed": "everyday-profit-plus",
+  "MWI TaskManager": "mwi-task-manager",
+});
+let activeDuplicateWarningMonitor = null;
 const pageWindow = globalThis.unsafeWindow ?? globalThis.window ?? globalThis;
 const dpsWasPresentAtLoad = Boolean(pageWindow.__MWI_DPS);
 
@@ -8,6 +16,10 @@ function detectDuplicateScripts(options = {}) {
   const target = options.pageWindow ?? pageWindow;
   const documentRef = options.documentRef ?? globalThis.document;
   const duplicates = [];
+  const taskInsightsEnabled =
+    options.taskInsightsEnabled ??
+    runtime.settings.get?.("taskInsights") ??
+    true;
   if (target.MWIMM || documentRef?.getElementById("mwi-mm2-host")) {
     duplicates.push("MWI 市场伴侣 / MWI Market Mate");
   }
@@ -24,6 +36,7 @@ function detectDuplicateScripts(options = {}) {
     duplicates.push("Everyday Profit Plus Fixed");
   }
   if (
+    taskInsightsEnabled &&
     documentRef?.querySelector("#TaskSort") &&
     documentRef?.querySelector(
       "#taskChekerInCoin,#ActionIcon,#BattleIcon,#DungeonIcon",
@@ -34,12 +47,42 @@ function detectDuplicateScripts(options = {}) {
   return duplicates;
 }
 
+function duplicateScriptId(name) {
+  return (
+    DUPLICATE_IDS[name] ??
+    String(name ?? "")
+      .trim()
+      .toLowerCase()
+  );
+}
+
+function readMutedDuplicateScriptIds(storage = globalThis.localStorage) {
+  try {
+    const value = JSON.parse(storage?.getItem(MUTED_DUPLICATES_KEY) || "[]");
+    return new Set(Array.isArray(value) ? value.map(String) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function writeMutedDuplicateScriptIds(ids, storage = globalThis.localStorage) {
+  const value = [...new Set(ids ?? [])].map(String).filter(Boolean).sort();
+  storage?.setItem(MUTED_DUPLICATES_KEY, JSON.stringify(value));
+  return value;
+}
+
+function clearMutedDuplicateScriptIds(storage = globalThis.localStorage) {
+  storage?.removeItem(MUTED_DUPLICATES_KEY);
+  activeDuplicateWarningMonitor?.schedule();
+}
+
 function showDuplicateWarning(
   duplicates,
   {
     documentRef = globalThis.document,
     isZH = runtime.config.isZH,
     onDismiss = null,
+    onMute = null,
   } = {},
 ) {
   if (!duplicates.length || !documentRef?.body) return null;
@@ -58,18 +101,35 @@ function showDuplicateWarning(
     close.style.cssText =
       "position:absolute;top:5px;right:7px;width:26px;height:26px;border:0;background:transparent;color:#bbb;font:20px/26px sans-serif;cursor:pointer";
     close.addEventListener("click", () => {
-      onDismiss?.();
+      warning._mwitoolsOnDismiss?.();
       warning.remove();
     });
-    warning.append(close, documentRef.createElement("div"));
+    const content = documentRef.createElement("div");
+    const message = documentRef.createElement("div");
+    const mute = documentRef.createElement("button");
+    mute.type = "button";
+    mute.dataset.mwitoolsDuplicateMute = "";
+    mute.style.cssText =
+      "margin-top:8px;border:1px solid rgba(245,158,11,.55);border-radius:5px;padding:4px 9px;background:rgba(245,158,11,.12);color:#ffd58a;font:inherit;cursor:pointer";
+    mute.addEventListener("click", () => {
+      warning._mwitoolsOnMute?.();
+      warning.remove();
+    });
+    content.append(message, mute);
+    warning.append(close, content);
     documentRef.body.append(warning);
   }
+  warning._mwitoolsOnDismiss = onDismiss;
+  warning._mwitoolsOnMute = onMute;
   const content = warning.lastElementChild;
   const names = duplicates.join(isZH ? "、" : ", ");
   const message = isZH
     ? `检测到与新版 MWITools 功能重复的脚本：${names}。为避免重复监听、面板冲突和重复计算，建议在脚本管理器中停用或删除。`
     : `Scripts overlapping with the new MWITools were detected: ${names}. Disable or remove them in your userscript manager to avoid duplicate listeners, panels, and calculations.`;
-  if (content.textContent !== message) content.textContent = message;
+  const messageNode = content.firstElementChild;
+  if (messageNode.textContent !== message) messageNode.textContent = message;
+  const mute = content.querySelector("[data-mwitools-duplicate-mute]");
+  mute.textContent = isZH ? "不再提示这些脚本" : "Don't remind me again";
   return warning;
 }
 
@@ -87,6 +147,13 @@ function createDuplicateWarningMonitor(options = {}) {
   const Observer = options.MutationObserverRef ?? globalThis.MutationObserver;
   const intervalMs = options.intervalMs ?? 10_000;
   const detected = new Set();
+  const usesStoredMuted = !options.muted;
+  const muted = options.muted ?? readMutedDuplicateScriptIds(options.storage);
+  const isDuplicateEnabled =
+    options.isDuplicateEnabled ??
+    ((name) =>
+      duplicateScriptId(name) !== "mwi-task-manager" ||
+      (runtime.settings.get?.("taskInsights") ?? true));
   let lastSignature = "";
   let dismissed = false;
   let pending = false;
@@ -95,9 +162,31 @@ function createDuplicateWarningMonitor(options = {}) {
   const scan = () => {
     pending = false;
     if (destroyed || dismissed) return;
-    for (const name of detect()) detected.add(name);
-    if (!detected.size) return;
-    const duplicates = [...detected].sort();
+    if (usesStoredMuted) {
+      muted.clear();
+      for (const id of readMutedDuplicateScriptIds(options.storage)) {
+        muted.add(id);
+      }
+    }
+    const current = detect();
+    if (
+      !current.some((name) => duplicateScriptId(name) === "mwi-task-manager")
+    ) {
+      for (const name of detected) {
+        if (duplicateScriptId(name) === "mwi-task-manager")
+          detected.delete(name);
+      }
+    }
+    for (const name of current) detected.add(name);
+    const duplicates = [...detected]
+      .filter((name) => isDuplicateEnabled(name))
+      .filter((name) => !muted.has(duplicateScriptId(name)))
+      .sort();
+    if (!duplicates.length) {
+      documentRef?.getElementById(WARNING_ID)?.remove();
+      lastSignature = "";
+      return;
+    }
     const signature = duplicateSignature(duplicates);
     if (signature === lastSignature) return;
     lastSignature = signature;
@@ -106,6 +195,11 @@ function createDuplicateWarningMonitor(options = {}) {
       isZH: options.isZH ?? runtime.config.isZH,
       onDismiss() {
         dismissed = true;
+      },
+      onMute() {
+        for (const name of duplicates) muted.add(duplicateScriptId(name));
+        writeMutedDuplicateScriptIds(muted, options.storage);
+        lastSignature = "";
       },
     });
   };
@@ -158,13 +252,31 @@ runtime.features.register({
   id: "duplicateScriptWarning",
   initialize({ scope }) {
     const monitor = createDuplicateWarningMonitor();
-    scope.add(() => monitor.destroy());
+    activeDuplicateWarningMonitor = monitor;
+    scope.add(() => {
+      monitor.destroy();
+      if (activeDuplicateWarningMonitor === monitor) {
+        activeDuplicateWarningMonitor = null;
+      }
+    });
+    scope.add(
+      runtime.settings.onChange?.("taskInsights", () => monitor.schedule()),
+    );
   },
 });
 
+Object.assign(runtime.api, {
+  clearMutedDuplicateScriptIds,
+  getMutedDuplicateScriptIds: () => [...readMutedDuplicateScriptIds()],
+});
+
 export {
+  clearMutedDuplicateScriptIds,
   createDuplicateWarningMonitor,
   detectDuplicateScripts,
+  duplicateScriptId,
   duplicateSignature,
+  readMutedDuplicateScriptIds,
   showDuplicateWarning,
+  writeMutedDuplicateScriptIds,
 };

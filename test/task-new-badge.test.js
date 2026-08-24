@@ -17,9 +17,25 @@ const {
   questId,
   readTaskNewState,
   shouldRenderTaskNewMutations,
+  syncQuestSnapshot,
   taskNewStorageKey,
   writeTaskNewState,
 } = await import("../src/features/task-new-badge.js");
+
+test("authoritative snapshots mark only the task actually added", () => {
+  const state = {
+    initialized: true,
+    known: new Set(["old-a", "old-b"]),
+    fresh: new Set(),
+  };
+  const current = syncQuestSnapshot(state, new Set(["old-a", "old-b"]), [
+    { id: "old-a" },
+    { id: "old-b" },
+    { id: "accepted" },
+  ]);
+  assert.deepEqual([...current].sort(), ["accepted", "old-a", "old-b"]);
+  assert.deepEqual([...state.fresh], ["accepted"]);
+});
 
 test("new-task observer ignores its own badge but keeps native task updates", () => {
   const task = document.createElement("div");

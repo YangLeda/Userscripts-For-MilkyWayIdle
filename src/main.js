@@ -1,7 +1,9 @@
 import { runtime } from "./core/runtime.js";
+import "./core/game-data.js";
+import "./core/game-assets.js";
 import "./core/config.js";
-import "./data/translations.js";
 import "./core/state.js";
+import "./core/game-localization.js";
 import "./core/localization.js";
 import "./core/market.js";
 import "./core/action-projection.js";
@@ -47,55 +49,14 @@ import "./features/external-tools.js";
 import "./features/legacy-lifecycle.js";
 import "./features/message-effects.js";
 
-function loadCachedClientData() {
-  const pageGlobal = globalThis.unsafeWindow ?? globalThis;
-  const localStorageUtil = pageGlobal.localStorageUtil;
-  if (
-    !localStorage.getItem("initClientData") ||
-    typeof localStorageUtil?.getInitClientData !== "function"
-  ) {
-    return false;
-  }
-  const clientData = localStorageUtil.getInitClientData();
-  if (!clientData?.actionDetailMap || !clientData?.itemDetailMap) return false;
-  GM_setValue("init_client_data", JSON.stringify(clientData));
-  runtime.state.initData_actionDetailMap = clientData.actionDetailMap;
-  runtime.state.initData_levelExperienceTable = clientData.levelExperienceTable;
-  runtime.state.initData_enhancementLevelSuccessRateTable =
-    clientData.enhancementLevelSuccessRateTable;
-  runtime.state.initData_enhancementLevelTotalBonusMultiplierTable =
-    clientData.enhancementLevelTotalBonusMultiplierTable;
-  runtime.state.initData_itemDetailMap = clientData.itemDetailMap;
-  runtime.state.initData_itemLocationDetailMap =
-    clientData.itemLocationDetailMap;
-  runtime.state.initData_houseRoomDetailMap = clientData.houseRoomDetailMap;
-  runtime.state.initData_actionCategoryDetailMap =
-    clientData.actionCategoryDetailMap;
-  runtime.state.initData_abilityDetailMap = clientData.abilityDetailMap;
-  runtime.state.initData_shopItemDetailMap = clientData.shopItemDetailMap;
-  runtime.state.initData_taskShopItemDetailMap =
-    clientData.taskShopItemDetailMap;
-  runtime.state.initData_labyrinthShopItemDetailMap =
-    clientData.labyrinthShopItemDetailMap;
-  runtime.state.initData_openableLootDropMap = clientData.openableLootDropMap;
-  runtime.state.initData_guildBuffDetailMap = clientData.guildBuffDetailMap;
-  runtime.api.invalidateAssetValueCache();
-  for (const [key, value] of Object.entries(
-    runtime.state.initData_itemDetailMap,
-  )) {
-    runtime.state.itemEnNameToHridMap[value.name] = key;
-  }
-  return true;
-}
-
 async function startGame() {
-  const clientDataLoaded = loadCachedClientData();
+  const clientDataLoaded = runtime.api.refreshGameClientData();
   if (!clientDataLoaded) {
     runtime.features.register({
       id: "clientDataCache",
       initialize({ scope }) {
         const interval = scope.interval(() => {
-          if (loadCachedClientData()) clearInterval(interval);
+          if (runtime.api.refreshGameClientData()) clearInterval(interval);
         }, 250);
       },
     });

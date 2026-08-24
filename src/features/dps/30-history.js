@@ -11,6 +11,7 @@ import {
   DamageSources,
   TakenSources,
 } from "./10-combat-sources.js";
+import { getLocalizedEntityName } from "../../core/game-localization.js";
 import { Session } from "./20-session.js";
 
 const langText = (zh, en) => (Settings.getLanguage() === "en" ? en : zh);
@@ -37,6 +38,7 @@ function withUnattributedDamage(players, teamDamage, elapsed) {
       taken: 0,
       takenPs: 0,
       kills: 0,
+      accuracy: null,
       breakdown: null,
       takenBreakdown: null,
     },
@@ -49,7 +51,53 @@ const HistoryStore = (() => {
     LEGACY_KEY = "kikimeter:history:v1",
     ACTIVE_KEY = "kikimeter:active:v2";
   const MAX_PER_TYPE = 10;
+  const MAX_HISTORY_BYTES = 1_000_000;
   let revision = 0;
+  function utf8ByteLength(value) {
+    const text = String(value ?? "");
+    if (typeof globalThis.TextEncoder === "function") {
+      return new globalThis.TextEncoder().encode(text).byteLength;
+    }
+    let bytes = 0;
+    for (let index = 0; index < text.length; index += 1) {
+      const code = text.charCodeAt(index);
+      if (code <= 0x7f) bytes += 1;
+      else if (code <= 0x7ff) bytes += 2;
+      else if (code >= 0xd800 && code <= 0xdbff) {
+        bytes += 4;
+        index += 1;
+      } else bytes += 3;
+    }
+    return bytes;
+  }
+  function serializedBytes(entries) {
+    return utf8ByteLength(JSON.stringify(entries));
+  }
+  function entryTimestamp(entry) {
+    const timestamp = Date.parse(
+      entry?.endedAt ?? entry?.date ?? entry?.startedAt ?? "",
+    );
+    return Number.isFinite(timestamp) ? timestamp : Number.NEGATIVE_INFINITY;
+  }
+  function oldestEntryIndex(entries) {
+    let oldestIndex = -1;
+    let oldestTime = Infinity;
+    for (let index = 0; index < entries.length; index += 1) {
+      const timestamp = entryTimestamp(entries[index]);
+      if (timestamp < oldestTime || timestamp === oldestTime) {
+        oldestTime = timestamp;
+        oldestIndex = index;
+      }
+    }
+    return oldestIndex;
+  }
+  function trimToByteLimit(entries) {
+    const data = [...entries];
+    while (data.length && serializedBytes(data) > MAX_HISTORY_BYTES) {
+      data.splice(oldestEntryIndex(data), 1);
+    }
+    return data;
+  }
   function validArray(raw) {
     try {
       const v = JSON.parse(raw || "[]");
@@ -82,9 +130,7 @@ const HistoryStore = (() => {
         ],
       }),
     );
-    try {
-      localStorage.setItem(KEY, JSON.stringify(migrated));
-    } catch (e) {}
+    writeWithQuotaRetry(migrated);
   }
   function entryKey(entry, index = 0) {
     return String(
@@ -105,7 +151,7 @@ const HistoryStore = (() => {
   function load() {
     migrateLegacy();
     const raw = validArray(localStorage.getItem(KEY)),
-      data = trim(raw);
+      data = trimToByteLimit(trim(raw));
     if (data.length !== raw.length) {
       try {
         localStorage.setItem(KEY, JSON.stringify(data));
@@ -114,17 +160,15 @@ const HistoryStore = (() => {
     return data;
   }
   function writeWithQuotaRetry(entries) {
-    let data = trim(entries);
+    const data = trimToByteLimit(trim(entries));
     while (data.length >= 0) {
       try {
         localStorage.setItem(KEY, JSON.stringify(data));
         return true;
       } catch (e) {
-        const idx = [...data]
-          .reverse()
-          .findIndex((x) => x && x.favorite !== true);
+        const idx = oldestEntryIndex(data);
         if (idx < 0) return false;
-        data.splice(data.length - 1 - idx, 1);
+        data.splice(idx, 1);
       }
     }
     return false;
@@ -217,6 +261,9 @@ const HistoryStore = (() => {
       } catch (e) {}
     },
     getRevision: () => revision,
+    getStoredByteSize: () =>
+      serializedBytes(validArray(localStorage.getItem(KEY))),
+    maxHistoryBytes: MAX_HISTORY_BYTES,
     keys: { history: KEY, active: ACTIVE_KEY },
   };
 })();
@@ -676,14 +723,20 @@ function buildSegmentPicker(onChanged, compact = false) {
       background: "transparent",
       borderColor: "transparent",
     });
-    const historyIcon = iconElement(TOOLBAR_ICONS.history, "");
-    Object.assign(historyIcon.style, {
-      width: "17px",
-      height: "17px",
-      objectFit: "contain",
-      pointerEvents: "none",
-    });
-    textEl.appendChild(historyIcon);
+    picker._refreshIcon = () => {
+      const source = TOOLBAR_ICONS.history;
+      if (!source) return false;
+      const historyIcon = iconElement(source, "");
+      Object.assign(historyIcon.style, {
+        width: "17px",
+        height: "17px",
+        objectFit: "contain",
+        pointerEvents: "none",
+      });
+      textEl.replaceChildren(historyIcon);
+      return true;
+    };
+    picker._refreshIcon();
     button.appendChild(textEl);
   } else button.append(textEl, arrow);
   picker.appendChild(button);
@@ -801,10 +854,48 @@ const ViewData = (() => {
         pct: total > 0 ? (item.value * 100) / total : 0,
       }));
   }
+  function accuracyBreakdown(raw) {
+    if (!raw?.theoretical) return null;
+    const monsters = Object.values((raw && raw.monsters) || {})
+      .map((monster) => {
+        const monsterHrid = String((monster && monster.monsterHrid) || ""),
+          monsterName = String((monster && monster.monsterName) || ""),
+          localized = monsterHrid
+            ? getLocalizedEntityName("monster", monsterHrid)
+            : "",
+          suffix = monsterName.match(/\s+#\d+$/)?.[0] || "",
+          hitChance = Number(monster && monster.hitChance),
+          pct = Number.isFinite(hitChance) ? hitChance * 100 : 0;
+        return {
+          monsterName:
+            (localized ? localized + suffix : "") ||
+            monsterName ||
+            (Settings.getLanguage() === "en" ? "Unknown Monster" : "未知怪物"),
+          monsterHrid,
+          evasionRating: Number(monster && monster.evasionRating) || 0,
+          pct,
+        };
+      })
+      .filter((monster) => Number.isFinite(monster.pct))
+      .sort(
+        (a, b) => b.pct - a.pct || a.monsterName.localeCompare(b.monsterName),
+      );
+    return {
+      theoretical: true,
+      combatStyle: String(raw.combatStyle || ""),
+      accuracyRating: Number(raw.accuracyRating) || 0,
+      pct: monsters.length
+        ? monsters.reduce((sum, monster) => sum + monster.pct, 0) /
+          monsters.length
+        : 0,
+      monsters,
+    };
+  }
   function current() {
     const elapsed = Session.getElapsedSeconds(),
       names = Session.getAllPlayerNames(),
       teamDamage = Session.getTeamDamage(),
+      accuracyProfiles = Session.getMeta().accuracyProfiles || {},
       players = names.map((name) => ({
         name,
         classId: ClassSystem.classFor(name),
@@ -815,6 +906,7 @@ const ViewData = (() => {
         taken: Session.getPlayerTaken(name),
         takenPs: Session.getPlayerTakenPs(name),
         kills: Session.getPlayerKills(name),
+        accuracy: accuracyBreakdown(accuracyProfiles[name]),
         breakdown: damageBreakdown(
           Session.getPlayerDamageSources(name),
           Session.getPlayerDamage(name),
@@ -860,6 +952,7 @@ const ViewData = (() => {
           ...Object.keys(healing),
           ...Object.keys(taken),
           ...Object.keys(kills),
+          ...Object.keys(entry.accuracyProfiles || {}),
         ]),
       ];
       const sources = maps.sources || {},
@@ -871,6 +964,7 @@ const ViewData = (() => {
         healing: Number(healing[name]) || 0,
         taken: Number(taken[name]) || 0,
         kills: Number(kills[name]) || 0,
+        accuracy: accuracyBreakdown(entry.accuracyProfiles?.[name]),
         dps: elapsed > 0 ? (Number(damage[name]) || 0) / elapsed : 0,
         hps: elapsed > 0 ? (Number(healing[name]) || 0) / elapsed : 0,
         takenPs: elapsed > 0 ? (Number(taken[name]) || 0) / elapsed : 0,
@@ -889,6 +983,7 @@ const ViewData = (() => {
     } else {
       players = (entry.players || []).map((p) => ({
         ...p,
+        accuracy: accuracyBreakdown(entry.accuracyProfiles?.[p.name]),
         takenPs: elapsed > 0 ? (Number(p.taken) || 0) / elapsed : 0,
         breakdown: damageBreakdown(
           p.sources,

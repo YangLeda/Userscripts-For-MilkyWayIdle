@@ -8,6 +8,112 @@ import {
 } from "./10-combat-sources.js";
 import { Capture, Diagnostics, Session } from "./20-session.js";
 
+const COMBAT_STYLES = new Set(["stab", "slash", "smash", "ranged", "magic"]);
+
+function rating(value) {
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 0 ? number : null;
+}
+
+export function theoreticalHitChance(accuracyRating, evasionRating) {
+  const accuracy = rating(accuracyRating);
+  const evasion = rating(evasionRating);
+  if (accuracy === null || evasion === null) return null;
+  const attackPower = Math.pow(accuracy, 1.4);
+  const evasionPower = Math.pow(evasion, 1.4);
+  const total = attackPower + evasionPower;
+  return total > 0 ? attackPower / total : null;
+}
+
+function combatRating(unit, key) {
+  return rating(
+    unit?.combatDetails?.[key] ??
+      unit?.combatDetails?.combatStats?.[key] ??
+      unit?.combatStats?.[key],
+  );
+}
+
+function accuracyUnitName(unit, fallback) {
+  return String(unit?.character?.name || unit?.name || fallback || "");
+}
+
+function accuracyCombatStyle(unit) {
+  const stats = unit?.combatDetails?.combatStats ?? {};
+  const hrid = Array.isArray(stats.combatStyleHrids)
+    ? stats.combatStyleHrids[0]
+    : stats.combatStyleHrid;
+  const style = String(hrid || "")
+    .split("/")
+    .at(-1);
+  return COMBAT_STYLES.has(style) ? style : "";
+}
+
+export function buildTheoreticalAccuracyProfiles(players = [], monsters = []) {
+  const monsterRows = (Array.isArray(monsters) ? monsters : []).map(
+    (monster, index) => ({
+      monster,
+      monsterName: accuracyUnitName(
+        monster,
+        String(monster?.hrid || "")
+          .split("/")
+          .at(-1)
+          ?.replaceAll("_", " ") || `Monster ${index + 1}`,
+      ),
+      monsterHrid: String(monster?.hrid || ""),
+    }),
+  );
+  return Object.fromEntries(
+    (Array.isArray(players) ? players : [])
+      .map((player, playerIndex) => {
+        const name = accuracyUnitName(player, `Player ${playerIndex + 1}`);
+        const style = accuracyCombatStyle(player);
+        const accuracyRating = style
+          ? combatRating(player, `${style}AccuracyRating`)
+          : null;
+        const unique = new Map();
+        for (const row of monsterRows) {
+          const evasionRating = style
+            ? combatRating(row.monster, `${style}EvasionRating`)
+            : null;
+          const hitChance = theoreticalHitChance(accuracyRating, evasionRating);
+          if (hitChance === null) continue;
+          const key = `${row.monsterHrid || `name:${row.monsterName}`}\u001f${evasionRating}`;
+          if (unique.has(key)) continue;
+          unique.set(key, {
+            monsterName: row.monsterName,
+            monsterHrid: row.monsterHrid,
+            evasionRating,
+            hitChance,
+          });
+        }
+        const duplicateNames = new Map();
+        for (const monster of unique.values()) {
+          duplicateNames.set(
+            monster.monsterName,
+            (duplicateNames.get(monster.monsterName) || 0) + 1,
+          );
+        }
+        const duplicateIndexes = new Map();
+        for (const monster of unique.values()) {
+          if ((duplicateNames.get(monster.monsterName) || 0) <= 1) continue;
+          const index = (duplicateIndexes.get(monster.monsterName) || 0) + 1;
+          duplicateIndexes.set(monster.monsterName, index);
+          monster.monsterName += ` #${index}`;
+        }
+        return [
+          name,
+          {
+            theoretical: true,
+            combatStyle: style,
+            accuracyRating,
+            monsters: Object.fromEntries(unique),
+          },
+        ];
+      })
+      .filter(([name]) => name),
+  );
+}
+
 // ─── SocketHook v3 ────────────────────────────────────────────────────────────
 // Moteur d'attribution réécrit sur la méthode MWITools / Combat Suite
 // (rétro-ingénierie du 16/07/2026, validée à ±0.1% contre vérité terrain).
@@ -248,7 +354,7 @@ const SocketHook = (() => {
 
     if (guildSlotNames.size === 0 && Settings.getDebugMode()) {
       console.warn(
-        "[KikiMeter][Guild] 玩家姓名解析失败，页面选择器可能已经变化。" +
+        "[MWI DPS Tracker][Guild] 玩家姓名解析失败，页面选择器可能已经变化。" +
           "请在试炼中运行 window.__MWI_DPS.scanGuildNames() 查看诊断。",
       );
     }
@@ -280,12 +386,14 @@ const SocketHook = (() => {
     const localName = [...keyToName.values()][0];
     if (!localName) {
       console.warn(
-        "[KikiMeter] 尚不知道本地玩家姓名。" +
+        "[MWI DPS Tracker] 尚不知道本地玩家姓名。" +
           "请在公会试炼进行中再次运行此命令。",
       );
       return [];
     }
-    console.log(`[KikiMeter] 正在精确搜索文本 "${localName}" （页面 DOM）…`);
+    console.log(
+      `[MWI DPS Tracker] 正在精确搜索文本 "${localName}" （页面 DOM）…`,
+    );
     const matches = [];
     document.querySelectorAll("*").forEach((el) => {
       if (isOwnUI(el)) return;
@@ -295,7 +403,7 @@ const SocketHook = (() => {
         matches.push(el);
       }
     });
-    console.log(`[KikiMeter] ${matches.length} 个完全匹配项。`);
+    console.log(`[MWI DPS Tracker] ${matches.length} 个完全匹配项。`);
     console.log("=====================================================");
     matches.forEach((el, i) => {
       console.log(`--- 匹配项 #${i} ---`);
@@ -347,7 +455,7 @@ const SocketHook = (() => {
     // les versions précédentes (console.table / objets imbriqués) ne se
     // copiaient pas correctement depuis la console Chrome.
     console.log(
-      `[KikiMeter] 预计玩家数：约 ${target} 名；${out.length} 个候选容器：`,
+      `[MWI DPS Tracker] 预计玩家数：约 ${target} 名；${out.length} 个候选容器：`,
     );
     console.log("=====================================================");
     out.forEach((c, i) => {
@@ -358,7 +466,7 @@ const SocketHook = (() => {
     console.log("=====================================================");
     if (out.length === 0) {
       console.warn(
-        "[KikiMeter] 没有找到子元素数量完全匹配的容器。" +
+        "[MWI DPS Tracker] 没有找到子元素数量完全匹配的容器。" +
           "请运行 window.__MWI_DPS.scanGuildNamesLoose() 执行宽松搜索。",
       );
     }
@@ -401,7 +509,7 @@ const SocketHook = (() => {
     out.sort((a, b) => b.nameLikeCount - a.nameLikeCount);
     const top = out.slice(0, 15);
     console.log(
-      `[KikiMeter] 宽松搜索：${out.length} 个候选容器，显示前 15 个：`,
+      `[MWI DPS Tracker] 宽松搜索：${out.length} 个候选容器，显示前 15 个：`,
     );
     console.log("=====================================================");
     top.forEach((c, i) => {
@@ -437,7 +545,7 @@ const SocketHook = (() => {
           });
         }
       });
-    console.log(`[KikiMeter] ${out.length} 个候选属性：`);
+    console.log(`[MWI DPS Tracker] ${out.length} 个候选属性：`);
     console.table(out.slice(0, 60));
     return out;
   }
@@ -727,6 +835,34 @@ const SocketHook = (() => {
     const rule = abilityDamageRules.get(value);
     if (!rule) return "unknown";
     return rule.direct ? "direct" : "support";
+  }
+  function targetsAllEnemies(action) {
+    const rule = abilityDamageRules.get(String(action || ""));
+    return !!(
+      rule &&
+      Array.isArray(rule.targetTypes) &&
+      rule.targetTypes.some((type) => /allEnemies|all_enemies/i.test(type))
+    );
+  }
+  function accuracyTargets(action, hits, aliveKeys, names, hrids) {
+    const hitKeys = new Set((hits || []).map((hit) => String(hit.key))),
+      living = [...new Set((aliveKeys || []).map(String))];
+    let keys;
+    if (targetsAllEnemies(action)) keys = living;
+    else if (hitKeys.size) keys = [...hitKeys];
+    else keys = living.length === 1 ? living : [];
+    return keys.map((key) => {
+      const monsterHrid = String((hrids && hrids[key]) || ""),
+        fallback = monsterHrid.split("/").pop().replace(/_/g, " "),
+        monsterName = String(
+          (names && names[key]) || fallback || "怪物" + (+key + 1),
+        );
+      return {
+        monsterName,
+        monsterHrid,
+        hit: hitKeys.has(key),
+      };
+    });
   }
   function activateDot(
     activeContainer,
@@ -1431,6 +1567,10 @@ const SocketHook = (() => {
           stageChanged,
           characterId: currentCharacterId,
           classes,
+          accuracyProfiles: buildTheoreticalAccuracyProfiles(
+            players,
+            p.monsters || [],
+          ),
         },
       }),
     );
@@ -1617,6 +1757,7 @@ const SocketHook = (() => {
     // 新版测试服为所有玩家提供完整 atkCounter；唯一增长者就是刚完成动作
     // 的玩家。公会试炼不再查看 MP，也不再按 pMap 人数平均分配。
     const counterActors = [],
+      counterDeltas = {},
       completedActions = {},
       hitPlayers = new Set();
     for (const k of idx) {
@@ -1638,6 +1779,7 @@ const SocketHook = (() => {
             guildCurrentAction[k] ||
             (unit.isAutoAtk || unit.isAutoAttack ? "auto" : "unknown");
           counterActors.push(k);
+          counterDeltas[k] = counter - previous;
           completedActions[k] = completed;
           activateGuildReflection(k, completed, ts);
           activateDot(guildDotUntil, guildKnownDotAbilities, k, completed, ts);
@@ -1684,6 +1826,23 @@ const SocketHook = (() => {
         guildMonsterCurrentAction[mk],
       );
     }
+    // 仅在一条完整怪物快照中，单一玩家的已知直伤动作恰好结算
+    // 一次时记录命中率；同帧多人、计数跳变和 Boss 行动全部排除。
+    const soleAccuracyActor =
+        counterActors.length === 1 &&
+        counterDeltas[counterActors[0]] === 1 &&
+        monsterActors.length === 0 &&
+        Object.keys(mMap).length > 0 &&
+        actionDamageKind(completedActions[counterActors[0]]) === "direct"
+          ? counterActors[0]
+          : null,
+      accuracyAction =
+        soleAccuracyActor === null
+          ? ""
+          : completedActions[soleAccuracyActor] || "",
+      accuracyAliveMonsterKeys = Object.keys(guildMonstersHP).filter(
+        (key) => mMap[key] && Number(guildMonstersHP[key]) > 0,
+      );
 
     let incomingTakenSource = TakenSources.encode("未知怪物", "", "unknown");
     if (monsterActors.length === 1) {
@@ -1950,6 +2109,24 @@ const SocketHook = (() => {
         Diagnostics.recordOrphan(tickDmg);
       }
     }
+    if (soleAccuracyActor !== null) {
+      bus.dispatchEvent(
+        new CustomEvent("attackResolved", {
+          detail: {
+            name: guildSlotLabel(soleAccuracyActor),
+            hit: guildMonsterHits.length > 0,
+            targets: accuracyTargets(
+              accuracyAction,
+              guildMonsterHits,
+              accuracyAliveMonsterKeys,
+              guildMonsterNames,
+              guildMonsterHrids,
+            ),
+            battleType: "trial",
+          },
+        }),
+      );
+    }
   }
 
   function resetBattleState() {
@@ -2147,6 +2324,10 @@ const SocketHook = (() => {
             : currentCombatKey || String(p.battleId || ""),
           characterId: currentCharacterId,
           parallelGuildBattle,
+          accuracyProfiles: buildTheoreticalAccuracyProfiles(
+            p.players || [],
+            p.monsters || [],
+          ),
         },
       }),
     );
@@ -2168,6 +2349,7 @@ const SocketHook = (() => {
     //    一条事件可能触及多人，但通常只有发起攻击或施法者的计数器递增。
     //    MP 变化仅作为后备信号，因为普攻不耗蓝，而辅助技能也会耗蓝。
     const counterActors = [],
+      counterDeltas = {},
       mpDroppers = [],
       completedActions = {},
       hitPlayers = new Set();
@@ -2197,6 +2379,7 @@ const SocketHook = (() => {
             currentAction[i] ||
             (pMap[k].isAutoAtk || pMap[k].isAutoAttack ? "auto" : "unknown");
           counterActors.push(k);
+          counterDeltas[k] = nextCounter - previousCounter;
           completedActions[k] = completed;
           activatePlayerReflection(k, completed, ts);
           activateDot(
@@ -2255,6 +2438,23 @@ const SocketHook = (() => {
         monstersAtkCounter[i] = counter;
       }
     }
+    // 与试炼使用同一严格口径，避免把 MP 后备归属、DoT 或反伤
+    // 恰好落在攻击帧的伤害误当成可靠命中。
+    const soleAccuracyActor =
+        counterActors.length === 1 &&
+        counterDeltas[counterActors[0]] === 1 &&
+        monsterActors.length === 0 &&
+        Object.keys(mMap).length > 0 &&
+        actionDamageKind(completedActions[counterActors[0]]) === "direct"
+          ? counterActors[0]
+          : null,
+      accuracyAction =
+        soleAccuracyActor === null
+          ? ""
+          : completedActions[soleAccuracyActor] || "",
+      accuracyAliveMonsterKeys = monstersAlive
+        .map((alive, index) => (alive ? String(index) : null))
+        .filter((key) => key !== null && mMap[key]);
     let incomingTakenSource = TakenSources.encode("未知怪物", "", "unknown");
     if (monsterActors.length === 1) {
       const mk = monsterActors[0];
@@ -2546,6 +2746,27 @@ const SocketHook = (() => {
           );
     }
 
+    if (soleAccuracyActor !== null) {
+      const name = keyToName.get(soleAccuracyActor);
+      if (name)
+        bus.dispatchEvent(
+          new CustomEvent("attackResolved", {
+            detail: {
+              name,
+              hit: monsterHits.length > 0,
+              targets: accuracyTargets(
+                accuracyAction,
+                monsterHits,
+                accuracyAliveMonsterKeys,
+                monsterNames,
+                monsterHrids,
+              ),
+              battleType,
+            },
+          }),
+        );
+    }
+
     // 4. currentAction mis à jour APRÈS l'attribution — décalage d'un message,
     //    exactement comme MWITools (résout "l'abilityHrid a déjà avancé").
     for (const k of idx) {
@@ -2690,7 +2911,7 @@ const SocketHook = (() => {
   function previewGuildNames() {
     resolveGuildNames(guildMaxSlot);
     console.log(
-      `[KikiMeter] ${guildSlotNames.size} 个姓名已解析（预计人数约 ${guildMaxSlot}) :`,
+      `[MWI DPS Tracker] ${guildSlotNames.size} 个姓名已解析（预计人数约 ${guildMaxSlot}) :`,
     );
     console.log("=====================================================");
     [...guildSlotNames.entries()].forEach(([slot, name]) => {
@@ -2699,7 +2920,7 @@ const SocketHook = (() => {
     console.log("=====================================================");
     if (guildSlotNames.size !== guildMaxSlot) {
       console.warn(
-        `[KikiMeter] 注意：${guildSlotNames.size} 个姓名已解析，但预计有 ${guildMaxSlot} ` +
+        `[MWI DPS Tracker] 注意：${guildSlotNames.size} 个姓名已解析，但预计有 ${guildMaxSlot} ` +
           ` 个位置，映射可能发生偏移。` +
           `请确认位置 0 对应本地角色且顺序正确。`,
       );
@@ -2714,7 +2935,7 @@ const SocketHook = (() => {
   function debugCombatUnitNames() {
     const els = [...document.querySelectorAll('[class*="CombatUnit_name"]')];
     console.log(
-      `[KikiMeter] ${els.length} 个元素 [class*="CombatUnit_name"]（原始、未过滤）：`,
+      `[MWI DPS Tracker] ${els.length} 个元素 [class*="CombatUnit_name"]（原始、未过滤）：`,
     );
     console.log("=====================================================");
     els.forEach((el, i) => {
@@ -2726,7 +2947,7 @@ const SocketHook = (() => {
     console.log("=====================================================");
     if (els.length === 0) {
       console.warn(
-        "[KikiMeter] 没有找到元素：可能已离开试炼页面，或者游戏 CSS 类名已变化。" +
+        "[MWI DPS Tracker] 没有找到元素：可能已离开试炼页面，或者游戏 CSS 类名已变化。" +
           "请停留在试炼进行中页面并再次运行命令。",
       );
     }
@@ -2768,7 +2989,7 @@ const SocketHook = (() => {
       }
     });
     console.log(
-      `[KikiMeter] ${out.length} 个被省略显示的元素（文本省略号或 CSS ellipsis）：`,
+      `[MWI DPS Tracker] ${out.length} 个被省略显示的元素（文本省略号或 CSS ellipsis）：`,
     );
     console.log("=====================================================");
     out.forEach(({ el, mode }, i) => {
@@ -2789,7 +3010,7 @@ const SocketHook = (() => {
   function countMiniUnitNames() {
     const els = [...document.querySelectorAll('[class*="MiniUnit_name"]')];
     console.log(
-      `[KikiMeter] ${els.length} 个元素 [class*="MiniUnit_name"]（预计人数约 ${guildMaxSlot || "?"}) :`,
+      `[MWI DPS Tracker] ${els.length} 个元素 [class*="MiniUnit_name"]（预计人数约 ${guildMaxSlot || "?"}) :`,
     );
     console.log("=====================================================");
     els.forEach((el, i) => {
@@ -2811,7 +3032,7 @@ const SocketHook = (() => {
     const nameEls = [...document.querySelectorAll('[class*="MiniUnit_name"]')];
     if (nameEls.length === 0) {
       console.warn(
-        "[KikiMeter] 没有找到 MiniUnit 单元，请确认公会试炼正在进行。",
+        "[MWI DPS Tracker] 没有找到 MiniUnit 单元，请确认公会试炼正在进行。",
       );
       return [];
     }
@@ -2837,10 +3058,10 @@ const SocketHook = (() => {
       }
     });
     console.log(
-      `[KikiMeter] 主流类名（${counts[majority]}/${cells.length} 个单元） : "${majority}"`,
+      `[MWI DPS Tracker] 主流类名（${counts[majority]}/${cells.length} 个单元） : "${majority}"`,
     );
     console.log(
-      `[KikiMeter] ${outliers.length} 个异常单元（可能是本地玩家）：`,
+      `[MWI DPS Tracker] ${outliers.length} 个异常单元（可能是本地玩家）：`,
     );
     console.log("=====================================================");
     outliers.forEach((o) => {
@@ -2849,12 +3070,12 @@ const SocketHook = (() => {
     console.log("=====================================================");
     if (outliers.length === 0) {
       console.warn(
-        "[KikiMeter] 未发现异常单元；当前服务器可能没有本地玩家高亮，" +
+        "[MWI DPS Tracker] 未发现异常单元；当前服务器可能没有本地玩家高亮，" +
           "或者所有单元的样式完全相同。请观察角色单元是否存在边框或高亮。",
       );
     } else if (outliers.length > 1) {
       console.warn(
-        "[KikiMeter] 发现多个异常单元，仅凭类名无法确定本地玩家，请与页面显示进行比对。",
+        "[MWI DPS Tracker] 发现多个异常单元，仅凭类名无法确定本地玩家，请与页面显示进行比对。",
       );
     }
     return outliers;

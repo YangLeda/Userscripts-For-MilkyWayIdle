@@ -1,5 +1,6 @@
 import {
   ACCENT,
+  GameAssets,
   SKILL_MODE_ICONS,
   Settings,
   TAB_CONTAINER_CLASS,
@@ -22,8 +23,10 @@ import {
   refreshSegmentSelect,
 } from "./30-history.js";
 import {
+  AccuracyBreakdownTooltip,
   DamageBreakdownTooltip,
   buildDetailsGraph,
+  renderAccuracyRows,
   renderDetailsRows,
 } from "./50-graph-components.js";
 
@@ -86,6 +89,7 @@ const KikiMeter = (() => {
     dpsTab,
     hpsTab,
     takenTab,
+    accuracyTab,
     debugTab,
     graphTab,
     settingsTab,
@@ -150,6 +154,7 @@ const KikiMeter = (() => {
       [dpsTab, "dps"],
       [hpsTab, "hps"],
       [takenTab, "taken"],
+      [accuracyTab, "accuracy"],
       [debugTab, "debug"],
     ].forEach(([button, mode]) => {
       if (!button) return;
@@ -173,7 +178,11 @@ const KikiMeter = (() => {
       debugTab.style.display = Settings.getDebugMode() ? "" : "none";
   }
   function setMainMode(mode) {
-    mainMode = ["dps", "hps", "taken", "debug"].includes(mode) ? mode : "dps";
+    DamageBreakdownTooltip.close();
+    AccuracyBreakdownTooltip.close();
+    mainMode = ["dps", "hps", "taken", "accuracy", "debug"].includes(mode)
+      ? mode
+      : "dps";
     if (mainMode === "debug" && !Settings.getDebugMode()) mainMode = "dps";
     Settings.setMainMode(mainMode);
     refreshModeTabs();
@@ -210,6 +219,7 @@ const KikiMeter = (() => {
       [dpsTab, "伤害输出（DPS）", "Damage Done (DPS)"],
       [hpsTab, "恢复量（HPS）", "Healing (HPS)"],
       [takenTab, "承受伤害（DTPS）", "Damage Taken (DTPS)"],
+      [accuracyTab, "实时命中率", "Live Accuracy"],
       [graphTab, "显示或隐藏 DPS 趋势", "Show or hide DPS trend"],
       [debugTab, "职业调试", "Class Debug"],
       [settingsTab, "设置", "Settings"],
@@ -227,6 +237,7 @@ const KikiMeter = (() => {
   }
   function toggleLanguage() {
     DamageBreakdownTooltip.close();
+    AccuracyBreakdownTooltip.close();
     closeSettingsMenu();
     Settings.setLanguage(Settings.getLanguage() === "zh" ? "en" : "zh");
     refreshLanguageSwitch();
@@ -484,16 +495,20 @@ const KikiMeter = (() => {
           ? "Healing"
           : mainMode === "taken"
             ? "Damage Taken"
-            : mainMode === "debug"
-              ? "Class Debug"
-              : "Damage Done"
+            : mainMode === "accuracy"
+              ? "Accuracy"
+              : mainMode === "debug"
+                ? "Class Debug"
+                : "Damage Done"
         : mainMode === "hps"
           ? "恢复量"
           : mainMode === "taken"
             ? "承受伤害"
-            : mainMode === "debug"
-              ? "职业调试"
-              : "伤害输出";
+            : mainMode === "accuracy"
+              ? "命中率"
+              : mainMode === "debug"
+                ? "职业调试"
+                : "伤害输出";
     const titleTools = el("div", {
       display: "flex",
       alignItems: "center",
@@ -520,11 +535,18 @@ const KikiMeter = (() => {
         alignItems: "center",
         justifyContent: "center",
       });
-      if (
-        String(content || "").startsWith("data:image/") ||
-        String(content || "").includes("/static/media/")
-      ) {
-        const icon = iconElement(content, "");
+      button._setContent = (nextContent) => {
+        const source = String(nextContent || "");
+        if (!source) return false;
+        const isIcon =
+          source.startsWith("data:image/") ||
+          /\.svg(?:\?[^#]*)?#[^#]+$/i.test(source);
+        if (!isIcon) {
+          button.textContent = source;
+          button._icon = null;
+          return true;
+        }
+        const icon = iconElement(source, "");
         Object.assign(icon.style, {
           width: "17px",
           height: "17px",
@@ -532,8 +554,10 @@ const KikiMeter = (() => {
           pointerEvents: "none",
         });
         button._icon = icon;
-        button.appendChild(icon);
-      } else button.textContent = content;
+        button.replaceChildren(icon);
+        return true;
+      };
+      button._setContent(content);
       button.addEventListener("mousedown", (event) => event.stopPropagation());
       button.addEventListener("click", (event) => {
         event.stopPropagation();
@@ -552,6 +576,9 @@ const KikiMeter = (() => {
     );
     takenTab = iconButton(SKILL_MODE_ICONS.defense, "承受伤害（DTPS）", () =>
       setMainMode("taken"),
+    );
+    accuracyTab = iconButton(SKILL_MODE_ICONS.steadyShot, "实时命中率", () =>
+      setMainMode("accuracy"),
     );
     graphTab = iconButton(
       TOOLBAR_ICONS.trend,
@@ -572,11 +599,25 @@ const KikiMeter = (() => {
       if (callbacks.onCopy) callbacks.onCopy(copyTab);
     });
     closeTab = iconButton(TOOLBAR_ICONS.close, "隐藏面板", close);
+    const refreshGameAssetIcons = () => {
+      dpsTab?._setContent(SKILL_MODE_ICONS.attack);
+      hpsTab?._setContent(SKILL_MODE_ICONS.stamina);
+      takenTab?._setContent(SKILL_MODE_ICONS.defense);
+      accuracyTab?._setContent(SKILL_MODE_ICONS.steadyShot);
+      settingsTab?._setContent(TOOLBAR_ICONS.settings);
+      segmentSelect?._refreshIcon?.();
+    };
+    // DPS 可能早于游戏图集出现在页面上。资源清单完成后原位回填，避免
+    // 首次扫描为空时整排按钮永久保持空白。
+    void GameAssets.ready().then(() => {
+      if (p.isConnected) refreshGameAssetIcons();
+    });
     titleTools.append(
       segmentSelect,
       dpsTab,
       hpsTab,
       takenTab,
+      accuracyTab,
       graphTab,
       debugTab,
       settingsTab,
@@ -781,6 +822,7 @@ const KikiMeter = (() => {
     panelOpen = false;
     closeSettingsMenu();
     DamageBreakdownTooltip.close();
+    AccuracyBreakdownTooltip.close();
     if (panel) panel.style.display = "none";
     if (tabBtn) tabBtn.style.filter = "none";
   }
@@ -1254,16 +1296,20 @@ const KikiMeter = (() => {
             ? "Healing"
             : mainMode === "taken"
               ? "Damage Taken"
-              : mainMode === "debug"
-                ? "Class Debug"
-                : "Damage Done"
+              : mainMode === "accuracy"
+                ? "Accuracy"
+                : mainMode === "debug"
+                  ? "Class Debug"
+                  : "Damage Done"
           : mainMode === "hps"
             ? "恢复量"
             : mainMode === "taken"
               ? "承受伤害"
-              : mainMode === "debug"
-                ? "职业调试"
-                : "伤害输出";
+              : mainMode === "accuracy"
+                ? "命中率"
+                : mainMode === "debug"
+                  ? "职业调试"
+                  : "伤害输出";
     if (mainGraphObj) mainGraphObj.render(view.graphPoints || []);
     if (trialClassNotice)
       trialClassNotice.style.display =
@@ -1405,6 +1451,34 @@ const KikiMeter = (() => {
       playersListEl.append(hint, probeButtons, report, buttons);
       return;
     }
+    if (mainMode === "accuracy") {
+      const rows = (view.players || [])
+        .filter((player) => player.accuracy?.theoretical)
+        .map((player) => ({
+          name: player.name,
+          theoretical: true,
+          combatStyle: player.accuracy.combatStyle,
+          accuracyRating: player.accuracy.accuracyRating,
+          pct: player.accuracy.pct,
+          monsters: player.accuracy.monsters,
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+      renderAccuracyRows(
+        playersListEl,
+        rows,
+        () => renderView(ViewData.get()),
+        view.current
+          ? langText(
+              "当前战斗没有可用的玩家或怪物面板属性",
+              "No player or monster panel ratings are available",
+            )
+          : langText(
+              "该历史记录没有理论命中率面板快照",
+              "This record has no theoretical accuracy snapshot",
+            ),
+      );
+      return;
+    }
     const total =
       mainMode === "hps"
         ? (view.players || []).reduce(
@@ -1486,8 +1560,8 @@ const KikiMeter = (() => {
     const dur = formatDuration(entry.durationSeconds);
     const total = entry.teamDamage;
     let out = langText(
-      `=== KikiMeter 战斗记录｜${dateStr}｜${dur} ===\n`,
-      `=== KikiMeter Combat Record | ${dateStr} | ${dur} ===\n`,
+      `=== MWI DPS Tracker 战斗记录｜${dateStr}｜${dur} ===\n`,
+      `=== MWI DPS Tracker Combat Record | ${dateStr} | ${dur} ===\n`,
     );
     out += langText(
       `团队：${formatRate(entry.teamDps || 0)} DPS｜总伤害 ${formatDamage(total || 0)}`,

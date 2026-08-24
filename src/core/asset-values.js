@@ -21,6 +21,7 @@ const OPTIONAL_TOKEN_ASSET_HRIDS = new Set([
 ]);
 const ENHANCED_EQUIPMENT_MAX_MARKET_DEVIATION = 0.2;
 const MAX_ACQUISITION_DEPTH = 12;
+const DUNGEON_CHEST_HRID_PATTERN = /^\/items\/(.+?)(?:_refinement)?_chest$/;
 
 const assetValueCache = new Map();
 const assetLiquidationCache = new Map();
@@ -63,6 +64,13 @@ function getItemDetails(itemHrid) {
   return runtime.state.initData_itemDetailMap?.[itemHrid] ?? null;
 }
 
+function getDungeonEntryKeyItemHrid(itemHrid) {
+  const match = DUNGEON_CHEST_HRID_PATTERN.exec(String(itemHrid ?? ""));
+  if (!match) return null;
+  const entryKeyItemHrid = `/items/${match[1]}_entry_key`;
+  return getItemDetails(entryKeyItemHrid) ? entryKeyItemHrid : null;
+}
+
 function settingEnabled(id) {
   return Boolean(
     runtime.settings.get?.(id) ?? runtime.settings.settingsMap?.[id]?.isTrue,
@@ -75,6 +83,14 @@ function shouldIncludeCowbellsInAssets() {
 
 function shouldIncludeGuildDungeonTokensInAssets() {
   return settingEnabled("includeGuildDungeonTokensInAssets");
+}
+
+function shouldIncludeTaskTokensInAssets() {
+  return settingEnabled("includeTaskTokensInAssets");
+}
+
+function shouldExcludeItemFromAssets(itemHrid) {
+  return itemHrid === "/items/task_token" && !shouldIncludeTaskTokensInAssets();
 }
 
 function isOptionalTokenAsset(itemHrid) {
@@ -199,10 +215,19 @@ function getOpenableValue(itemHrid, context) {
     total += expectedCount * value;
   }
   const keyItemHrid = getItemDetails(itemHrid)?.openKeyItemHrid;
-  if (!keyItemHrid) return total;
-  const keyCraftingCost = getCraftedAcquisitionValue(keyItemHrid, 0, context);
-  if (!(keyCraftingCost > 0)) return 0;
-  return Math.max(0, total - keyCraftingCost);
+  let keyCost = 0;
+  if (keyItemHrid) {
+    const keyCraftingCost = getCraftedAcquisitionValue(keyItemHrid, 0, context);
+    if (!(keyCraftingCost > 0)) return 0;
+    keyCost += keyCraftingCost;
+  }
+  const entryKeyItemHrid = getDungeonEntryKeyItemHrid(itemHrid);
+  if (entryKeyItemHrid) {
+    const entryKeyCost = getAssetValueInternal(entryKeyItemHrid, 0, context);
+    if (!(entryKeyCost > 0)) return 0;
+    keyCost += entryKeyCost;
+  }
+  return Math.max(0, total - keyCost);
 }
 
 function isPersonalBuffScroll(itemHrid) {
@@ -644,16 +669,23 @@ function projectLootChestInternal(itemHrid, config, visited) {
   }
 
   const keyItemHrid = getItemDetails(itemHrid)?.openKeyItemHrid ?? null;
+  const entryKeyItemHrid = getDungeonEntryKeyItemHrid(itemHrid);
   const key = getLootKeyCost(keyItemHrid, config);
+  const entryKey = getLootKeyCost(entryKeyItemHrid, {
+    ...config,
+    fromFragments: false,
+  });
+  const keyCost = key.value + entryKey.value;
+  const keyComplete = key.complete && entryKey.complete;
   const selfRows = rows.filter((row) => row.pendingSelfReference);
   const selfExpectedCount = selfRows.reduce(
     (total, row) => total + row.expectedCount,
     0,
   );
-  if (selfRows.length && key.complete && selfExpectedCount < 1) {
+  if (selfRows.length && keyComplete && selfExpectedCount < 1) {
     const selfValue = Math.max(
       0,
-      (grossValue - key.value) / (1 - selfExpectedCount),
+      (grossValue - keyCost) / (1 - selfExpectedCount),
     );
     for (const row of selfRows) {
       row.unitValue = selfValue;
@@ -676,19 +708,27 @@ function projectLootChestInternal(itemHrid, config, visited) {
     }
   }
   for (const missingItemHrid of key.missing) missing.add(missingItemHrid);
-  const complete = missing.size === 0 && key.complete;
-  const netValue = key.complete ? grossValue - key.value : null;
+  for (const missingItemHrid of entryKey.missing) {
+    missing.add(missingItemHrid);
+  }
+  const complete = missing.size === 0 && keyComplete;
+  const netValue = keyComplete ? grossValue - keyCost : null;
   visited.delete(itemHrid);
   return {
     itemHrid,
     keyItemHrid,
+    entryKeyItemHrid,
     config,
     drops: rows.sort((left, right) => right.value - left.value),
     redemptions: [...bestRedemptions.values()],
     grossValue,
-    keyCost: key.value,
+    keyCost,
+    chestKeyCost: key.value,
+    entryKeyCost: entryKey.value,
     keySource: key.source,
-    keyComplete: key.complete,
+    keyComplete,
+    chestKeyComplete: key.complete,
+    entryKeyComplete: entryKey.complete,
     netValue,
     complete,
     missing: [...missing],
@@ -840,7 +880,7 @@ function getEnhancedEquipmentCost(
     forcedProtectionItemHrid: backEquipment
       ? "/items/mirror_of_protection"
       : null,
-    allowPhilosopherMirror: !backEquipment,
+    allowPhilosopherMirror: true,
     getFairValue: (hrid, level = 0) =>
       acquisitionCostValue(hrid, level, context),
     getMarketValue: (hrid, level = 0) =>
@@ -891,6 +931,7 @@ function getAssetValueInternal(
   options = {},
 ) {
   if (!itemHrid) return 0;
+  if (itemHrid === "/items/coin") return 1;
   const level = Number(enhancementLevel) || 0;
   const directFairValue = runtime.api.getAssetFairValue(itemHrid, level);
   const backEquipment = isBackEquipment(itemHrid, options.itemLocationHrid);
@@ -1265,6 +1306,23 @@ function getOpenableLiquidationValue(itemHrid, mode, context) {
     }
     total = Math.max(0, total - keyResult.value);
   }
+  const entryKeyItemHrid = getDungeonEntryKeyItemHrid(itemHrid);
+  if (entryKeyItemHrid) {
+    const entryKeyResult = getAssetLiquidationValueInternal(
+      entryKeyItemHrid,
+      0,
+      mode,
+      context,
+    );
+    results.push(entryKeyResult);
+    if (!(entryKeyResult.value > 0)) {
+      return liquidationResult(0, "missing", [
+        ...mergeLiquidationMissing(results),
+        entryKeyItemHrid,
+      ]);
+    }
+    total = Math.max(0, total - entryKeyResult.value);
+  }
   if (!(total > 0) && results.every((result) => result.complete)) {
     return {
       value: 0,
@@ -1353,8 +1411,7 @@ function getAssetLiquidationValue(
   );
 }
 
-function getGuildBuffLevel(guildBuffHrid) {
-  const levels = runtime.state.guildBuffLevels;
+function getGuildBuffLevel(guildBuffHrid, levels) {
   const record = Array.isArray(levels)
     ? levels.find(
         (value) => (value?.guildBuffHrid ?? value?.hrid) === guildBuffHrid,
@@ -1368,41 +1425,83 @@ function getGuildBuffLevel(guildBuffHrid) {
   return Number.isSafeInteger(level) && level > 0 ? level : 0;
 }
 
-function getGuildShrineValue() {
-  if (!runtime.state.guildDataLoaded) return null;
+function getGuildShrineValues(guildBuffLevels) {
+  const usesCurrentCharacter = guildBuffLevels === undefined;
+  if (usesCurrentCharacter && !runtime.state.guildDataLoaded) return null;
+  const levels = usesCurrentCharacter
+    ? runtime.state.guildBuffLevels
+    : guildBuffLevels;
+  if (!levels || typeof levels !== "object") return null;
+
   const details = entriesOfMap(runtime.state.initData_guildBuffDetailMap);
   if (!details.length) return null;
 
-  let total = 0;
+  const values = { battle: 0, skilling: 0 };
+  const valid = { battle: true, skilling: true };
   for (const [fallbackHrid, detail] of details) {
     const guildBuffHrid = detail?.guildBuffHrid ?? detail?.hrid ?? fallbackHrid;
-    const levelCosts = detail?.levelCosts;
-    if (!guildBuffHrid || !levelCosts) continue;
-    const currentLevel = getGuildBuffLevel(guildBuffHrid);
+    if (!guildBuffHrid) continue;
+    const currentLevel = getGuildBuffLevel(guildBuffHrid, levels);
+    if (!currentLevel) continue;
+    if (typeof detail?.isCombat !== "boolean") return null;
+
+    const group = detail.isCombat ? "battle" : "skilling";
+    if (!valid[group]) continue;
+    const levelCosts = detail.levelCosts;
+    if (!levelCosts) {
+      valid[group] = false;
+      continue;
+    }
+
     for (let level = 1; level <= currentLevel; level += 1) {
       const cost = levelCosts[level] ?? levelCosts[String(level)];
-      if (!cost) return null;
+      if (!cost) {
+        valid[group] = false;
+        break;
+      }
       const guildTokenCount = positiveNumber(cost.guildTokenCost);
       if (guildTokenCount) {
         const tokenValue = getAssetValue("/items/guild_token", 0);
-        if (!(tokenValue > 0)) return null;
-        total += guildTokenCount * tokenValue;
+        if (!(tokenValue > 0)) {
+          valid[group] = false;
+          break;
+        }
+        values[group] += guildTokenCount * tokenValue;
       }
       for (const creditCost of cost.creditCosts ?? []) {
         const count = positiveNumber(creditCost?.count);
         if (!count) continue;
         const creditValue = getAssetValue(creditCost.itemHrid, 0);
-        if (!(creditValue > 0)) return null;
-        total += count * creditValue;
+        if (!(creditValue > 0)) {
+          valid[group] = false;
+          break;
+        }
+        values[group] += count * creditValue;
       }
+      if (!valid[group]) break;
     }
   }
-  return total;
+
+  const battle = valid.battle ? values.battle : null;
+  const skilling = valid.skilling ? values.skilling : null;
+  return {
+    battle,
+    skilling,
+    total:
+      Number.isFinite(battle) && Number.isFinite(skilling)
+        ? battle + skilling
+        : null,
+  };
+}
+
+function getGuildShrineValue() {
+  return getGuildShrineValues()?.total ?? null;
 }
 
 Object.assign(runtime.api, {
   getAssetValue,
   getAssetLiquidationValue,
+  getGuildShrineValues,
   getGuildShrineValue,
   projectLootChest,
   isBackEquipment,
@@ -1411,6 +1510,8 @@ Object.assign(runtime.api, {
   invalidateAssetValueCache,
   shouldIncludeCowbellsInAssets,
   shouldIncludeGuildDungeonTokensInAssets,
+  shouldIncludeTaskTokensInAssets,
+  shouldExcludeItemFromAssets,
 });
 
 function refreshConfiguredAssetValues() {
@@ -1427,6 +1528,10 @@ runtime.settings.onChange?.(
 );
 runtime.settings.onChange?.(
   "includeGuildDungeonTokensInAssets",
+  refreshConfiguredAssetValues,
+);
+runtime.settings.onChange?.(
+  "includeTaskTokensInAssets",
   refreshConfiguredAssetValues,
 );
 runtime.settings.onChange?.(
