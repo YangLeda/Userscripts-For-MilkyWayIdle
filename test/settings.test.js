@@ -150,6 +150,7 @@ test("setting changes persist the versioned and rollback-compatible shapes", asy
 
 test("enhancement simulation profile persists separately from feature toggles", () => {
   const profile = runtime.api.setEnhancementSimulationProfile({
+    baseCostMode: "fair_value",
     playerLevel: 150,
     houseLevel: 9,
     enhancerBonusPercent: 6.5,
@@ -162,14 +163,14 @@ test("enhancement simulation profile persists separately from feature toggles", 
 
   assert.deepEqual(runtime.api.getEnhancementSimulationProfile(), profile);
   assert.equal(profile.playerLevel, 150);
+  assert.equal(profile.baseCostMode, "fair_value");
   assert.equal(profile.teaType, "super_enhancing_tea");
   assert.equal(profile.blessedTea, false);
-  assert.equal(
-    JSON.parse(
-      localStorage.getItem("MWITools_enhancement_simulation_profile_v1"),
-    ).gearSpeedBonusPercent,
-    42.25,
+  const storedProfile = JSON.parse(
+    localStorage.getItem("MWITools_enhancement_simulation_profile_v1"),
   );
+  assert.equal(storedProfile.baseCostMode, "fair_value");
+  assert.equal(storedProfile.gearSpeedBonusPercent, 42.25);
 });
 
 test("legacy disabled production summaries migrate to off mode", () => {
@@ -489,6 +490,20 @@ test("card settings render every visible setting with nested children and search
   assert.deepEqual(
     [...guildCreditCount.options].map((option) => option.value),
     ["1", "2", "3", "4", "5", "6", "7", "8"],
+  );
+  const baseCostMode = root.querySelector(
+    'select[data-enhancement-profile-key="baseCostMode"]',
+  );
+  assert.ok(baseCostMode);
+  assert.deepEqual(
+    [...baseCostMode.options].map((option) => option.value),
+    ["fair_value", "acquisition_cost"],
+  );
+  baseCostMode.value = "acquisition_cost";
+  baseCostMode.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+  assert.equal(
+    runtime.api.getEnhancementSimulationProfile().baseCostMode,
+    "acquisition_cost",
   );
   guildCreditCount.value = "7";
   guildCreditCount.dispatchEvent(

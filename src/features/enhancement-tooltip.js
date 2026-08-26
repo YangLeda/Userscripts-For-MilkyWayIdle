@@ -84,6 +84,7 @@ export function getTooltipEnhancementPlanOptions(itemHrid) {
     getFairValue: (hrid, level = 0) =>
       runtime.api.getAssetValue?.(hrid, level, {
         forceAcquisitionValue: true,
+        useLiveMarketValues: true,
       }) ||
       runtime.api.getFairValue(hrid, level) ||
       0,

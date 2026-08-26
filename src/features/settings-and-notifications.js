@@ -29,6 +29,7 @@ const ENHANCEMENT_SIMULATION_PROFILE_KEY =
   "MWITools_enhancement_simulation_profile_v1";
 
 const DEFAULT_ENHANCEMENT_SIMULATION_PROFILE = Object.freeze({
+  baseCostMode: "acquisition_cost",
   playerLevel: 136,
   houseLevel: 8,
   enhancerBonusPercent: 5.26,
@@ -40,6 +41,15 @@ const DEFAULT_ENHANCEMENT_SIMULATION_PROFILE = Object.freeze({
 });
 
 const ENHANCEMENT_SIMULATION_FIELDS = Object.freeze([
+  {
+    key: "baseCostMode",
+    type: "select",
+    label: { zh: "基础物品成本", en: "Base item cost" },
+    options: [
+      ["fair_value", { zh: "公允价值", en: "Fair value" }],
+      ["acquisition_cost", { zh: "原始基础成本", en: "Original base cost" }],
+    ],
+  },
   {
     key: "playerLevel",
     type: "number",

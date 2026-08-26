@@ -8754,7 +8754,8 @@
     if (!itemHrid) return 0;
     if (itemHrid === "/items/coin") return 1;
     const level = Number(enhancementLevel) || 0;
-    const directFairValue = runtime.api.getAssetFairValue(itemHrid, level);
+    const useLiveMarketValues = options.useLiveMarketValues === true || context.useLiveMarketValues === true;
+    const directFairValue = useLiveMarketValues ? runtime.api.getFairValue(itemHrid, level) : runtime.api.getAssetFairValue(itemHrid, level);
     const backEquipment = isBackEquipment(itemHrid, options.itemLocationHrid);
     const enhancedEquipment = level > 0 && isEquipment(itemHrid);
     const refinedBackEquipment = backEquipment && String(itemHrid).endsWith("_refined");
@@ -8762,7 +8763,13 @@
     const preferAcquisitionValue = options.forceAcquisitionValue === true || refinedBackEquipment;
     const cacheMode = enhancedEquipment ? backEquipment ? "enhancement-protected-mirror" : "enhancement-protected" : ordinaryBackMirrorValue ? "protection-mirror-value" : preferAcquisitionValue ? "acquisition" : "market";
     const cacheKey = `${itemHrid}:${level}:${cacheMode}`;
-    if (assetValueCache.has(cacheKey)) return assetValueCache.get(cacheKey);
+    const remember = (value2) => {
+      if (!useLiveMarketValues) assetValueCache.set(cacheKey, value2);
+      return value2;
+    };
+    if (!useLiveMarketValues && assetValueCache.has(cacheKey)) {
+      return assetValueCache.get(cacheKey);
+    }
     if (context.has(cacheKey)) return 0;
     if (ordinaryBackMirrorValue) {
       context.add(cacheKey);
@@ -8773,8 +8780,7 @@
       );
       context.delete(cacheKey);
       if (mirrorValue > 0) {
-        assetValueCache.set(cacheKey, mirrorValue);
-        return mirrorValue;
+        return remember(mirrorValue);
       }
     }
     if (enhancedEquipment) {
@@ -8787,21 +8793,17 @@
       if (enhancementCost > 0) {
         const deviation = directFairValue > 0 ? Math.abs(directFairValue - enhancementCost) / enhancementCost : Number.POSITIVE_INFINITY;
         const value2 = directFairValue > 0 && deviation <= ENHANCED_EQUIPMENT_MAX_MARKET_DEVIATION ? directFairValue : enhancementCost;
-        assetValueCache.set(cacheKey, value2);
-        return value2;
+        return remember(value2);
       }
       if (directFairValue > 0) {
-        assetValueCache.set(cacheKey, directFairValue);
-        return directFairValue;
+        return remember(directFairValue);
       }
     }
     if (!preferAcquisitionValue && directFairValue > 0) {
-      assetValueCache.set(cacheKey, directFairValue);
-      return directFairValue;
+      return remember(directFairValue);
     }
     if (directFairValue <= 0 && isPersonalBuffScroll(itemHrid)) {
-      assetValueCache.set(cacheKey, 0);
-      return 0;
+      return remember(0);
     }
     context.add(cacheKey);
     let value = 0;
@@ -8833,19 +8835,19 @@
     context.delete(cacheKey);
     const keyedOpenable = Boolean(getItemDetails(itemHrid)?.openKeyItemHrid) && getDropRecords(itemHrid).length > 0;
     if (keyedOpenable && !(value > 0)) {
-      assetValueCache.set(cacheKey, 0);
-      return 0;
+      return remember(0);
     }
     if (!(value > 0)) value = directFairValue;
     if (!(value > 0)) {
       value = positiveNumber2(getItemDetails(itemHrid)?.sellPrice);
     }
     const normalizedValue = Number.isFinite(value) && value > 0 ? value : 0;
-    assetValueCache.set(cacheKey, normalizedValue);
-    return normalizedValue;
+    return remember(normalizedValue);
   }
   function getAssetValue(itemHrid, enhancementLevel = 0, options = {}) {
-    return getAssetValueInternal(itemHrid, enhancementLevel, /* @__PURE__ */ new Set(), options);
+    const context = /* @__PURE__ */ new Set();
+    context.useLiveMarketValues = options.useLiveMarketValues === true;
+    return getAssetValueInternal(itemHrid, enhancementLevel, context, options);
   }
   function directLiquidationValue(itemHrid, enhancementLevel, mode) {
     if (mode === "conservative") {
@@ -32845,6 +32847,7 @@ ${locks}` : ""}`;
     teaDurationSeconds: 300
   });
   var DEFAULT_ENHANCEMENT_SIMULATION_PROFILE = Object.freeze({
+    baseCostMode: "acquisition_cost",
     playerLevel: 136,
     houseLevel: 8,
     enhancerBonusPercent: 5.26,
@@ -33538,13 +33541,14 @@ ${locks}` : ""}`;
       if (!value) missing.add(hrid);
       return value;
     };
-    const basePrice = baseItemHrid.endsWith("_charm") ? charmBaseCost({
+    const useFairValueBase = simulationProfile?.baseCostMode === "fair_value";
+    const basePrice = useFairValueBase ? marketPrice(baseItemHrid, 0) : baseItemHrid.endsWith("_charm") ? charmBaseCost({
       itemHrid: baseItemHrid,
       actionDetailMap,
       projectAction: projectAction2,
       resolveLeafPrice: resolveCharmLeafPrice
     }) : acquisitionPrice(baseItemHrid, 0);
-    if (!basePrice && baseItemHrid.endsWith("_charm")) {
+    if (!basePrice && baseItemHrid.endsWith("_charm") && !useFairValueBase) {
       missing.add(baseItemHrid);
     }
     let materialCostPerAction = 0;
@@ -34034,7 +34038,8 @@ ${locks}` : ""}`;
       forcedProtectionItemHrid: forceProtectionMirror ? "/items/mirror_of_protection" : null,
       allowPhilosopherMirror: true,
       getFairValue: (hrid, level = 0) => runtime.api.getAssetValue?.(hrid, level, {
-        forceAcquisitionValue: true
+        forceAcquisitionValue: true,
+        useLiveMarketValues: true
       }) || runtime.api.getFairValue(hrid, level) || 0,
       getMarketValue: (hrid, level = 0) => runtime.api.getFairValue(hrid, level) || 0
     };
@@ -34119,6 +34124,7 @@ ${locks}` : ""}`;
   var GUILD_CREDIT_RECOMMENDATION_COUNT_KEY = "MWITools_guild_credit_recommendation_count_v1";
   var ENHANCEMENT_SIMULATION_PROFILE_KEY = "MWITools_enhancement_simulation_profile_v1";
   var DEFAULT_ENHANCEMENT_SIMULATION_PROFILE2 = Object.freeze({
+    baseCostMode: "acquisition_cost",
     playerLevel: 136,
     houseLevel: 8,
     enhancerBonusPercent: 5.26,
@@ -34129,6 +34135,15 @@ ${locks}` : ""}`;
     taxRatePercent: 2
   });
   var ENHANCEMENT_SIMULATION_FIELDS = Object.freeze([
+    {
+      key: "baseCostMode",
+      type: "select",
+      label: { zh: "基础物品成本", en: "Base item cost" },
+      options: [
+        ["fair_value", { zh: "公允价值", en: "Fair value" }],
+        ["acquisition_cost", { zh: "原始基础成本", en: "Original base cost" }]
+      ]
+    },
     {
       key: "playerLevel",
       type: "number",

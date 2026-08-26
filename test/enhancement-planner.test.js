@@ -155,6 +155,40 @@ test("custom simulation profile prices selected tea, time fee and display tax", 
   assert.equal(feeAndTaxPlan.simulationProfile.teaType, "enhancing_tea");
 });
 
+test("base cost mode switches between acquisition cost and fair value", () => {
+  const acquisitionValues = prices({ "/items/target": 50_000_000 });
+  const marketValues = prices({ "/items/target": 70_000_000 });
+  const shared = {
+    itemHrid: "/items/target",
+    targetLevel: 1,
+    itemDetailMap: itemDetailMap(),
+    bonusMultiplierTable: MULTIPLIERS,
+    getFairValue: (hrid) => acquisitionValues[hrid] ?? 0,
+    getMarketValue: (hrid) => marketValues[hrid] ?? 0,
+  };
+
+  const originalPlan = calculateEnhancementPlan({
+    ...shared,
+    simulationProfile: DEFAULT_ENHANCEMENT_SIMULATION_PROFILE,
+  });
+  const fairValuePlan = calculateEnhancementPlan({
+    ...shared,
+    simulationProfile: {
+      ...DEFAULT_ENHANCEMENT_SIMULATION_PROFILE,
+      baseCostMode: "fair_value",
+    },
+  });
+
+  assert.equal(originalPlan.status, "complete");
+  assert.equal(fairValuePlan.status, "complete");
+  assert.equal(originalPlan.baseCost, 50_000_000);
+  assert.equal(fairValuePlan.baseCost, 70_000_000);
+  assert.equal(
+    fairValuePlan.totalCost - originalPlan.totalCost,
+    20_000_000 / 0.98,
+  );
+});
+
 test("normal flow matches the reference Markov expectation", () => {
   const flow = calculateNormalEnhancementFlow({
     targetLevel: 3,

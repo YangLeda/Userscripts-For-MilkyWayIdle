@@ -19,6 +19,7 @@ export const ENHANCEMENT_PROFILE = Object.freeze({
 });
 
 export const DEFAULT_ENHANCEMENT_SIMULATION_PROFILE = Object.freeze({
+  baseCostMode: "acquisition_cost",
   playerLevel: 136,
   houseLevel: 8,
   enhancerBonusPercent: 5.26,
@@ -824,15 +825,18 @@ export function calculateEnhancementPlan({
     if (!value) missing.add(hrid);
     return value;
   };
-  const basePrice = baseItemHrid.endsWith("_charm")
-    ? charmBaseCost({
-        itemHrid: baseItemHrid,
-        actionDetailMap,
-        projectAction,
-        resolveLeafPrice: resolveCharmLeafPrice,
-      })
-    : acquisitionPrice(baseItemHrid, 0);
-  if (!basePrice && baseItemHrid.endsWith("_charm")) {
+  const useFairValueBase = simulationProfile?.baseCostMode === "fair_value";
+  const basePrice = useFairValueBase
+    ? marketPrice(baseItemHrid, 0)
+    : baseItemHrid.endsWith("_charm")
+      ? charmBaseCost({
+          itemHrid: baseItemHrid,
+          actionDetailMap,
+          projectAction,
+          resolveLeafPrice: resolveCharmLeafPrice,
+        })
+      : acquisitionPrice(baseItemHrid, 0);
+  if (!basePrice && baseItemHrid.endsWith("_charm") && !useFairValueBase) {
     missing.add(baseItemHrid);
   }
   let materialCostPerAction = 0;

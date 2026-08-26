@@ -65,18 +65,27 @@ test("enhancement tooltip values every back type with protection mirrors", () =>
     getAssetValue: runtime.api.getAssetValue,
     isBackEquipment: runtime.api.isBackEquipment,
   };
+  let receivedAssetValueOptions = null;
   runtime.api.getFairValue = () => 0;
-  runtime.api.getAssetValue = (hrid) =>
-    ({
-      "/items/chance_cape": 100_000,
-      "/items/labyrinth_refinement_shard": 25_000,
-    })[hrid] ?? 0;
+  runtime.api.getAssetValue = (hrid, _level, options) => {
+    receivedAssetValueOptions = options;
+    return (
+      {
+        "/items/chance_cape": 100_000,
+        "/items/labyrinth_refinement_shard": 25_000,
+      }[hrid] ?? 0
+    );
+  };
   runtime.api.isBackEquipment = (hrid) =>
     hrid.includes("cape") || hrid.includes("quiver");
 
   runtime.settings.settingsMap.valueBackEquipmentWithProtectionMirror.isTrue = false;
   let options = getTooltipEnhancementPlanOptions("/items/chance_cape_refined");
   assert.equal(options.getFairValue("/items/chance_cape", 0), 100_000);
+  assert.deepEqual(receivedAssetValueOptions, {
+    forceAcquisitionValue: true,
+    useLiveMarketValues: true,
+  });
   assert.equal(
     options.getFairValue("/items/labyrinth_refinement_shard", 0),
     25_000,
