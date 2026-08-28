@@ -18,6 +18,7 @@ export const ANNOUNCEMENTS = Object.freeze([
         "公会成员表只保留可排序的 24 小时 XP/h 与相对速率条，并继续由“成员经验速率”设置独立控制；公会总览趋势和排行榜不受影响。",
         "修复放弃任务进入二次确认、取消确认或真正删除期间任务卡片顺序跳动的问题；即使游戏暂时移除标题、进度和内联顺序，MWITools 也会按已保存的卡槽保持当前排列。",
         "优化排行榜名次徽章刷新、布局与发光性能：公会成员徽章改为紧跟姓名右侧，不再另占一行；徽章统一复用游戏资源注册表，不再为每个徽章扫描全页 SVG；发光效果改用不触发布局的合成位移并按徽章错峰播放；页面观察器只响应角色名、资料区和排行榜表格变化，忽略动画、进度与自身徽章写入，减少徽章较多时的降速和卡顿。",
+        "总资产与各分项的“炫耀”文案已全部换成 2024–2026 高热网络梗；中英文上涨、下跌和持平池每条都有梗，同时保留对比周期、金额、比例与当前价值。",
       ]),
       en: Object.freeze([
         "Battle Buffs and Debuffs now use an in-icon numeric countdown updated in place each second. Clicking any combat-unit status bar only switches between DPS and HPS without opening the panel. Accuracy player tabs and primary lists preserve their scroll positions during live updates.",
@@ -27,6 +28,7 @@ export const ANNOUNCEMENTS = Object.freeze([
         "Guild member tables now keep only the sortable 24-hour XP/h column and relative bar, still controlled independently by Member XP rates. Guild overview trends and leaderboard rates are unchanged.",
         "Fixed task cards jumping when an abandon confirmation opens, is cancelled, or completes. Even while the game temporarily removes the title, progress, and inline order, MWITools now preserves the current arrangement from its saved card slots.",
         "Optimized leaderboard badge refreshes, layout, and glow performance. Guild-member badges now sit immediately after the name instead of taking a separate row. Badges reuse the shared game-asset registry instead of scanning every SVG, glow effects use layout-free composited movement with staggered phases, and the page observer responds only to character names, profile areas, and leaderboard tables while ignoring animations, progress updates, and its own badge writes. This prevents slow, stuttering effects on badge-heavy pages.",
+        "Every total-asset and component Flex message now uses a high-recognition 2024–2026 internet meme. All Chinese and English rise, fall, and flat templates are meme-styled while preserving the comparison period, amount, percentage, and current value.",
       ]),
     }),
   }),

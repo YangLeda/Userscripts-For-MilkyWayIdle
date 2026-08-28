@@ -484,6 +484,46 @@ test("asset sharing provides separate Chinese and English profit/loss phrases", 
   assert.equal(document.activeElement, input);
 });
 
+test("every asset sharing template uses a recognizable recent meme format", () => {
+  const memePattern = {
+    zh: /\u542b\u91d1\u91cf|\u5f88\u66fc\u5999|\u6211\u4eec\u4e0d\u8bf4|\u6765\u8d22|\u786c\u63a7|\u6c34\u7075\u7075|\u677e\u5f1b\u611f|\u80a5\u561f\u561f|\u4e0d\u57fa\u7840|\u8fdb\u57ce\u529e\u4e8b|\u90a3\u548b\u4e86|\u5982\u4f55\u5462/,
+    en: /\bPOV\b|very demure|locked in|math is mathing|main-character|plot twist|ate .*crumbs|aura points|in my .+ era|side quest|let .+ cook|chat, is this real/i,
+  };
+  for (const isZH of [true, false]) {
+    runtime.config.isZH = isZH;
+    const pattern = isZH ? memePattern.zh : memePattern.en;
+    for (const change of [250, -250, 0]) {
+      const percent = change === 0 ? 0 : change / 10;
+      for (let index = 0; index < ASSET_SHARE_TEMPLATE_COUNT; index += 1) {
+        assert.match(
+          buildAssetShareMessage({ change, percent, gapDays: 3 }, index),
+          pattern,
+        );
+      }
+      for (
+        let index = 0;
+        index < ASSET_COMPONENT_SHARE_TEMPLATE_COUNT;
+        index += 1
+      ) {
+        assert.match(
+          buildAssetComponentShareMessage(
+            {
+              key: "equipment",
+              current: 1_000,
+              change,
+              percent,
+              gapDays: 3,
+            },
+            index,
+          ),
+          pattern,
+        );
+      }
+    }
+  }
+  runtime.config.isZH = true;
+});
+
 test("component asset sharing has bilingual rise, fall, and flat phrase pools", () => {
   assert.ok(ASSET_COMPONENT_SHARE_TEMPLATE_COUNT >= 10);
   const components = [
