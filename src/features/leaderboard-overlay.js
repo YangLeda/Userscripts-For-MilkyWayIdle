@@ -156,7 +156,7 @@ function ensureStyles(documentRef) {
   style.textContent = `
     [${BADGE_CONTAINER_ATTRIBUTE}]{display:inline-flex;align-items:center;flex-wrap:wrap;gap:2px;margin-inline-start:4px;vertical-align:middle}
     [${BADGE_CONTAINER_ATTRIBUTE}][data-mwi-leaderboard-placement="profile"]{display:flex;flex-basis:100%;width:100%;margin-block-start:4px;margin-inline-start:0}
-    [${BADGE_CONTAINER_ATTRIBUTE}][data-mwi-leaderboard-placement="list"]{display:flex;width:100%;justify-content:center;margin-block-start:2px;margin-inline-start:0}
+    [${BADGE_CONTAINER_ATTRIBUTE}][data-mwi-leaderboard-placement="guild"]{display:inline-flex;width:auto;flex-wrap:nowrap;margin-block-start:0;margin-inline-start:4px}
     .mwi-lb-badge{box-sizing:border-box;display:inline-flex;align-items:center;gap:1px;height:15px;min-height:15px;padding:0 3px 0 1px;border:1px solid;border-radius:999px;background:rgba(12,16,28,.78);color:#eef2ff;font:600 9px/1 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;white-space:nowrap;box-shadow:0 1px 2px rgba(0,0,0,.24);vertical-align:middle}
     .mwi-lb-badge-icon{display:block;flex:none;width:11px;height:11px;object-fit:contain}
     .mwi-lb-badge--rainbow{border-color:transparent;color:#f8fbff;background:linear-gradient(rgba(12,16,28,.9),rgba(12,16,28,.9)) padding-box,linear-gradient(105deg,#ff5f6d,#ffd166,#67e8a5,#5cb8ff,#c77dff,#ff6ec7) border-box;box-shadow:0 0 7px rgba(121,190,255,.48),0 0 3px rgba(255,103,199,.34),inset 0 0 3px rgba(255,255,255,.14)}
@@ -304,13 +304,13 @@ function createOverlay(options = {}) {
         '[class*="SettingsPanel_nameColor"]',
       );
       const profileFallbackMount = profileRoot ? host.parentElement : null;
-      const badgeMount =
-        profileNameBlock || profileFallbackMount || guildNameBlock || host;
+      const badgeMount = profileNameBlock || profileFallbackMount || host;
       let container =
         badgeMount.querySelector(`:scope > [${BADGE_CONTAINER_ATTRIBUTE}]`) ||
         (badgeMount === host
           ? null
           : host.querySelector(`:scope > [${BADGE_CONTAINER_ATTRIBUTE}]`)) ||
+        guildNameBlock?.querySelector(`[${BADGE_CONTAINER_ATTRIBUTE}]`) ||
         friendNameBlock?.querySelector(`[${BADGE_CONTAINER_ATTRIBUTE}]`);
       if (nameElement.closest('[class*="LeaderboardPanel_"]')) {
         container?.remove();
@@ -326,12 +326,12 @@ function createOverlay(options = {}) {
         container?.remove();
         continue;
       }
-      const listPlacement = Boolean(guildNameBlock);
+      const guildPlacement = Boolean(guildNameBlock);
       const friendPlacement = Boolean(friendNameBlock);
       const placement = profilePlacement
         ? "profile"
-        : listPlacement
-          ? "list"
+        : guildPlacement
+          ? "guild"
           : friendPlacement
             ? "friend"
             : settingsNameColor
@@ -358,9 +358,13 @@ function createOverlay(options = {}) {
         ) {
           profileName.insertAdjacentElement("afterend", container);
         }
-      } else if (listPlacement) {
-        if (container.parentElement !== badgeMount)
-          badgeMount.append(container);
+      } else if (guildPlacement) {
+        if (
+          container.parentElement !== host ||
+          container.previousElementSibling !== nameElement
+        ) {
+          nameElement.insertAdjacentElement("afterend", container);
+        }
       } else if (friendPlacement) {
         if (container.parentElement !== host) host.append(container);
       } else if (!container.isConnected || previousPlacement === "profile") {

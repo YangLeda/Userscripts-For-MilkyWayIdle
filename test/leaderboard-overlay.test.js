@@ -165,7 +165,7 @@ test("renders top-100 ranking badges beside matching character names", async () 
   assert.equal(document.querySelector("[data-mwi-leaderboard-badges]"), null);
 });
 
-test("places guild badges below names and friend badges beside names", async () => {
+test("places guild and friend badges immediately after names", async () => {
   document.body.innerHTML = `
     <svg><use href="/static/media/skills_sprite.current.svg#milking"></use></svg>
     <div class="GuildPanel_characterName__test">
@@ -196,19 +196,20 @@ test("places guild badges below names and friend badges beside names", async () 
   await settle();
 
   const guildBlock = document.querySelector(".GuildPanel_characterName__test");
-  const guildBadges = guildBlock.querySelector(
+  const guildName = guildBlock.querySelector(
+    ".CharacterName_characterName__test",
+  );
+  const guildBadges = guildName.querySelector(
     ":scope > [data-mwi-leaderboard-badges]",
   );
   assert.ok(guildBadges);
-  assert.equal(guildBadges.dataset.mwiLeaderboardPlacement, "list");
+  assert.equal(guildBadges.dataset.mwiLeaderboardPlacement, "guild");
   assert.equal(
-    guildBadges.previousElementSibling,
-    guildBlock.firstElementChild,
+    guildBadges.previousElementSibling.dataset.name,
+    "LongGuildName",
   );
   assert.equal(
-    guildBlock.querySelector(
-      ".CharacterName_characterName__test > [data-mwi-leaderboard-badges]",
-    ),
+    guildBlock.querySelector(":scope > [data-mwi-leaderboard-badges]"),
     null,
   );
 
@@ -241,7 +242,7 @@ test("places guild badges below names and friend badges beside names", async () 
   }
   assert.match(
     document.getElementById("mwi-leaderboard-overlay-style").textContent,
-    /placement="list"[^}]*justify-content:center/,
+    /placement="guild"[^}]*display:inline-flex[^}]*width:auto[^}]*flex-wrap:nowrap/,
   );
 
   overlay.destroy();
