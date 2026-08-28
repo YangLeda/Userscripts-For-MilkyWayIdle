@@ -462,10 +462,16 @@ test("profile names show every badge on an independent second row", async () => 
 
 test("top-five rainbow badges sweep for one second, glint for one, then pause", async () => {
   document.body.innerHTML = `
-    <span class="CharacterName_name__test" data-name="Alice">Alice</span>`;
+    <div><span class="CharacterName_name__test" data-name="Alice">Alice</span></div>
+    <div><span class="CharacterName_name__test" data-name="Bob">Bob</span></div>`;
   const overlay = create({ document, showEffects: true });
   overlay.setRankings({
-    total_level: { rows: [{ characterName: "Alice", rank: 5 }] },
+    total_level: {
+      rows: [
+        { characterName: "Alice", rank: 5 },
+        { characterName: "Bob", rank: 4 },
+      ],
+    },
     stamina: { rows: [{ characterName: "Alice", rank: 6 }] },
   });
   await settle();
@@ -478,9 +484,24 @@ test("top-five rainbow badges sweep for one second, glint for one, then pause", 
   ).textContent;
   assert.match(styles, /::before[^}]*mwi-lb-badge-light-sweep 5s/);
   assert.match(styles, /::after[^}]*mwi-lb-badge-corner-glint 5s/);
-  assert.match(styles, /18%\{left:128%;opacity:\.96\}20%,100%/);
+  assert.match(styles, /contain:paint/);
+  assert.match(styles, /18%\{transform:translate3d\(470%,0,0\)/);
+  assert.doesNotMatch(styles, /@keyframes mwi-lb-badge-light-sweep[^@]*left:/);
+  assert.doesNotMatch(
+    styles,
+    /mwi-lb-badge--top-five::(?:before|after)[^}]*filter:/,
+  );
   assert.match(styles, /0%,20%,40%,100%\{opacity:0/);
-  assert.match(styles, /30%\{opacity:1;transform:scale\(1\.15\)\}/);
+  assert.match(
+    styles,
+    /30%\{opacity:1;transform:translateZ\(0\) scale\(1\.15\)\}/,
+  );
+  assert.deepEqual(
+    [...document.querySelectorAll(".mwi-lb-badge--top-five")].map((badge) =>
+      badge.style.getPropertyValue("--mwi-lb-effect-delay"),
+    ),
+    ["0s", "-1s"],
+  );
   assert.match(styles, /prefers-reduced-motion:reduce/);
   overlay.destroy();
 });

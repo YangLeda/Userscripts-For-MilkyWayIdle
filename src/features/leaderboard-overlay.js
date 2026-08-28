@@ -160,11 +160,11 @@ function ensureStyles(documentRef) {
     .mwi-lb-badge{box-sizing:border-box;display:inline-flex;align-items:center;gap:1px;height:15px;min-height:15px;padding:0 3px 0 1px;border:1px solid;border-radius:999px;background:rgba(12,16,28,.78);color:#eef2ff;font:600 9px/1 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;white-space:nowrap;box-shadow:0 1px 2px rgba(0,0,0,.24);vertical-align:middle}
     .mwi-lb-badge-icon{display:block;flex:none;width:11px;height:11px;object-fit:contain}
     .mwi-lb-badge--rainbow{border-color:transparent;color:#f8fbff;background:linear-gradient(rgba(12,16,28,.9),rgba(12,16,28,.9)) padding-box,linear-gradient(105deg,#ff5f6d,#ffd166,#67e8a5,#5cb8ff,#c77dff,#ff6ec7) border-box;box-shadow:0 0 7px rgba(121,190,255,.48),0 0 3px rgba(255,103,199,.34),inset 0 0 3px rgba(255,255,255,.14)}
-    .mwi-lb-badge--top-five{position:relative;overflow:hidden;isolation:isolate}
-    .mwi-lb-badge--top-five::before{content:"";position:absolute;z-index:2;inset:-35% auto -35% -70%;width:42%;pointer-events:none;background:linear-gradient(105deg,transparent 0%,rgba(255,255,255,.04) 24%,rgba(255,255,255,.92) 50%,rgba(255,255,255,.08) 76%,transparent 100%);filter:blur(.35px);transform:skewX(-18deg);opacity:0;animation:mwi-lb-badge-light-sweep 5s ease-in-out infinite}
-    .mwi-lb-badge--top-five::after{content:"";position:absolute;z-index:3;top:-1px;right:-1px;width:8px;height:8px;border-radius:50%;pointer-events:none;background:radial-gradient(circle at 70% 25%,rgba(255,255,255,1) 0%,rgba(255,255,255,.88) 12%,rgba(174,225,255,.42) 36%,transparent 72%);filter:blur(.25px);opacity:0;animation:mwi-lb-badge-corner-glint 5s ease-in-out infinite}
-    @keyframes mwi-lb-badge-light-sweep{0%{left:-70%;opacity:0}3%{opacity:.28}18%{left:128%;opacity:.96}20%,100%{left:128%;opacity:0}}
-    @keyframes mwi-lb-badge-corner-glint{0%,20%,40%,100%{opacity:0;transform:scale(.45)}30%{opacity:1;transform:scale(1.15)}}
+    .mwi-lb-badge--top-five{position:relative;overflow:hidden;isolation:isolate;contain:paint}
+    .mwi-lb-badge--top-five::before{content:"";position:absolute;z-index:2;inset:-35% auto -35% -70%;width:42%;pointer-events:none;background:linear-gradient(105deg,transparent 0%,rgba(255,255,255,.04) 24%,rgba(255,255,255,.92) 50%,rgba(255,255,255,.08) 76%,transparent 100%);transform:translate3d(0,0,0) skewX(-18deg);opacity:0;animation:mwi-lb-badge-light-sweep 5s ease-in-out var(--mwi-lb-effect-delay,0s) infinite}
+    .mwi-lb-badge--top-five::after{content:"";position:absolute;z-index:3;top:-1px;right:-1px;width:8px;height:8px;border-radius:50%;pointer-events:none;background:radial-gradient(circle at 70% 25%,rgba(255,255,255,1) 0%,rgba(255,255,255,.88) 12%,rgba(174,225,255,.42) 36%,transparent 72%);opacity:0;animation:mwi-lb-badge-corner-glint 5s ease-in-out var(--mwi-lb-effect-delay,0s) infinite}
+    @keyframes mwi-lb-badge-light-sweep{0%{transform:translate3d(0,0,0) skewX(-18deg);opacity:0}3%{opacity:.28}18%{transform:translate3d(470%,0,0) skewX(-18deg);opacity:.96}20%,100%{transform:translate3d(470%,0,0) skewX(-18deg);opacity:0}}
+    @keyframes mwi-lb-badge-corner-glint{0%,20%,40%,100%{opacity:0;transform:translateZ(0) scale(.45)}30%{opacity:1;transform:translateZ(0) scale(1.15)}}
     @media (prefers-reduced-motion:reduce){.mwi-lb-badge--top-five::before,.mwi-lb-badge--top-five::after{animation:none;opacity:0}}
     .mwi-lb-badge--gold{border-color:#d9aa38;color:#ffe8a3;box-shadow:0 0 5px rgba(217,170,56,.24)}
     .mwi-lb-badge--silver{border-color:#d8dee9;color:#f8fafc;box-shadow:0 0 4px rgba(226,232,240,.24)}
@@ -277,7 +277,7 @@ function createOverlay(options = {}) {
   function renderNameBadges() {
     if (!state.showBadges) return;
     const nameElements = documentRef.querySelectorAll(CHARACTER_NAME_SELECTOR);
-    for (const nameElement of nameElements) {
+    for (const [nameIndex, nameElement] of [...nameElements].entries()) {
       const host = nameElement.parentElement;
       if (!host) continue;
       if (nameElement.closest('[class*="Header_characterInfo"]')) {
@@ -369,9 +369,16 @@ function createOverlay(options = {}) {
       if (container.dataset.mwiLeaderboardSignature === signature) continue;
       container.dataset.mwiLeaderboardSignature = signature;
       container.replaceChildren(
-        ...visibleBadges.map((item) => {
+        ...visibleBadges.map((item, badgeIndex) => {
           const badge = documentRef.createElement("span");
-          badge.className = `mwi-lb-badge mwi-lb-badge--${item.tier}${state.showEffects && item.rank <= 5 ? " mwi-lb-badge--top-five" : ""}`;
+          const animated = state.showEffects && item.rank <= 5;
+          badge.className = `mwi-lb-badge mwi-lb-badge--${item.tier}${animated ? " mwi-lb-badge--top-five" : ""}`;
+          if (animated) {
+            badge.style.setProperty(
+              "--mwi-lb-effect-delay",
+              `${-((nameIndex + badgeIndex) % 5)}s`,
+            );
+          }
           const icon = createBadgeIcon(documentRef, item.category, iconBaseUrl);
           badge.append(icon, documentRef.createTextNode(String(item.rank)));
           const label = categoryLabel(item.label, item.category);

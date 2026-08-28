@@ -83,9 +83,9 @@
     mod
   ));
 
-  // node_modules/lz-string/libs/lz-string.js
+  // ../../../../../../../../Volumes/StellaSW/mwitools/node_modules/lz-string/libs/lz-string.js
   var require_lz_string = __commonJS({
-    "node_modules/lz-string/libs/lz-string.js"(exports, module) {
+    "../../../../../../../../Volumes/StellaSW/mwitools/node_modules/lz-string/libs/lz-string.js"(exports, module) {
       var LZString2 = (function() {
         var f = String.fromCharCode;
         var keyStrBase64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=";
@@ -15996,11 +15996,11 @@ ${preview}`
     .mwi-lb-badge{box-sizing:border-box;display:inline-flex;align-items:center;gap:1px;height:15px;min-height:15px;padding:0 3px 0 1px;border:1px solid;border-radius:999px;background:rgba(12,16,28,.78);color:#eef2ff;font:600 9px/1 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;white-space:nowrap;box-shadow:0 1px 2px rgba(0,0,0,.24);vertical-align:middle}
     .mwi-lb-badge-icon{display:block;flex:none;width:11px;height:11px;object-fit:contain}
     .mwi-lb-badge--rainbow{border-color:transparent;color:#f8fbff;background:linear-gradient(rgba(12,16,28,.9),rgba(12,16,28,.9)) padding-box,linear-gradient(105deg,#ff5f6d,#ffd166,#67e8a5,#5cb8ff,#c77dff,#ff6ec7) border-box;box-shadow:0 0 7px rgba(121,190,255,.48),0 0 3px rgba(255,103,199,.34),inset 0 0 3px rgba(255,255,255,.14)}
-    .mwi-lb-badge--top-five{position:relative;overflow:hidden;isolation:isolate}
-    .mwi-lb-badge--top-five::before{content:"";position:absolute;z-index:2;inset:-35% auto -35% -70%;width:42%;pointer-events:none;background:linear-gradient(105deg,transparent 0%,rgba(255,255,255,.04) 24%,rgba(255,255,255,.92) 50%,rgba(255,255,255,.08) 76%,transparent 100%);filter:blur(.35px);transform:skewX(-18deg);opacity:0;animation:mwi-lb-badge-light-sweep 5s ease-in-out infinite}
-    .mwi-lb-badge--top-five::after{content:"";position:absolute;z-index:3;top:-1px;right:-1px;width:8px;height:8px;border-radius:50%;pointer-events:none;background:radial-gradient(circle at 70% 25%,rgba(255,255,255,1) 0%,rgba(255,255,255,.88) 12%,rgba(174,225,255,.42) 36%,transparent 72%);filter:blur(.25px);opacity:0;animation:mwi-lb-badge-corner-glint 5s ease-in-out infinite}
-    @keyframes mwi-lb-badge-light-sweep{0%{left:-70%;opacity:0}3%{opacity:.28}18%{left:128%;opacity:.96}20%,100%{left:128%;opacity:0}}
-    @keyframes mwi-lb-badge-corner-glint{0%,20%,40%,100%{opacity:0;transform:scale(.45)}30%{opacity:1;transform:scale(1.15)}}
+    .mwi-lb-badge--top-five{position:relative;overflow:hidden;isolation:isolate;contain:paint}
+    .mwi-lb-badge--top-five::before{content:"";position:absolute;z-index:2;inset:-35% auto -35% -70%;width:42%;pointer-events:none;background:linear-gradient(105deg,transparent 0%,rgba(255,255,255,.04) 24%,rgba(255,255,255,.92) 50%,rgba(255,255,255,.08) 76%,transparent 100%);transform:translate3d(0,0,0) skewX(-18deg);opacity:0;animation:mwi-lb-badge-light-sweep 5s ease-in-out var(--mwi-lb-effect-delay,0s) infinite}
+    .mwi-lb-badge--top-five::after{content:"";position:absolute;z-index:3;top:-1px;right:-1px;width:8px;height:8px;border-radius:50%;pointer-events:none;background:radial-gradient(circle at 70% 25%,rgba(255,255,255,1) 0%,rgba(255,255,255,.88) 12%,rgba(174,225,255,.42) 36%,transparent 72%);opacity:0;animation:mwi-lb-badge-corner-glint 5s ease-in-out var(--mwi-lb-effect-delay,0s) infinite}
+    @keyframes mwi-lb-badge-light-sweep{0%{transform:translate3d(0,0,0) skewX(-18deg);opacity:0}3%{opacity:.28}18%{transform:translate3d(470%,0,0) skewX(-18deg);opacity:.96}20%,100%{transform:translate3d(470%,0,0) skewX(-18deg);opacity:0}}
+    @keyframes mwi-lb-badge-corner-glint{0%,20%,40%,100%{opacity:0;transform:translateZ(0) scale(.45)}30%{opacity:1;transform:translateZ(0) scale(1.15)}}
     @media (prefers-reduced-motion:reduce){.mwi-lb-badge--top-five::before,.mwi-lb-badge--top-five::after{animation:none;opacity:0}}
     .mwi-lb-badge--gold{border-color:#d9aa38;color:#ffe8a3;box-shadow:0 0 5px rgba(217,170,56,.24)}
     .mwi-lb-badge--silver{border-color:#d8dee9;color:#f8fafc;box-shadow:0 0 4px rgba(226,232,240,.24)}
@@ -16097,7 +16097,7 @@ ${preview}`
     function renderNameBadges() {
       if (!state.showBadges) return;
       const nameElements = documentRef.querySelectorAll(CHARACTER_NAME_SELECTOR);
-      for (const nameElement of nameElements) {
+      for (const [nameIndex, nameElement] of [...nameElements].entries()) {
         const host = nameElement.parentElement;
         if (!host) continue;
         if (nameElement.closest('[class*="Header_characterInfo"]')) {
@@ -16162,9 +16162,16 @@ ${preview}`
         if (container.dataset.mwiLeaderboardSignature === signature) continue;
         container.dataset.mwiLeaderboardSignature = signature;
         container.replaceChildren(
-          ...visibleBadges.map((item) => {
+          ...visibleBadges.map((item, badgeIndex) => {
             const badge = documentRef.createElement("span");
-            badge.className = `mwi-lb-badge mwi-lb-badge--${item.tier}${state.showEffects && item.rank <= 5 ? " mwi-lb-badge--top-five" : ""}`;
+            const animated = state.showEffects && item.rank <= 5;
+            badge.className = `mwi-lb-badge mwi-lb-badge--${item.tier}${animated ? " mwi-lb-badge--top-five" : ""}`;
+            if (animated) {
+              badge.style.setProperty(
+                "--mwi-lb-effect-delay",
+                `${-((nameIndex + badgeIndex) % 5)}s`
+              );
+            }
             const icon = createBadgeIcon(documentRef, item.category, iconBaseUrl);
             badge.append(icon, documentRef.createTextNode(String(item.rank)));
             const label = categoryLabel(item.label, item.category);
@@ -22771,9 +22778,7 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
     .mwi-procurement-summary-line{display:flex;min-width:0;align-items:center;gap:5px;flex-wrap:wrap}
     .mwi-procurement-summary-state{min-width:0;flex:1;color:var(--color-text-secondary,#aaa);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .mwi-procurement-summary-state strong{color:#ffad62}
-    .mwi-procurement-upgrade-item-state{display:flex;width:100%;align-items:center;gap:6px;margin-top:3px;color:var(--color-text-secondary,#aaa)}
-    .mwi-procurement-upgrade-item-state strong{color:#43d17f}
-    .mwi-procurement-upgrade-item-state[data-state="missing"] strong{color:#ffad62}
+    .mwi-procurement-upgrade-badge{align-self:center;flex:none}
     .mwi-procurement-chain-mode{display:inline-flex;align-items:center;gap:4px;color:var(--color-text-secondary,#aaa);font-size:inherit;white-space:nowrap;cursor:pointer}
     .mwi-procurement-chain-mode input{width:14px;height:14px;margin:0;accent-color:#8293d6;cursor:pointer}
     .mwi-procurement-inline-button{min-height:24px;padding:2px 8px;border:1px solid rgba(255,255,255,.16);border-radius:4px;background:var(--color-midnight-500,#343a54);color:var(--color-neutral-100,#eee);font:inherit;cursor:pointer}
@@ -23899,6 +23904,17 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
     }
     return null;
   }
+  function findUpgradeItemBadgeMount(panel) {
+    const emptyCopy = /^(?:没有选择升级物品|未选择升级物品|no (?:upgrade )?item selected)$/i;
+    const emptyState = [...panel.querySelectorAll("span,div,p")].find(
+      (element) => element.childElementCount === 0 && emptyCopy.test(String(element.textContent ?? "").trim())
+    );
+    if (emptyState) return { host: emptyState, mode: "after" };
+    const upgradeRow = panel.querySelector(
+      '[class*="SkillActionDetail_upgradeItem"],[class*="SkillActionDetail_UpgradeItem"]'
+    );
+    return upgradeRow ? { host: upgradeRow, mode: "append" } : null;
+  }
   function itemHridFromSpriteHref(href) {
     const source = String(href ?? "");
     const hashIndex = source.lastIndexOf("#");
@@ -24174,12 +24190,21 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
     }
     clearProductionUi();
     lastProductionSignature = signature;
+    const upgradeItemHrid = procurement3.normalizeItemHrid(
+      direct.detail?.upgradeItemHrid
+    );
     if (settings2.badgesEnabled) {
       for (const material of direct.materials) {
-        const host = findMaterialHost(context.panel, material.itemHrid);
-        if (!host) continue;
+        const itemHrid = procurement3.normalizeItemHrid(material.itemHrid);
+        const isUpgradeItem = Boolean(
+          upgradeItemHrid && itemHrid === upgradeItemHrid
+        );
+        const upgradeMount = isUpgradeItem ? findUpgradeItemBadgeMount(context.panel) : null;
+        const host = upgradeMount ? null : findMaterialHost(context.panel, material.itemHrid);
+        if (!host && !upgradeMount) continue;
         const badge = document.createElement("span");
         badge.className = "mwi-procurement-badge";
+        if (isUpgradeItem) badge.classList.add("mwi-procurement-upgrade-badge");
         badge.dataset.state = material.shortage ? "missing" : "ready";
         badge.textContent = material.shortage ? `${t9("缺", "Need")} ${formatNumber4(material.shortage)}` : `${t9("余", "Spare")} ${formatNumber4(material.effectiveOwned - material.suggested)}`;
         const locks = material.lockedByPlans.map((entry) => `${entry.name}: ${exactNumber(entry.quantity)}`).join("\n");
@@ -24187,8 +24212,12 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
 ${t9("当前拥有", "Owned")}: ${exactNumber(material.owned)}${material.locked ? `
 ${t9("计划锁定", "Locked")}: ${exactNumber(material.locked)}
 ${locks}` : ""}`;
-        host.insertAdjacentElement("afterend", badge);
-        layoutMaterialBadge(context.panel, host, badge);
+        if (upgradeMount?.mode === "append") upgradeMount.host.append(badge);
+        else
+          (upgradeMount?.host ?? host).insertAdjacentElement("afterend", badge);
+        if (host?.closest('[class*="SkillActionDetail_itemRequirements"]')) {
+          layoutMaterialBadge(context.panel, host, badge);
+        }
       }
     }
     const root = document.createElement("section");
@@ -24266,25 +24295,6 @@ ${locks}` : ""}`;
     });
     summary.append(add);
     root.append(summary);
-    const upgradeItemHrid = procurement3.normalizeItemHrid(
-      direct.detail?.upgradeItemHrid
-    );
-    const upgradeMaterial = upgradeItemHrid ? direct.materials.find(
-      (material) => procurement3.normalizeItemHrid(material.itemHrid) === upgradeItemHrid
-    ) : null;
-    if (upgradeMaterial) {
-      const upgradeState = document.createElement("div");
-      upgradeState.className = "mwi-procurement-upgrade-item-state";
-      upgradeState.dataset.state = upgradeMaterial.shortage ? "missing" : "ready";
-      const upgradeItemName = procurement3.resolveItemName(upgradeItemHrid) || upgradeItemHrid;
-      const amount = upgradeMaterial.shortage ? `${t9("还差", "Need")} ${formatNumber4(upgradeMaterial.shortage)}` : `${t9("升级后余", "After upgrade")} ${formatNumber4(
-        upgradeMaterial.effectiveOwned - upgradeMaterial.suggested
-      )}`;
-      upgradeState.innerHTML = `<span>${escapeHtml5(t9("升级自", "Upgrade from"))} ${escapeHtml5(upgradeItemName)}</span><strong>${escapeHtml5(amount)}</strong>`;
-      upgradeState.title = `${t9("当前拥有", "Owned")}: ${exactNumber(upgradeMaterial.owned)}
-${t9("本次需要", "Required")}: ${exactNumber(upgradeMaterial.suggested)}`;
-      root.append(upgradeState);
-    }
     if (isEnhancing) appendSunnyEnhancingCompatibility(root);
     if (hasSelectableChain) {
       const details = document.createElement("details");
@@ -29882,19 +29892,19 @@ ${t9("本次需要", "Required")}: ${exactNumber(upgradeMaterial.suggested)}`;
           "战斗 Buff/Debuff 改为图标内数字倒计时，每秒原位更新；点击任一角色状态条只会在 DPS 与 HPS 间切换，不会擅自打开面板。命中率玩家标签和主名单刷新会保留滚动位置，不再查看第 4、5 名时回弹。",
           "任务卡的地牢标识已从怪物背景拆到右上角独立小图标，并新增默认开启的从属设置；任务刷新会在服务端任务 ID、标题与进度稳定后再替换图标，点击牛铃或金币确认后即使支付选项仍展开也会立即解除过渡保护，避免第一次仍显示旧图。",
           "库存资产继续按角色与环境冻结快照；普通消息在同版本摘要已挂载时不再排队计算、扫描分类或重建 DOM，原生库存重建只挂回缓存。总资产“炫耀”已移到“刷新价值”旁边。",
-          "生产升级配方现在会单独显示升级自身物品在本次操作后剩余多少或还差多少。购物车设置只同步现有控件，不再因后台消息重建整个页面；安全余量下拉菜单也提高了文字对比度。",
+          "生产升级配方会在原生“升级自”区域直接显示与材料行一致的“缺/余”徽章，不再把升级底材信息单独放在面板底部。购物车设置只同步现有控件，不再因后台消息重建整个页面；安全余量下拉菜单也提高了文字对比度。",
           "公会成员表只保留可排序的 24 小时 XP/h 与相对速率条，并继续由“成员经验速率”设置独立控制；公会总览趋势和排行榜不受影响。",
           "修复放弃任务进入二次确认、取消确认或真正删除期间任务卡片顺序跳动的问题；即使游戏暂时移除标题、进度和内联顺序，MWITools 也会按已保存的卡槽保持当前排列。",
-          "优化排行榜名次徽章刷新：徽章统一复用游戏资源注册表，不再为每个徽章扫描全页 SVG；页面观察器只响应角色名、资料区和排行榜表格变化，忽略动画、进度与自身徽章写入，减少部分玩家遇到的卡顿。"
+          "优化排行榜名次徽章刷新与发光性能：徽章统一复用游戏资源注册表，不再为每个徽章扫描全页 SVG；发光效果改用不触发布局的合成位移并按徽章错峰播放；页面观察器只响应角色名、资料区和排行榜表格变化，忽略动画、进度与自身徽章写入，减少徽章较多时的降速和卡顿。"
         ]),
         en: Object.freeze([
           "Battle Buffs and Debuffs now use an in-icon numeric countdown updated in place each second. Clicking any combat-unit status bar only switches between DPS and HPS without opening the panel. Accuracy player tabs and primary lists preserve their scroll positions during live updates.",
           "Dungeon markers are now separate compact badges in the task card's top-right, with a new default-on child setting. Rerolled artwork waits for the server task ID, title, and progress to settle, and confirming either payment option now releases the transition guard immediately even while the choices remain open, preventing the previous icon from surviving the first refresh.",
           "Inventory assets remain frozen per character and environment. Ordinary messages no longer queue calculations, scan categories, or rebuild DOM when the same summary version is already mounted; replaced native inventory nodes only remount cached results. The total-asset Flex button now sits beside Refresh values.",
-          "Production upgrade recipes now show how many copies of the upgrade item remain after the action or how many are still needed. Shopping-cart settings synchronize existing controls instead of rebuilding the page on background messages, and safety-margin menu options now have readable contrast.",
+          "Production upgrade recipes now place a matching Need/Spare badge directly in the native Upgrade from area instead of showing the upgrade-item status separately at the bottom. Shopping-cart settings synchronize existing controls instead of rebuilding the page on background messages, and safety-margin menu options now have readable contrast.",
           "Guild member tables now keep only the sortable 24-hour XP/h column and relative bar, still controlled independently by Member XP rates. Guild overview trends and leaderboard rates are unchanged.",
           "Fixed task cards jumping when an abandon confirmation opens, is cancelled, or completes. Even while the game temporarily removes the title, progress, and inline order, MWITools now preserves the current arrangement from its saved card slots.",
-          "Optimized leaderboard badge refreshes. Badges now reuse the shared game-asset registry instead of scanning every SVG for every badge, and the page observer responds only to character names, profile areas, and leaderboard tables while ignoring animations, progress updates, and its own badge writes."
+          "Optimized leaderboard badge refreshes and glow performance. Badges reuse the shared game-asset registry instead of scanning every SVG, glow effects now use layout-free composited movement with staggered phases, and the page observer responds only to character names, profile areas, and leaderboard tables while ignoring animations, progress updates, and its own badge writes. This prevents slow, stuttering effects on badge-heavy pages."
         ])
       })
     }),

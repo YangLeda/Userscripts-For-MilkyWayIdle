@@ -97,9 +97,7 @@ function addStyles() {
     .mwi-procurement-summary-line{display:flex;min-width:0;align-items:center;gap:5px;flex-wrap:wrap}
     .mwi-procurement-summary-state{min-width:0;flex:1;color:var(--color-text-secondary,#aaa);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .mwi-procurement-summary-state strong{color:#ffad62}
-    .mwi-procurement-upgrade-item-state{display:flex;width:100%;align-items:center;gap:6px;margin-top:3px;color:var(--color-text-secondary,#aaa)}
-    .mwi-procurement-upgrade-item-state strong{color:#43d17f}
-    .mwi-procurement-upgrade-item-state[data-state="missing"] strong{color:#ffad62}
+    .mwi-procurement-upgrade-badge{align-self:center;flex:none}
     .mwi-procurement-chain-mode{display:inline-flex;align-items:center;gap:4px;color:var(--color-text-secondary,#aaa);font-size:inherit;white-space:nowrap;cursor:pointer}
     .mwi-procurement-chain-mode input{width:14px;height:14px;margin:0;accent-color:#8293d6;cursor:pointer}
     .mwi-procurement-inline-button{min-height:24px;padding:2px 8px;border:1px solid rgba(255,255,255,.16);border-radius:4px;background:var(--color-midnight-500,#343a54);color:var(--color-neutral-100,#eee);font:inherit;cursor:pointer}
@@ -1362,6 +1360,22 @@ function findMaterialHost(panel, itemHrid) {
   return null;
 }
 
+function findUpgradeItemBadgeMount(panel) {
+  const emptyCopy =
+    /^(?:没有选择升级物品|未选择升级物品|no (?:upgrade )?item selected)$/i;
+  const emptyState = [...panel.querySelectorAll("span,div,p")].find(
+    (element) =>
+      element.childElementCount === 0 &&
+      emptyCopy.test(String(element.textContent ?? "").trim()),
+  );
+  if (emptyState) return { host: emptyState, mode: "after" };
+
+  const upgradeRow = panel.querySelector(
+    '[class*="SkillActionDetail_upgradeItem"],[class*="SkillActionDetail_UpgradeItem"]',
+  );
+  return upgradeRow ? { host: upgradeRow, mode: "append" } : null;
+}
+
 function itemHridFromSpriteHref(href) {
   const source = String(href ?? "");
   const hashIndex = source.lastIndexOf("#");
@@ -1685,12 +1699,25 @@ function renderProductionProcurement() {
   }
   clearProductionUi();
   lastProductionSignature = signature;
+  const upgradeItemHrid = procurement.normalizeItemHrid(
+    direct.detail?.upgradeItemHrid,
+  );
   if (settings.badgesEnabled) {
     for (const material of direct.materials) {
-      const host = findMaterialHost(context.panel, material.itemHrid);
-      if (!host) continue;
+      const itemHrid = procurement.normalizeItemHrid(material.itemHrid);
+      const isUpgradeItem = Boolean(
+        upgradeItemHrid && itemHrid === upgradeItemHrid,
+      );
+      const upgradeMount = isUpgradeItem
+        ? findUpgradeItemBadgeMount(context.panel)
+        : null;
+      const host = upgradeMount
+        ? null
+        : findMaterialHost(context.panel, material.itemHrid);
+      if (!host && !upgradeMount) continue;
       const badge = document.createElement("span");
       badge.className = "mwi-procurement-badge";
+      if (isUpgradeItem) badge.classList.add("mwi-procurement-upgrade-badge");
       badge.dataset.state = material.shortage ? "missing" : "ready";
       badge.textContent = material.shortage
         ? `${t("缺", "Need")} ${formatNumber(material.shortage)}`
@@ -1699,8 +1726,12 @@ function renderProductionProcurement() {
         .map((entry) => `${entry.name}: ${exactNumber(entry.quantity)}`)
         .join("\n");
       badge.title = `${t("建议准备", "Suggested")}: ${exactNumber(material.suggested)}\n${t("当前拥有", "Owned")}: ${exactNumber(material.owned)}${material.locked ? `\n${t("计划锁定", "Locked")}: ${exactNumber(material.locked)}\n${locks}` : ""}`;
-      host.insertAdjacentElement("afterend", badge);
-      layoutMaterialBadge(context.panel, host, badge);
+      if (upgradeMount?.mode === "append") upgradeMount.host.append(badge);
+      else
+        (upgradeMount?.host ?? host).insertAdjacentElement("afterend", badge);
+      if (host?.closest('[class*="SkillActionDetail_itemRequirements"]')) {
+        layoutMaterialBadge(context.panel, host, badge);
+      }
     }
   }
   const root = document.createElement("section");
@@ -1793,30 +1824,6 @@ function renderProductionProcurement() {
   });
   summary.append(add);
   root.append(summary);
-  const upgradeItemHrid = procurement.normalizeItemHrid(
-    direct.detail?.upgradeItemHrid,
-  );
-  const upgradeMaterial = upgradeItemHrid
-    ? direct.materials.find(
-        (material) =>
-          procurement.normalizeItemHrid(material.itemHrid) === upgradeItemHrid,
-      )
-    : null;
-  if (upgradeMaterial) {
-    const upgradeState = document.createElement("div");
-    upgradeState.className = "mwi-procurement-upgrade-item-state";
-    upgradeState.dataset.state = upgradeMaterial.shortage ? "missing" : "ready";
-    const upgradeItemName =
-      procurement.resolveItemName(upgradeItemHrid) || upgradeItemHrid;
-    const amount = upgradeMaterial.shortage
-      ? `${t("还差", "Need")} ${formatNumber(upgradeMaterial.shortage)}`
-      : `${t("升级后余", "After upgrade")} ${formatNumber(
-          upgradeMaterial.effectiveOwned - upgradeMaterial.suggested,
-        )}`;
-    upgradeState.innerHTML = `<span>${escapeHtml(t("升级自", "Upgrade from"))} ${escapeHtml(upgradeItemName)}</span><strong>${escapeHtml(amount)}</strong>`;
-    upgradeState.title = `${t("当前拥有", "Owned")}: ${exactNumber(upgradeMaterial.owned)}\n${t("本次需要", "Required")}: ${exactNumber(upgradeMaterial.suggested)}`;
-    root.append(upgradeState);
-  }
   if (isEnhancing) appendSunnyEnhancingCompatibility(root);
   if (hasSelectableChain) {
     const details = document.createElement("details");

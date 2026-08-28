@@ -1465,6 +1465,10 @@ test("upgrade-chain shopping defaults to the direct predecessor and can use sele
   const panel = document.createElement("div");
   panel.className = "SkillActionDetail_regularComponent__chain-fixture";
   panel.innerHTML = `
+    <div class="SkillActionDetail_upgradeItemContainer__fixture">
+      <div class="Item_itemContainer__fixture"><svg><use href="#empty"></use></svg></div>
+      <span class="SkillActionDetail_noUpgradeItem__fixture">No upgrade item selected</span>
+    </div>
     <div class="SkillActionDetail_maxActionCountInput__fixture"><input value="2"></div>
     <div class="SkillActionDetail_actionContainer__fixture"></div>
     <section id="mwi-production-summary"></section>`;
@@ -1538,18 +1542,22 @@ test("upgrade-chain shopping defaults to the direct predecessor and can use sele
     1,
   );
   assert.doesNotMatch(root.textContent, /Start from previous/);
-  assert.match(
-    root.querySelector(".mwi-procurement-upgrade-item-state").textContent,
-    /Upgrade from Beast PantsNeed 3/,
+  let upgradeBadge = panel.querySelector(".mwi-procurement-upgrade-badge");
+  const emptyUpgradeState = panel.querySelector(
+    ".SkillActionDetail_noUpgradeItem__fixture",
   );
+  assert.equal(emptyUpgradeState.nextElementSibling, upgradeBadge);
+  assert.equal(upgradeBadge.dataset.state, "missing");
+  assert.match(upgradeBadge.textContent, /Need 3/);
+  assert.equal(root.querySelector(".mwi-procurement-upgrade-item-state"), null);
   runtime.state.initData_characterItems[0].count = 5;
   runtime.api.procurement.loadCharacterData("ui-character");
   runtime.api.renderProductionProcurement();
   root = document.querySelector("#mwitools-procurement-production");
-  assert.match(
-    root.querySelector(".mwi-procurement-upgrade-item-state").textContent,
-    /Upgrade from Beast PantsAfter upgrade 1/,
-  );
+  upgradeBadge = panel.querySelector(".mwi-procurement-upgrade-badge");
+  assert.equal(emptyUpgradeState.nextElementSibling, upgradeBadge);
+  assert.equal(upgradeBadge.dataset.state, "ready");
+  assert.match(upgradeBadge.textContent, /Spare 1/);
   runtime.state.initData_characterItems[0].count = 1;
   runtime.api.procurement.loadCharacterData("ui-character");
   runtime.api.renderProductionProcurement();
