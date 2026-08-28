@@ -1825,6 +1825,17 @@ function restoreStableOrders(rows) {
   }
 }
 
+function restoreKnownCardOrders(cards) {
+  for (const card of cards) {
+    const slot = Number(card.dataset.mwitoolsOriginalIndex);
+    if (!Number.isInteger(slot)) continue;
+    const order = pageOrderBySlot.get(slot);
+    if (!Number.isFinite(order)) continue;
+    const value = String(order);
+    if (card.style.order !== value) card.style.order = value;
+  }
+}
+
 function renderFlatTaskList(rows, { sort = false } = {}) {
   if (!taskListParent) return;
   cleanupListDecorations({ restoreOrder: false });
@@ -2528,6 +2539,7 @@ function renderTasks({ forceSort = false, allowReusedPositional = true } = {}) {
     }
     taskListParent = observedParent;
   }
+  restoreKnownCardOrders(cards);
   cards = cards.filter(
     (card) => card.parentElement === taskListParent && isQuestTaskCard(card),
   );
@@ -2546,7 +2558,10 @@ function renderTasks({ forceSort = false, allowReusedPositional = true } = {}) {
     taskRemaining,
     allowReusedPositional,
   });
-  if (cardEntries.some((entry) => !entry.resolved)) return false;
+  if (cardEntries.some((entry) => !entry.resolved)) {
+    restoreKnownCardOrders(cards);
+    return false;
+  }
   const cardTasks = cardEntries.map(({ task }) => task);
   assignStablePageSlots(cards, cardTasks);
   finalizeStickyResetSlots(cards, cardTasks);

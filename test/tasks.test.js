@@ -670,6 +670,40 @@ test("a reset refreshes metadata without changing the current card order", () =>
   );
 });
 
+test("an abandon confirmation keeps the current visual task order", () => {
+  document.querySelector('[class*="TasksPanel_taskList"]')?.remove();
+  document.body.insertAdjacentHTML(
+    "beforeend",
+    `<div class="TasksPanel_taskList__abandon-confirmation">
+      ${card("制作 - 木板", "0 / 5")}
+      ${card("挤奶 - 奶牛", "0 / 20")}
+    </div>`,
+  );
+  runtime.settings.settingsMap.taskNewBadge.isTrue = false;
+  runtime.state.characterQuests = [
+    { id: "abandon-crafting", actionHrid: "/actions/crafting/lumber" },
+    { id: "abandon-milking", actionHrid: "/actions/milking/cow" },
+  ];
+  assert.equal(runtime.api.renderTasks({ allowReusedPositional: false }), true);
+
+  const list = document.querySelector(
+    ".TasksPanel_taskList__abandon-confirmation",
+  );
+  const cards = [...list.querySelectorAll(TASK_SELECTOR)];
+  const originalOrders = cards.map((taskCard) => taskCard.style.order);
+  assert.deepEqual(originalOrders, ["2", "1"]);
+
+  cards[1].innerHTML = "<button>返回</button><button>确认放弃</button>";
+  cards.forEach((taskCard) => {
+    taskCard.style.order = "";
+  });
+  assert.equal(runtime.api.renderTasks({ allowReusedPositional: false }), true);
+  assert.deepEqual(
+    cards.map((taskCard) => taskCard.style.order),
+    originalOrders,
+  );
+});
+
 test("task mutation filtering ignores MWITools decorations but keeps native progress", () => {
   const list = document.createElement("div");
   list.className = "TasksPanel_taskList__mutation-filter";

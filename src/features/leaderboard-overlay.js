@@ -1,11 +1,11 @@
 import { runtime } from "../core/runtime.js";
 import {
   getGameSpriteHref,
-  registerGameSpriteSource,
+  scanGameSpriteSources,
 } from "../core/game-assets.js";
 import { localize } from "../core/localization.js";
 
-const OVERLAY_VERSION = "1.4.0";
+const OVERLAY_VERSION = "1.4.1";
 const LEADERBOARD_API_URL =
   "https://mwi-guild.43.167.210.211.sslip.io/api/v1/leaderboards";
 const LEADERBOARD_CACHE_KEY = "MWITools_leaderboard_overlay_cache_v3";
@@ -18,6 +18,7 @@ const RATE_HEADER_ATTRIBUTE = "data-mwi-leaderboard-rate-header";
 const RATE_CELL_ATTRIBUTE = "data-mwi-leaderboard-rate-cell";
 const LEADERBOARD_TABLE_SELECTOR =
   'table[class*="LeaderboardPanel_leaderboardTable"]';
+const CHARACTER_NAME_SELECTOR = '[class*="CharacterName_name"][data-name]';
 const DEFAULT_CATEGORIES = [
   ["total_level", { zh: "总等级", en: "Total Level" }],
   ["milking", { zh: "挤奶", en: "Milking" }],
@@ -174,15 +175,6 @@ function ensureStyles(documentRef) {
   mount.append(style);
 }
 
-function nativeSpriteHref(documentRef, kind, symbol) {
-  for (const use of documentRef.querySelectorAll("use")) {
-    registerGameSpriteSource(
-      use.getAttribute("href") ?? use.getAttribute("xlink:href"),
-    );
-  }
-  return getGameSpriteHref(kind, symbol);
-}
-
 function createBadgeIcon(documentRef, category, customIconBaseUrl = "") {
   const miscSymbol = MISC_CATEGORY_SYMBOLS[category];
   if (customIconBaseUrl && !miscSymbol) {
@@ -201,7 +193,7 @@ function createBadgeIcon(documentRef, category, customIconBaseUrl = "") {
   icon.setAttribute("viewBox", "0 0 40 40");
   icon.setAttribute("aria-hidden", "true");
   const use = documentRef.createElementNS("http://www.w3.org/2000/svg", "use");
-  const href = nativeSpriteHref(documentRef, spriteKind, symbol);
+  const href = getGameSpriteHref(spriteKind, symbol);
   if (href) {
     use.setAttribute("href", href);
     icon.append(use);
@@ -238,6 +230,7 @@ function createOverlay(options = {}) {
     showEffects: options.showEffects === true,
   };
 
+  scanGameSpriteSources({ force: true });
   ensureStyles(documentRef);
 
   function rebuildNameIndex() {
@@ -283,9 +276,7 @@ function createOverlay(options = {}) {
 
   function renderNameBadges() {
     if (!state.showBadges) return;
-    const nameElements = documentRef.querySelectorAll(
-      '[class*="CharacterName_name"][data-name]',
-    );
+    const nameElements = documentRef.querySelectorAll(CHARACTER_NAME_SELECTOR);
     for (const nameElement of nameElements) {
       const host = nameElement.parentElement;
       if (!host) continue;
@@ -487,7 +478,45 @@ function createOverlay(options = {}) {
       ),
     );
   }
-  const observer = new Observer(() => scheduleRefresh());
+  const ownedSelector = `[${BADGE_CONTAINER_ATTRIBUTE}],[${RATE_HEADER_ATTRIBUTE}],[${RATE_CELL_ATTRIBUTE}]`;
+  const mutationNeedsRefresh = (record) => {
+    const target =
+      record.target?.nodeType === 1
+        ? record.target
+        : record.target?.parentElement;
+    if (record.type === "attributes") {
+      return Boolean(target?.matches?.(CHARACTER_NAME_SELECTOR));
+    }
+    const changedNodes = [
+      ...(record.addedNodes ?? []),
+      ...(record.removedNodes ?? []),
+    ].filter((node) => node?.nodeType === 1);
+    if (
+      changedNodes.length &&
+      changedNodes.every(
+        (node) =>
+          node.matches?.(ownedSelector) || node.closest?.(ownedSelector),
+      )
+    ) {
+      return false;
+    }
+    if (
+      target?.matches?.(CHARACTER_NAME_SELECTOR) ||
+      target?.closest?.(LEADERBOARD_TABLE_SELECTOR)
+    ) {
+      return true;
+    }
+    return changedNodes.some(
+      (node) =>
+        node.matches?.(CHARACTER_NAME_SELECTOR) ||
+        node.querySelector?.(CHARACTER_NAME_SELECTOR) ||
+        node.matches?.(LEADERBOARD_TABLE_SELECTOR) ||
+        node.querySelector?.(LEADERBOARD_TABLE_SELECTOR),
+    );
+  };
+  const observer = new Observer((records) => {
+    if (records.some(mutationNeedsRefresh)) scheduleRefresh();
+  });
   const observe = () => {
     if (state.destroyed || !documentRef.documentElement) return;
     observer.observe(documentRef.documentElement, {
@@ -557,6 +586,7 @@ function createOverlay(options = {}) {
 function create(options = {}) {
   let instance = null;
   let destroyed = false;
+  const managedByFeature = options.managedByFeature === true;
   let rankings = null;
   let leaderboard = null;
   let display = {
@@ -572,7 +602,7 @@ function create(options = {}) {
   );
 
   const mount = () => {
-    if (destroyed || instance || !featureEnabled) return;
+    if (destroyed || instance || (managedByFeature && !featureEnabled)) return;
     instance = createOverlay({
       ...options,
       showBadges: display.badges,
@@ -637,7 +667,7 @@ function create(options = {}) {
       },
     },
     _mount: { value: mount },
-    _unmount: { value: unmount },
+    _unmount: { value: managedByFeature ? unmount : () => {} },
   });
   controllers.add(controller);
   mount();
@@ -858,6 +888,7 @@ function integratedDisplay() {
 function startIntegratedService() {
   const initialDisplay = integratedDisplay();
   const controller = create({
+    managedByFeature: true,
     showBadges: initialDisplay.badges,
     showRates: initialDisplay.rates,
   });

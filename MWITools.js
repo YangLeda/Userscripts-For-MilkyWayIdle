@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWITools
 // @namespace    http://tampermonkey.net/
-// @version      26.4.16
+// @version      26.4.17
 // @updateURL    https://update.greasyfork.org/scripts/494467/MWITools.meta.js
 // @downloadURL  https://update.greasyfork.org/scripts/494467/MWITools.user.js
 // @description  Tools for MilkyWayIdle. Includes a feedback center, action projections, market insights, asset history, DPS/HPS statistics, inventory tools, tasks, and guild utilities.
@@ -15860,7 +15860,7 @@ ${preview}`
   });
 
   // src/features/leaderboard-overlay.js
-  var OVERLAY_VERSION = "1.4.0";
+  var OVERLAY_VERSION = "1.4.1";
   var LEADERBOARD_API_URL = "https://mwi-guild.43.167.210.211.sslip.io/api/v1/leaderboards";
   var LEADERBOARD_CACHE_KEY = "MWITools_leaderboard_overlay_cache_v3";
   var LEGACY_LEADERBOARD_CACHE_KEY = "MWITools_leaderboard_overlay_cache_v2";
@@ -15871,6 +15871,7 @@ ${preview}`
   var RATE_HEADER_ATTRIBUTE = "data-mwi-leaderboard-rate-header";
   var RATE_CELL_ATTRIBUTE = "data-mwi-leaderboard-rate-cell";
   var LEADERBOARD_TABLE_SELECTOR = 'table[class*="LeaderboardPanel_leaderboardTable"]';
+  var CHARACTER_NAME_SELECTOR = '[class*="CharacterName_name"][data-name]';
   var DEFAULT_CATEGORIES = [
     ["total_level", { zh: "总等级", en: "Total Level" }],
     ["milking", { zh: "挤奶", en: "Milking" }],
@@ -16008,14 +16009,6 @@ ${preview}`
   `;
     mount.append(style);
   }
-  function nativeSpriteHref(documentRef, kind, symbol) {
-    for (const use of documentRef.querySelectorAll("use")) {
-      registerGameSpriteSource(
-        use.getAttribute("href") ?? use.getAttribute("xlink:href")
-      );
-    }
-    return getGameSpriteHref(kind, symbol);
-  }
   function createBadgeIcon(documentRef, category, customIconBaseUrl = "") {
     const miscSymbol = MISC_CATEGORY_SYMBOLS[category];
     if (customIconBaseUrl && !miscSymbol) {
@@ -16033,7 +16026,7 @@ ${preview}`
     icon.setAttribute("viewBox", "0 0 40 40");
     icon.setAttribute("aria-hidden", "true");
     const use = documentRef.createElementNS("http://www.w3.org/2000/svg", "use");
-    const href = nativeSpriteHref(documentRef, spriteKind, symbol);
+    const href = getGameSpriteHref(spriteKind, symbol);
     if (href) {
       use.setAttribute("href", href);
       icon.append(use);
@@ -16064,6 +16057,7 @@ ${preview}`
       showRates: options.showRates !== false,
       showEffects: options.showEffects === true
     };
+    scanGameSpriteSources({ force: true });
     ensureStyles(documentRef);
     function rebuildNameIndex() {
       const index = /* @__PURE__ */ new Map();
@@ -16101,9 +16095,7 @@ ${preview}`
     }
     function renderNameBadges() {
       if (!state.showBadges) return;
-      const nameElements = documentRef.querySelectorAll(
-        '[class*="CharacterName_name"][data-name]'
-      );
+      const nameElements = documentRef.querySelectorAll(CHARACTER_NAME_SELECTOR);
       for (const nameElement of nameElements) {
         const host = nameElement.parentElement;
         if (!host) continue;
@@ -16253,7 +16245,31 @@ ${preview}`
         )
       );
     }
-    const observer = new Observer(() => scheduleRefresh());
+    const ownedSelector = `[${BADGE_CONTAINER_ATTRIBUTE}],[${RATE_HEADER_ATTRIBUTE}],[${RATE_CELL_ATTRIBUTE}]`;
+    const mutationNeedsRefresh = (record) => {
+      const target = record.target?.nodeType === 1 ? record.target : record.target?.parentElement;
+      if (record.type === "attributes") {
+        return Boolean(target?.matches?.(CHARACTER_NAME_SELECTOR));
+      }
+      const changedNodes = [
+        ...record.addedNodes ?? [],
+        ...record.removedNodes ?? []
+      ].filter((node) => node?.nodeType === 1);
+      if (changedNodes.length && changedNodes.every(
+        (node) => node.matches?.(ownedSelector) || node.closest?.(ownedSelector)
+      )) {
+        return false;
+      }
+      if (target?.matches?.(CHARACTER_NAME_SELECTOR) || target?.closest?.(LEADERBOARD_TABLE_SELECTOR)) {
+        return true;
+      }
+      return changedNodes.some(
+        (node) => node.matches?.(CHARACTER_NAME_SELECTOR) || node.querySelector?.(CHARACTER_NAME_SELECTOR) || node.matches?.(LEADERBOARD_TABLE_SELECTOR) || node.querySelector?.(LEADERBOARD_TABLE_SELECTOR)
+      );
+    };
+    const observer = new Observer((records) => {
+      if (records.some(mutationNeedsRefresh)) scheduleRefresh();
+    });
     const observe = () => {
       if (state.destroyed || !documentRef.documentElement) return;
       observer.observe(documentRef.documentElement, {
@@ -16321,6 +16337,7 @@ ${preview}`
   function create(options = {}) {
     let instance = null;
     let destroyed = false;
+    const managedByFeature = options.managedByFeature === true;
     let rankings = null;
     let leaderboard = null;
     let display = {
@@ -16332,7 +16349,7 @@ ${preview}`
       (Array.isArray(options.categories) && options.categories.length ? options.categories : DEFAULT_CATEGORIES).map(([category]) => category)
     );
     const mount = () => {
-      if (destroyed || instance || !featureEnabled) return;
+      if (destroyed || instance || managedByFeature && !featureEnabled) return;
       instance = createOverlay({
         ...options,
         showBadges: display.badges,
@@ -16391,7 +16408,8 @@ ${preview}`
         }
       },
       _mount: { value: mount },
-      _unmount: { value: unmount }
+      _unmount: { value: managedByFeature ? unmount : () => {
+      } }
     });
     controllers.add(controller);
     mount();
@@ -16572,6 +16590,7 @@ ${preview}`
   function startIntegratedService() {
     const initialDisplay = integratedDisplay();
     const controller = create({
+      managedByFeature: true,
       showBadges: initialDisplay.badges,
       showRates: initialDisplay.rates
     });
@@ -27653,6 +27672,16 @@ ${locks}` : ""}`;
       if (row.card.style.order !== value) row.card.style.order = value;
     }
   }
+  function restoreKnownCardOrders(cards) {
+    for (const card of cards) {
+      const slot = Number(card.dataset.mwitoolsOriginalIndex);
+      if (!Number.isInteger(slot)) continue;
+      const order = pageOrderBySlot.get(slot);
+      if (!Number.isFinite(order)) continue;
+      const value = String(order);
+      if (card.style.order !== value) card.style.order = value;
+    }
+  }
   function renderFlatTaskList(rows2, { sort = false } = {}) {
     if (!taskListParent) return;
     cleanupListDecorations({ restoreOrder: false });
@@ -28238,6 +28267,7 @@ ${locks}` : ""}`;
       }
       taskListParent = observedParent;
     }
+    restoreKnownCardOrders(cards);
     cards = cards.filter(
       (card) => card.parentElement === taskListParent && isQuestTaskCard(card)
     );
@@ -28254,7 +28284,10 @@ ${locks}` : ""}`;
       taskRemaining,
       allowReusedPositional
     });
-    if (cardEntries.some((entry) => !entry.resolved)) return false;
+    if (cardEntries.some((entry) => !entry.resolved)) {
+      restoreKnownCardOrders(cards);
+      return false;
+    }
     const cardTasks = cardEntries.map(({ task }) => task);
     assignStablePageSlots(cards, cardTasks);
     finalizeStickyResetSlots(cards, cardTasks);
@@ -29638,6 +29671,25 @@ ${locks}` : ""}`;
   // src/features/opinion-center/announcements.js
   var STORAGE_KEY = "MWITools_opinion_center_seen_announcements_v1";
   var ANNOUNCEMENTS = Object.freeze([
+    Object.freeze({
+      id: "26.4.17",
+      version: "26.4.17",
+      publishedAt: "2026-08-28",
+      title: Object.freeze({
+        zh: "26.4.17 更新公告",
+        en: "Version 26.4.17 update"
+      }),
+      body: Object.freeze({
+        zh: Object.freeze([
+          "修复放弃任务进入二次确认、取消确认或真正删除期间任务卡片顺序跳动的问题；即使游戏暂时移除标题、进度和内联顺序，MWITools 也会按已保存的卡槽保持当前排列。",
+          "优化排行榜名次徽章刷新：徽章统一复用游戏资源注册表，不再为每个徽章扫描全页 SVG；页面观察器只响应角色名、资料区和排行榜表格变化，忽略动画、进度与自身徽章写入，减少部分玩家遇到的卡顿。"
+        ]),
+        en: Object.freeze([
+          "Fixed task cards jumping when an abandon confirmation opens, is cancelled, or completes. Even while the game temporarily removes the title, progress, and inline order, MWITools now preserves the current arrangement from its saved card slots.",
+          "Optimized leaderboard badge refreshes. Badges now reuse the shared game-asset registry instead of scanning every SVG for every badge, and the page observer responds only to character names, profile areas, and leaderboard tables while ignoring animations, progress updates, and its own badge writes."
+        ])
+      })
+    }),
     Object.freeze({
       id: "26.4.16",
       version: "26.4.16",
@@ -36346,7 +36398,7 @@ ${locks}` : ""}`;
     return value?.[runtime.config.isZH ? "zh" : "en"] ?? value?.en ?? "";
   }
   function currentVersion() {
-    return String(globalThis.GM_info?.script?.version ?? "26.4.16");
+    return String(globalThis.GM_info?.script?.version ?? "26.4.17");
   }
   function isTestBuild() {
     const info = globalThis.GM_info?.script;

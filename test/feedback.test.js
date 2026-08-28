@@ -394,20 +394,22 @@ test("the shared Ctrl tooltip announcement is red, bold, and underlined", () => 
   scope.cleanup();
 });
 
-test("announcement history preserves each release separately through 26.4.16", () => {
-  const release16 = ANNOUNCEMENTS[0];
-  const release15 = ANNOUNCEMENTS[1];
-  const latest = ANNOUNCEMENTS[2];
-  const newest = ANNOUNCEMENTS[3];
-  const current = ANNOUNCEMENTS[4];
-  const previous = ANNOUNCEMENTS[5];
-  const prior = ANNOUNCEMENTS[6];
-  const older = ANNOUNCEMENTS[7];
-  const oldest = ANNOUNCEMENTS[8];
-  const earliest = ANNOUNCEMENTS[9];
+test("announcement history preserves each release separately through 26.4.17", () => {
+  const release17 = ANNOUNCEMENTS[0];
+  const release16 = ANNOUNCEMENTS[1];
+  const release15 = ANNOUNCEMENTS[2];
+  const latest = ANNOUNCEMENTS[3];
+  const newest = ANNOUNCEMENTS[4];
+  const current = ANNOUNCEMENTS[5];
+  const previous = ANNOUNCEMENTS[6];
+  const prior = ANNOUNCEMENTS[7];
+  const older = ANNOUNCEMENTS[8];
+  const oldest = ANNOUNCEMENTS[9];
+  const earliest = ANNOUNCEMENTS[10];
   assert.deepEqual(
     ANNOUNCEMENTS.map(({ version }) => version),
     [
+      "26.4.17",
       "26.4.16",
       "26.4.15",
       "26.4.14",
@@ -419,6 +421,14 @@ test("announcement history preserves each release separately through 26.4.16", (
       "26.4.7",
       "26.4.6",
     ],
+  );
+  assert.equal(release17.version, "26.4.17");
+  assert.equal(release17.publishedAt, "2026-08-28");
+  assert.equal(release17.body.zh.length, release17.body.en.length);
+  assert.equal(release17.body.zh.length, 2);
+  assert.match(
+    release17.body.zh.join("\n"),
+    /放弃任务.*二次确认.*卡片顺序[\s\S]*游戏资源注册表.*扫描全页 SVG.*动画.*自身徽章写入.*卡顿/,
   );
   assert.equal(release16.version, "26.4.16");
   assert.equal(release16.publishedAt, "2026-08-20");

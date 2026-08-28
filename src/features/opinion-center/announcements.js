@@ -2,6 +2,25 @@ const STORAGE_KEY = "MWITools_opinion_center_seen_announcements_v1";
 
 export const ANNOUNCEMENTS = Object.freeze([
   Object.freeze({
+    id: "26.4.17",
+    version: "26.4.17",
+    publishedAt: "2026-08-28",
+    title: Object.freeze({
+      zh: "26.4.17 更新公告",
+      en: "Version 26.4.17 update",
+    }),
+    body: Object.freeze({
+      zh: Object.freeze([
+        "修复放弃任务进入二次确认、取消确认或真正删除期间任务卡片顺序跳动的问题；即使游戏暂时移除标题、进度和内联顺序，MWITools 也会按已保存的卡槽保持当前排列。",
+        "优化排行榜名次徽章刷新：徽章统一复用游戏资源注册表，不再为每个徽章扫描全页 SVG；页面观察器只响应角色名、资料区和排行榜表格变化，忽略动画、进度与自身徽章写入，减少部分玩家遇到的卡顿。",
+      ]),
+      en: Object.freeze([
+        "Fixed task cards jumping when an abandon confirmation opens, is cancelled, or completes. Even while the game temporarily removes the title, progress, and inline order, MWITools now preserves the current arrangement from its saved card slots.",
+        "Optimized leaderboard badge refreshes. Badges now reuse the shared game-asset registry instead of scanning every SVG for every badge, and the page observer responds only to character names, profile areas, and leaderboard tables while ignoring animations, progress updates, and its own badge writes.",
+      ]),
+    }),
+  }),
+  Object.freeze({
     id: "26.4.16",
     version: "26.4.16",
     publishedAt: "2026-08-20",
