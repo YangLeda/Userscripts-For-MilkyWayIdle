@@ -29994,7 +29994,7 @@ ${locks}` : ""}`;
           "任务卡的地牢标识已从怪物背景拆到右上角独立小图标，并新增默认开启的从属设置；任务刷新会在服务端任务 ID、标题与进度稳定后再替换图标，点击牛铃或金币确认后即使支付选项仍展开也会立即解除过渡保护，避免第一次仍显示旧图。",
           "库存资产继续按角色与环境冻结快照；普通消息在同版本摘要已挂载时不再排队计算、扫描分类或重建 DOM，原生库存重建只挂回缓存。总资产“炫耀”已移到“刷新价值”旁边。",
           "生产升级配方会在原生“升级自”区域直接显示与材料行一致的“缺/余”徽章，不再把升级底材信息单独放在面板底部。购物车设置只同步现有控件，不再因后台消息重建整个页面；安全余量下拉菜单也提高了文字对比度。",
-          "公会成员表只保留可排序的 24 小时 XP/h 与相对速率条，并继续由“成员经验速率”设置独立控制；成员表在宽屏下不再无限拉伸，表头、成员信息、状态、XP 数字与速率条使用稳定列宽并整齐对齐；公会总览趋势和排行榜不受影响。",
+          "公会成员表只保留可排序的 24 小时 XP/h 与相对速率条，并继续由“成员经验速率”设置独立控制；成员表已进一步收紧宽度，移除成员、职务、活动与状态之间的大块空白，表头、XP 数字和速率条保持整齐对齐；公会总览趋势和排行榜不受影响。",
           "修复放弃任务进入二次确认、取消确认或真正删除期间任务卡片顺序跳动的问题；即使游戏暂时移除标题、进度和内联顺序，MWITools 也会按已保存的卡槽保持当前排列。",
           "优化排行榜名次徽章刷新、布局与发光性能：公会成员徽章改为紧跟姓名右侧，不再另占一行；徽章统一复用游戏资源注册表，不再为每个徽章扫描全页 SVG；发光效果改用不触发布局的合成位移并按徽章错峰播放；页面观察器只响应角色名、资料区和排行榜表格变化，忽略动画、进度与自身徽章写入，减少徽章较多时的降速和卡顿。",
           "总资产与各分项的“炫耀”文案已全部换成 2024–2026 高热网络梗；中英文上涨、下跌和持平分别使用不同梗主题，总资产与分项也采用不同改编，减少正负翻面和重复句式，同时保留对比周期、金额、比例与当前价值。",
@@ -30006,7 +30006,7 @@ ${locks}` : ""}`;
           "Dungeon markers are now separate compact badges in the task card's top-right, with a new default-on child setting. Rerolled artwork waits for the server task ID, title, and progress to settle, and confirming either payment option now releases the transition guard immediately even while the choices remain open, preventing the previous icon from surviving the first refresh.",
           "Inventory assets remain frozen per character and environment. Ordinary messages no longer queue calculations, scan categories, or rebuild DOM when the same summary version is already mounted; replaced native inventory nodes only remount cached results. The total-asset Flex button now sits beside Refresh values.",
           "Production upgrade recipes now place a matching Need/Spare badge directly in the native Upgrade from area instead of showing the upgrade-item status separately at the bottom. Shopping-cart settings synchronize existing controls instead of rebuilding the page on background messages, and safety-margin menu options now have readable contrast.",
-          "Guild member tables now keep only the sortable 24-hour XP/h column and relative bar, still controlled independently by Member XP rates. The member table no longer stretches indefinitely on wide screens, and its headers, member details, status, XP values, and rate bars now use stable, aligned columns. Guild overview trends and leaderboard rates are unchanged.",
+          "Guild member tables now keep only the sortable 24-hour XP/h column and relative bar, still controlled independently by Member XP rates. The member table is now more compact, removing large gaps between member, role, activity, and status while keeping headers, XP values, and rate bars neatly aligned. Guild overview trends and leaderboard rates are unchanged.",
           "Fixed task cards jumping when an abandon confirmation opens, is cancelled, or completes. Even while the game temporarily removes the title, progress, and inline order, MWITools now preserves the current arrangement from its saved card slots.",
           "Optimized leaderboard badge refreshes, layout, and glow performance. Guild-member badges now sit immediately after the name instead of taking a separate row. Badges reuse the shared game-asset registry instead of scanning every SVG, glow effects use layout-free composited movement with staggered phases, and the page observer responds only to character names, profile areas, and leaderboard tables while ignoring animations, progress updates, and its own badge writes. This prevents slow, stuttering effects on badge-heavy pages.",
           "Every total-asset and component Flex message now uses a high-recognition 2024–2026 internet meme. Chinese and English rise, fall, and flat pools use distinct meme themes, and total versus component messages use different adaptations to avoid mirrored or repetitive lines while preserving the comparison period, amount, percentage, and current value.",
@@ -31714,19 +31714,25 @@ ${locks}` : ""}`;
     .mwi-guild-trend polyline { fill:none; stroke:#ffa500; stroke-width:2; vector-effect:non-scaling-stroke; }
     .mwi-guild-idle { display:flex; flex-wrap:wrap; gap:5px; align-items:center; margin-top:8px; }
     .mwi-guild-idle span { padding:2px 7px; border-radius:999px; background:rgba(255,255,255,.07); font-size:.68rem; }
-    .mwi-guild-members-wide { width:min(100%,1120px) !important; max-width:1120px !important; min-width:0 !important; margin-inline:auto; }
-    .mwi-guild-member-table-wrap { width:100%; max-width:100%; overflow-x:auto; overscroll-behavior-x:contain; }
-    .mwi-guild-members-wide .mwi-guild-member-table { width:100% !important; min-width:760px !important; table-layout:fixed !important; }
+    .mwi-guild-members-wide { width:min(100%,860px) !important; max-width:860px !important; min-width:0 !important; margin-inline:0 auto; }
+    .mwi-guild-member-table-wrap { width:min(100%,860px); max-width:860px; margin-inline:0 auto; overflow-x:auto; overscroll-behavior-x:contain; }
+    .mwi-guild-member-table-wrap .mwi-guild-member-table { width:100% !important; min-width:720px !important; table-layout:fixed !important; }
     .mwi-guild-member-table > thead > tr > th,
     .mwi-guild-member-table > tbody > tr > td { box-sizing:border-box; vertical-align:middle; }
     .mwi-guild-member-table > thead > tr > th { white-space:nowrap; word-break:keep-all; }
     .mwi-guild-member-table > tbody > tr > td:not(:first-child) { white-space:nowrap; word-break:keep-all; }
     .mwi-guild-member-table > thead > tr > th:first-child,
-    .mwi-guild-member-table > tbody > tr > td:first-child { width:46%; text-align:left; }
+    .mwi-guild-member-table > tbody > tr > td:first-child { text-align:left; }
+    .mwi-guild-member-table > thead > tr > th:nth-child(2),
+    .mwi-guild-member-table > tbody > tr > td:nth-child(2) { width:90px; }
+    .mwi-guild-member-table > thead > tr > th:nth-child(3),
+    .mwi-guild-member-table > tbody > tr > td:nth-child(3) { width:84px; }
+    .mwi-guild-member-table > thead > tr > th:nth-child(4),
+    .mwi-guild-member-table > tbody > tr > td:nth-child(4) { width:100px; }
     .mwi-guild-member-table > thead > tr > th:not(:first-child):not(.mwi-guild-day-head),
     .mwi-guild-member-table > tbody > tr > td:not(:first-child):not(.mwi-guild-rate-cell) { text-align:center; }
     .mwi-guild-member-table .mwi-guild-day-head,
-    .mwi-guild-member-table .mwi-guild-rate-cell { width:198px; min-width:198px; text-align:center; }
+    .mwi-guild-member-table .mwi-guild-rate-cell { width:190px; min-width:190px; text-align:center; }
     .mwi-guild-rate-cell { color:#ffa500; white-space:nowrap; }
     .mwi-guild-rate-content { display:grid; grid-template-columns:86px 72px; align-items:center; justify-content:center; gap:8px; }
     .mwi-guild-rate-value { min-width:0; text-align:right; font-variant-numeric:tabular-nums; }
@@ -31990,7 +31996,7 @@ ${locks}` : ""}`;
     if (!table?.tHead?.rows?.[0] || !rows2.length) return;
     table.classList.add(`mwi-guild-${kind}-table`);
     if (kind === "member") {
-      table.closest('[class*="GuildPanel_membersTab__"]')?.classList.add("mwi-guild-members-wide");
+      table.closest('[class*="GuildPanel_membersTab"]')?.classList.add("mwi-guild-members-wide");
       table.parentElement?.classList.add("mwi-guild-member-table-wrap");
     }
     const header = table.tHead.rows[0];

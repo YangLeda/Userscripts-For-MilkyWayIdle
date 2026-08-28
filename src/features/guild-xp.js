@@ -281,19 +281,25 @@ function addStyles() {
     .mwi-guild-trend polyline { fill:none; stroke:#ffa500; stroke-width:2; vector-effect:non-scaling-stroke; }
     .mwi-guild-idle { display:flex; flex-wrap:wrap; gap:5px; align-items:center; margin-top:8px; }
     .mwi-guild-idle span { padding:2px 7px; border-radius:999px; background:rgba(255,255,255,.07); font-size:.68rem; }
-    .mwi-guild-members-wide { width:min(100%,1120px) !important; max-width:1120px !important; min-width:0 !important; margin-inline:auto; }
-    .mwi-guild-member-table-wrap { width:100%; max-width:100%; overflow-x:auto; overscroll-behavior-x:contain; }
-    .mwi-guild-members-wide .mwi-guild-member-table { width:100% !important; min-width:760px !important; table-layout:fixed !important; }
+    .mwi-guild-members-wide { width:min(100%,860px) !important; max-width:860px !important; min-width:0 !important; margin-inline:0 auto; }
+    .mwi-guild-member-table-wrap { width:min(100%,860px); max-width:860px; margin-inline:0 auto; overflow-x:auto; overscroll-behavior-x:contain; }
+    .mwi-guild-member-table-wrap .mwi-guild-member-table { width:100% !important; min-width:720px !important; table-layout:fixed !important; }
     .mwi-guild-member-table > thead > tr > th,
     .mwi-guild-member-table > tbody > tr > td { box-sizing:border-box; vertical-align:middle; }
     .mwi-guild-member-table > thead > tr > th { white-space:nowrap; word-break:keep-all; }
     .mwi-guild-member-table > tbody > tr > td:not(:first-child) { white-space:nowrap; word-break:keep-all; }
     .mwi-guild-member-table > thead > tr > th:first-child,
-    .mwi-guild-member-table > tbody > tr > td:first-child { width:46%; text-align:left; }
+    .mwi-guild-member-table > tbody > tr > td:first-child { text-align:left; }
+    .mwi-guild-member-table > thead > tr > th:nth-child(2),
+    .mwi-guild-member-table > tbody > tr > td:nth-child(2) { width:90px; }
+    .mwi-guild-member-table > thead > tr > th:nth-child(3),
+    .mwi-guild-member-table > tbody > tr > td:nth-child(3) { width:84px; }
+    .mwi-guild-member-table > thead > tr > th:nth-child(4),
+    .mwi-guild-member-table > tbody > tr > td:nth-child(4) { width:100px; }
     .mwi-guild-member-table > thead > tr > th:not(:first-child):not(.mwi-guild-day-head),
     .mwi-guild-member-table > tbody > tr > td:not(:first-child):not(.mwi-guild-rate-cell) { text-align:center; }
     .mwi-guild-member-table .mwi-guild-day-head,
-    .mwi-guild-member-table .mwi-guild-rate-cell { width:198px; min-width:198px; text-align:center; }
+    .mwi-guild-member-table .mwi-guild-rate-cell { width:190px; min-width:190px; text-align:center; }
     .mwi-guild-rate-cell { color:#ffa500; white-space:nowrap; }
     .mwi-guild-rate-content { display:grid; grid-template-columns:86px 72px; align-items:center; justify-content:center; gap:8px; }
     .mwi-guild-rate-value { min-width:0; text-align:right; font-variant-numeric:tabular-nums; }
@@ -617,7 +623,7 @@ function appendRateColumns(table, rows, kind, parentId = "") {
   table.classList.add(`mwi-guild-${kind}-table`);
   if (kind === "member") {
     table
-      .closest('[class*="GuildPanel_membersTab__"]')
+      .closest('[class*="GuildPanel_membersTab"]')
       ?.classList.add("mwi-guild-members-wide");
     table.parentElement?.classList.add("mwi-guild-member-table-wrap");
   }

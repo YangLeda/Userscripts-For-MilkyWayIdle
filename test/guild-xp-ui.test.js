@@ -225,7 +225,7 @@ test("weekly guild experience is normalized to this-week XP per hour", () => {
 test("guild XP columns draw relative bars and sort in both directions", async () => {
   document.body.innerHTML = `
     <div class="GuildPanel_guildPanel__test">
-      <div class="GuildPanel_membersTab__test">
+      <div class="GuildPanel_membersTab-test">
         <table>
           <thead><tr><th>成员</th></tr></thead>
           <tbody><tr><td>Alice</td></tr><tr><td>Bob</td></tr><tr><td>Charlie</td></tr></tbody>
@@ -276,10 +276,10 @@ test("guild XP columns draw relative bars and sort in both directions", async ()
   await runtime.api.sampleGuildState(false);
   runtime.api.renderGuildTables();
 
-  const table = document.querySelector(".GuildPanel_membersTab__test table");
+  const table = document.querySelector(".GuildPanel_membersTab-test table");
   assert.ok(
     document
-      .querySelector(".GuildPanel_membersTab__test")
+      .querySelector(".GuildPanel_membersTab-test")
       .classList.contains("mwi-guild-members-wide"),
   );
   assert.ok(
@@ -289,11 +289,11 @@ test("guild XP columns draw relative bars and sort in both directions", async ()
   assert.ok(guildStyles, "guild XP styles should be mounted");
   assert.match(
     guildStyles.textContent,
-    /\.mwi-guild-members-wide\s*\{[^}]*width:min\(100%,1120px\)[^}]*max-width:1120px/s,
+    /\.mwi-guild-members-wide\s*\{[^}]*width:min\(100%,860px\)[^}]*max-width:860px/s,
   );
   assert.match(
     guildStyles.textContent,
-    /\.mwi-guild-members-wide \.mwi-guild-member-table\s*\{[^}]*width:100%[^}]*min-width:760px[^}]*table-layout:fixed/s,
+    /\.mwi-guild-member-table-wrap \.mwi-guild-member-table\s*\{[^}]*width:100%[^}]*min-width:720px[^}]*table-layout:fixed/s,
   );
   assert.match(
     guildStyles.textContent,
