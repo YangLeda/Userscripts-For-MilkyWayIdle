@@ -1,11 +1,11 @@
 import { runtime } from "../core/runtime.js";
 import {
   getGameSpriteHref,
-  registerGameSpriteSource,
+  scanGameSpriteSources,
 } from "../core/game-assets.js";
 import { localize } from "../core/localization.js";
 
-const OVERLAY_VERSION = "1.4.0";
+const OVERLAY_VERSION = "1.4.1";
 const LEADERBOARD_API_URL =
   "https://mwi-guild.43.167.210.211.sslip.io/api/v1/leaderboards";
 const LEADERBOARD_CACHE_KEY = "MWITools_leaderboard_overlay_cache_v3";
@@ -18,6 +18,7 @@ const RATE_HEADER_ATTRIBUTE = "data-mwi-leaderboard-rate-header";
 const RATE_CELL_ATTRIBUTE = "data-mwi-leaderboard-rate-cell";
 const LEADERBOARD_TABLE_SELECTOR =
   'table[class*="LeaderboardPanel_leaderboardTable"]';
+const CHARACTER_NAME_SELECTOR = '[class*="CharacterName_name"][data-name]';
 const DEFAULT_CATEGORIES = [
   ["total_level", { zh: "总等级", en: "Total Level" }],
   ["milking", { zh: "挤奶", en: "Milking" }],
@@ -155,15 +156,15 @@ function ensureStyles(documentRef) {
   style.textContent = `
     [${BADGE_CONTAINER_ATTRIBUTE}]{display:inline-flex;align-items:center;flex-wrap:wrap;gap:2px;margin-inline-start:4px;vertical-align:middle}
     [${BADGE_CONTAINER_ATTRIBUTE}][data-mwi-leaderboard-placement="profile"]{display:flex;flex-basis:100%;width:100%;margin-block-start:4px;margin-inline-start:0}
-    [${BADGE_CONTAINER_ATTRIBUTE}][data-mwi-leaderboard-placement="list"]{display:flex;width:100%;justify-content:center;margin-block-start:2px;margin-inline-start:0}
+    [${BADGE_CONTAINER_ATTRIBUTE}][data-mwi-leaderboard-placement="guild"]{display:inline-flex;width:auto;flex-wrap:nowrap;margin-block-start:0;margin-inline-start:4px}
     .mwi-lb-badge{box-sizing:border-box;display:inline-flex;align-items:center;gap:1px;height:15px;min-height:15px;padding:0 3px 0 1px;border:1px solid;border-radius:999px;background:rgba(12,16,28,.78);color:#eef2ff;font:600 9px/1 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;white-space:nowrap;box-shadow:0 1px 2px rgba(0,0,0,.24);vertical-align:middle}
     .mwi-lb-badge-icon{display:block;flex:none;width:11px;height:11px;object-fit:contain}
     .mwi-lb-badge--rainbow{border-color:transparent;color:#f8fbff;background:linear-gradient(rgba(12,16,28,.9),rgba(12,16,28,.9)) padding-box,linear-gradient(105deg,#ff5f6d,#ffd166,#67e8a5,#5cb8ff,#c77dff,#ff6ec7) border-box;box-shadow:0 0 7px rgba(121,190,255,.48),0 0 3px rgba(255,103,199,.34),inset 0 0 3px rgba(255,255,255,.14)}
-    .mwi-lb-badge--top-five{position:relative;overflow:hidden;isolation:isolate}
-    .mwi-lb-badge--top-five::before{content:"";position:absolute;z-index:2;inset:-35% auto -35% -70%;width:42%;pointer-events:none;background:linear-gradient(105deg,transparent 0%,rgba(255,255,255,.04) 24%,rgba(255,255,255,.92) 50%,rgba(255,255,255,.08) 76%,transparent 100%);filter:blur(.35px);transform:skewX(-18deg);opacity:0;animation:mwi-lb-badge-light-sweep 5s ease-in-out infinite}
-    .mwi-lb-badge--top-five::after{content:"";position:absolute;z-index:3;top:-1px;right:-1px;width:8px;height:8px;border-radius:50%;pointer-events:none;background:radial-gradient(circle at 70% 25%,rgba(255,255,255,1) 0%,rgba(255,255,255,.88) 12%,rgba(174,225,255,.42) 36%,transparent 72%);filter:blur(.25px);opacity:0;animation:mwi-lb-badge-corner-glint 5s ease-in-out infinite}
-    @keyframes mwi-lb-badge-light-sweep{0%{left:-70%;opacity:0}3%{opacity:.28}18%{left:128%;opacity:.96}20%,100%{left:128%;opacity:0}}
-    @keyframes mwi-lb-badge-corner-glint{0%,20%,40%,100%{opacity:0;transform:scale(.45)}30%{opacity:1;transform:scale(1.15)}}
+    .mwi-lb-badge--top-five{position:relative;overflow:hidden;isolation:isolate;contain:paint}
+    .mwi-lb-badge--top-five::before{content:"";position:absolute;z-index:2;inset:-35% auto -35% -70%;width:42%;pointer-events:none;background:linear-gradient(105deg,transparent 0%,rgba(255,255,255,.04) 24%,rgba(255,255,255,.92) 50%,rgba(255,255,255,.08) 76%,transparent 100%);transform:translate3d(0,0,0) skewX(-18deg);opacity:0;animation:mwi-lb-badge-light-sweep 5s ease-in-out var(--mwi-lb-effect-delay,0s) infinite}
+    .mwi-lb-badge--top-five::after{content:"";position:absolute;z-index:3;top:-1px;right:-1px;width:8px;height:8px;border-radius:50%;pointer-events:none;background:radial-gradient(circle at 70% 25%,rgba(255,255,255,1) 0%,rgba(255,255,255,.88) 12%,rgba(174,225,255,.42) 36%,transparent 72%);opacity:0;animation:mwi-lb-badge-corner-glint 5s ease-in-out var(--mwi-lb-effect-delay,0s) infinite}
+    @keyframes mwi-lb-badge-light-sweep{0%{transform:translate3d(0,0,0) skewX(-18deg);opacity:0}3%{opacity:.28}18%{transform:translate3d(470%,0,0) skewX(-18deg);opacity:.96}20%,100%{transform:translate3d(470%,0,0) skewX(-18deg);opacity:0}}
+    @keyframes mwi-lb-badge-corner-glint{0%,20%,40%,100%{opacity:0;transform:translateZ(0) scale(.45)}30%{opacity:1;transform:translateZ(0) scale(1.15)}}
     @media (prefers-reduced-motion:reduce){.mwi-lb-badge--top-five::before,.mwi-lb-badge--top-five::after{animation:none;opacity:0}}
     .mwi-lb-badge--gold{border-color:#d9aa38;color:#ffe8a3;box-shadow:0 0 5px rgba(217,170,56,.24)}
     .mwi-lb-badge--silver{border-color:#d8dee9;color:#f8fafc;box-shadow:0 0 4px rgba(226,232,240,.24)}
@@ -172,15 +173,6 @@ function ensureStyles(documentRef) {
     [${RATE_CELL_ATTRIBUTE}]{font-variant-numeric:tabular-nums;white-space:nowrap}
   `;
   mount.append(style);
-}
-
-function nativeSpriteHref(documentRef, kind, symbol) {
-  for (const use of documentRef.querySelectorAll("use")) {
-    registerGameSpriteSource(
-      use.getAttribute("href") ?? use.getAttribute("xlink:href"),
-    );
-  }
-  return getGameSpriteHref(kind, symbol);
 }
 
 function createBadgeIcon(documentRef, category, customIconBaseUrl = "") {
@@ -201,7 +193,7 @@ function createBadgeIcon(documentRef, category, customIconBaseUrl = "") {
   icon.setAttribute("viewBox", "0 0 40 40");
   icon.setAttribute("aria-hidden", "true");
   const use = documentRef.createElementNS("http://www.w3.org/2000/svg", "use");
-  const href = nativeSpriteHref(documentRef, spriteKind, symbol);
+  const href = getGameSpriteHref(spriteKind, symbol);
   if (href) {
     use.setAttribute("href", href);
     icon.append(use);
@@ -238,6 +230,7 @@ function createOverlay(options = {}) {
     showEffects: options.showEffects === true,
   };
 
+  scanGameSpriteSources({ force: true });
   ensureStyles(documentRef);
 
   function rebuildNameIndex() {
@@ -283,10 +276,8 @@ function createOverlay(options = {}) {
 
   function renderNameBadges() {
     if (!state.showBadges) return;
-    const nameElements = documentRef.querySelectorAll(
-      '[class*="CharacterName_name"][data-name]',
-    );
-    for (const nameElement of nameElements) {
+    const nameElements = documentRef.querySelectorAll(CHARACTER_NAME_SELECTOR);
+    for (const [nameIndex, nameElement] of [...nameElements].entries()) {
       const host = nameElement.parentElement;
       if (!host) continue;
       if (nameElement.closest('[class*="Header_characterInfo"]')) {
@@ -313,13 +304,13 @@ function createOverlay(options = {}) {
         '[class*="SettingsPanel_nameColor"]',
       );
       const profileFallbackMount = profileRoot ? host.parentElement : null;
-      const badgeMount =
-        profileNameBlock || profileFallbackMount || guildNameBlock || host;
+      const badgeMount = profileNameBlock || profileFallbackMount || host;
       let container =
         badgeMount.querySelector(`:scope > [${BADGE_CONTAINER_ATTRIBUTE}]`) ||
         (badgeMount === host
           ? null
           : host.querySelector(`:scope > [${BADGE_CONTAINER_ATTRIBUTE}]`)) ||
+        guildNameBlock?.querySelector(`[${BADGE_CONTAINER_ATTRIBUTE}]`) ||
         friendNameBlock?.querySelector(`[${BADGE_CONTAINER_ATTRIBUTE}]`);
       if (nameElement.closest('[class*="LeaderboardPanel_"]')) {
         container?.remove();
@@ -335,12 +326,12 @@ function createOverlay(options = {}) {
         container?.remove();
         continue;
       }
-      const listPlacement = Boolean(guildNameBlock);
+      const guildPlacement = Boolean(guildNameBlock);
       const friendPlacement = Boolean(friendNameBlock);
       const placement = profilePlacement
         ? "profile"
-        : listPlacement
-          ? "list"
+        : guildPlacement
+          ? "guild"
           : friendPlacement
             ? "friend"
             : settingsNameColor
@@ -367,9 +358,13 @@ function createOverlay(options = {}) {
         ) {
           profileName.insertAdjacentElement("afterend", container);
         }
-      } else if (listPlacement) {
-        if (container.parentElement !== badgeMount)
-          badgeMount.append(container);
+      } else if (guildPlacement) {
+        if (
+          container.parentElement !== host ||
+          container.previousElementSibling !== nameElement
+        ) {
+          nameElement.insertAdjacentElement("afterend", container);
+        }
       } else if (friendPlacement) {
         if (container.parentElement !== host) host.append(container);
       } else if (!container.isConnected || previousPlacement === "profile") {
@@ -378,9 +373,16 @@ function createOverlay(options = {}) {
       if (container.dataset.mwiLeaderboardSignature === signature) continue;
       container.dataset.mwiLeaderboardSignature = signature;
       container.replaceChildren(
-        ...visibleBadges.map((item) => {
+        ...visibleBadges.map((item, badgeIndex) => {
           const badge = documentRef.createElement("span");
-          badge.className = `mwi-lb-badge mwi-lb-badge--${item.tier}${state.showEffects && item.rank <= 5 ? " mwi-lb-badge--top-five" : ""}`;
+          const animated = state.showEffects && item.rank <= 5;
+          badge.className = `mwi-lb-badge mwi-lb-badge--${item.tier}${animated ? " mwi-lb-badge--top-five" : ""}`;
+          if (animated) {
+            badge.style.setProperty(
+              "--mwi-lb-effect-delay",
+              `${-((nameIndex + badgeIndex) % 5)}s`,
+            );
+          }
           const icon = createBadgeIcon(documentRef, item.category, iconBaseUrl);
           badge.append(icon, documentRef.createTextNode(String(item.rank)));
           const label = categoryLabel(item.label, item.category);
@@ -487,7 +489,45 @@ function createOverlay(options = {}) {
       ),
     );
   }
-  const observer = new Observer(() => scheduleRefresh());
+  const ownedSelector = `[${BADGE_CONTAINER_ATTRIBUTE}],[${RATE_HEADER_ATTRIBUTE}],[${RATE_CELL_ATTRIBUTE}]`;
+  const mutationNeedsRefresh = (record) => {
+    const target =
+      record.target?.nodeType === 1
+        ? record.target
+        : record.target?.parentElement;
+    if (record.type === "attributes") {
+      return Boolean(target?.matches?.(CHARACTER_NAME_SELECTOR));
+    }
+    const changedNodes = [
+      ...(record.addedNodes ?? []),
+      ...(record.removedNodes ?? []),
+    ].filter((node) => node?.nodeType === 1);
+    if (
+      changedNodes.length &&
+      changedNodes.every(
+        (node) =>
+          node.matches?.(ownedSelector) || node.closest?.(ownedSelector),
+      )
+    ) {
+      return false;
+    }
+    if (
+      target?.matches?.(CHARACTER_NAME_SELECTOR) ||
+      target?.closest?.(LEADERBOARD_TABLE_SELECTOR)
+    ) {
+      return true;
+    }
+    return changedNodes.some(
+      (node) =>
+        node.matches?.(CHARACTER_NAME_SELECTOR) ||
+        node.querySelector?.(CHARACTER_NAME_SELECTOR) ||
+        node.matches?.(LEADERBOARD_TABLE_SELECTOR) ||
+        node.querySelector?.(LEADERBOARD_TABLE_SELECTOR),
+    );
+  };
+  const observer = new Observer((records) => {
+    if (records.some(mutationNeedsRefresh)) scheduleRefresh();
+  });
   const observe = () => {
     if (state.destroyed || !documentRef.documentElement) return;
     observer.observe(documentRef.documentElement, {
@@ -557,6 +597,7 @@ function createOverlay(options = {}) {
 function create(options = {}) {
   let instance = null;
   let destroyed = false;
+  const managedByFeature = options.managedByFeature === true;
   let rankings = null;
   let leaderboard = null;
   let display = {
@@ -572,7 +613,7 @@ function create(options = {}) {
   );
 
   const mount = () => {
-    if (destroyed || instance || !featureEnabled) return;
+    if (destroyed || instance || (managedByFeature && !featureEnabled)) return;
     instance = createOverlay({
       ...options,
       showBadges: display.badges,
@@ -637,7 +678,7 @@ function create(options = {}) {
       },
     },
     _mount: { value: mount },
-    _unmount: { value: unmount },
+    _unmount: { value: managedByFeature ? unmount : () => {} },
   });
   controllers.add(controller);
   mount();
@@ -858,6 +899,7 @@ function integratedDisplay() {
 function startIntegratedService() {
   const initialDisplay = integratedDisplay();
   const controller = create({
+    managedByFeature: true,
     showBadges: initialDisplay.badges,
     showRates: initialDisplay.rates,
   });

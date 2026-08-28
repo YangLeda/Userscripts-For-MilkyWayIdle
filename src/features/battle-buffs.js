@@ -118,16 +118,19 @@ function ensureBuffStyles(scope) {
   style.textContent = `
 	.mwi-has-buffbar{height:auto!important;min-height:0;overflow:visible!important}
 	.mwi-buff-shell{width:100%;height:21px;box-sizing:border-box;margin-top:4px}
-	.mwi-buffbar{position:relative;width:100%;height:21px;box-sizing:border-box;overflow:hidden}
+	.mwi-buffbar{position:relative;width:100%;height:21px;box-sizing:border-box;overflow:hidden;cursor:default}
+	.mwi-buffbar[data-side="players"]{cursor:pointer}
 	.mwi-buff-track{width:100%;height:21px;display:flex;align-items:center}
 	.mwi-buff-sequence{width:100%;height:21px;display:flex;flex:none;gap:4px;align-items:center;justify-content:center}
+	.mwi-buff-metric{width:100%;height:21px;display:flex;align-items:center;justify-content:center;gap:5px;border-radius:3px;background:rgba(0,0,0,.34);font:700 11px/1 "Trebuchet MS",Verdana,Arial,sans-serif;font-variant-numeric:tabular-nums;text-shadow:0 1px 2px #000}
+	.mwi-buff-metric[data-mode="dps"]{color:#ff9b84}
+	.mwi-buff-metric[data-mode="hps"]{color:#78e09a}
 	.mwi-buffbar[data-scrolling="true"] .mwi-buff-track{width:max-content;animation:mwi-buff-marquee var(--mwi-marquee-duration,8s) linear infinite;will-change:transform}
 	.mwi-buffbar[data-scrolling="true"] .mwi-buff-sequence{width:max-content;justify-content:flex-start}
 	.mwi-chip{font:11px/1.2 "Trebuchet MS", Verdana, Arial, sans-serif;padding:2px 6px;border-radius:10px;white-space:nowrap;display:inline-flex;align-items:center;gap:4px;position:relative}
-.mwi-icon-wrap{position:relative;width:15px;height:15px;display:inline-block}
+.mwi-icon-wrap{position:relative;width:18px;height:18px;display:inline-block;flex:0 0 18px}
 .mwi-icon{width:15px;height:15px;display:block}
-.mwi-progress-ring{position:absolute;inset:-3px;border-radius:14px;pointer-events:none;mask:linear-gradient(#000 0 0);-webkit-mask:linear-gradient(#000 0 0)}
-.mwi-progress-ring::before{content:"";position:absolute;inset:0;border-radius:inherit;padding:3px;background:conic-gradient(var(--mwi-ring-color) 0deg var(--mwi-ring-deg), transparent var(--mwi-ring-deg) 360deg);-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude}
+.mwi-countdown{position:absolute;inset:0;display:grid;place-items:center;pointer-events:none;color:#fff;font:700 8px/1 Arial,sans-serif;letter-spacing:-.35px;text-shadow:0 1px 2px #000,0 0 2px #000;background:rgba(0,0,0,.28);border-radius:3px;font-variant-numeric:tabular-nums}
 	.mwi-buff{background:#e7f4e4;color:#1e4d1a;border:1px solid #7fbf7a}
 	.mwi-debuff{background:#fbe3e3;color:#6b1a1a;border:1px solid #d17b7b}
 	@keyframes mwi-buff-marquee{to{transform:translate3d(calc(-1 * var(--mwi-marquee-distance,0px)),0,0)}}
@@ -142,7 +145,7 @@ function ensureBuffStyles(scope) {
  * units. All mutable state lives inside this closure so the feature can be
  * cleanly enabled and disabled at runtime.
  */
-function createBuffTracker(scope) {
+function createBuffTracker(scope, requestTick = () => {}) {
   const UNIT_STATE = new WeakMap();
   const BATTLE_STATE = { players: new Map(), monsters: new Map() };
   const PENDING_BUFFS = [];
@@ -165,7 +168,17 @@ function createBuffTracker(scope) {
     };
   }
 
-  function ensureBuffBar(unitEl) {
+  function ensureBuffBar(unitEl, side = "", unitIndex = -1) {
+    const state = getState(unitEl);
+    if (side) {
+      state.side = side;
+      state.unitIndex = unitIndex;
+      if (side === "players") {
+        const knownName = BATTLE_STATE.players.get(String(unitIndex))?.name;
+        state.playerName =
+          knownName || state.playerName || readUnitName(unitEl);
+      }
+    }
     let shell = unitEl.querySelector(".mwi-buff-shell");
     let bar = shell?.querySelector(".mwi-buffbar");
     if (!shell || !bar) {
@@ -173,6 +186,20 @@ function createBuffTracker(scope) {
       shell.className = "mwi-buff-shell";
       bar = document.createElement("div");
       bar.className = "mwi-buffbar";
+      bar.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (state.side !== "players" || runtime.api.dps?.enabled !== true)
+          return;
+        state.displayMode =
+          state.displayMode === "buffs"
+            ? "dps"
+            : state.displayMode === "dps"
+              ? "hps"
+              : "buffs";
+        renderUnit(unitEl);
+        requestTick();
+      });
       shell.append(bar);
       // Nest the fixed single-row viewport inside the unit's status column so
       // it stays in flow and never overlaps neighbouring units.
@@ -181,13 +208,15 @@ function createBuffTracker(scope) {
       statusHost.classList.add("mwi-has-buffbar");
       statusHost.appendChild(shell);
     }
+    bar.dataset.side = state.side;
+    updateBarTitle(bar, state);
     return bar;
   }
 
   function ensureBattleBuffBars(units = getBattleUnits()) {
-    for (const unitList of Object.values(units)) {
-      unitList.forEach((unitEl) => {
-        if (unitEl) ensureBuffBar(unitEl);
+    for (const [side, unitList] of Object.entries(units)) {
+      unitList.forEach((unitEl, unitIndex) => {
+        if (unitEl) ensureBuffBar(unitEl, side, unitIndex);
       });
     }
     return units;
@@ -196,7 +225,13 @@ function createBuffTracker(scope) {
   function getState(unitEl) {
     let state = UNIT_STATE.get(unitEl);
     if (!state) {
-      state = { effects: new Map() };
+      state = {
+        effects: new Map(),
+        displayMode: "buffs",
+        side: "",
+        unitIndex: -1,
+        playerName: "",
+      };
       UNIT_STATE.set(unitEl, state);
     }
     return state;
@@ -234,6 +269,10 @@ function createBuffTracker(scope) {
         state.cHP = entry.currentHitpoints;
       if (typeof entry.currentManapoints === "number")
         state.cMP = entry.currentManapoints;
+      const name = String(
+        entry.name ?? entry.playerName ?? entry.characterName ?? "",
+      ).trim();
+      if (name) state.name = name;
       stateMap.set(String(i), state);
     }
   }
@@ -243,7 +282,10 @@ function createBuffTracker(scope) {
     for (const unitEl of units) {
       if (!unitEl) continue;
       const state = UNIT_STATE.get(unitEl);
-      if (state) state.effects.clear();
+      if (state) {
+        state.effects.clear();
+        state.renderSignature = "";
+      }
       const bar = unitEl.querySelector(".mwi-buffbar");
       if (bar) {
         bar.replaceChildren();
@@ -253,6 +295,7 @@ function createBuffTracker(scope) {
   }
 
   function resetForNewBattle() {
+    BATTLE_STATE.players.clear();
     BATTLE_STATE.monsters.clear();
     PENDING_BUFFS.length = 0;
     PENDING_DEBUFFS.length = 0;
@@ -260,10 +303,16 @@ function createBuffTracker(scope) {
 
   function handleNewBattle(signal) {
     resetForNewBattle();
-    ensureBattleBuffBars();
-    clearMonsterBuffs();
     seedStateFromCombatant(signal.players, BATTLE_STATE.players);
     seedStateFromCombatant(signal.monsters, BATTLE_STATE.monsters);
+    const units = ensureBattleBuffBars();
+    for (const unitEl of [...units.players, ...units.monsters]) {
+      const state = getState(unitEl);
+      state.displayMode = "buffs";
+      state.renderSignature = "";
+      renderUnit(unitEl);
+    }
+    clearMonsterBuffs();
   }
 
   function mergeState(stateMap, patchMap, mapName) {
@@ -507,13 +556,10 @@ function createBuffTracker(scope) {
     } else {
       iconWrap.textContent = "?";
     }
-    const ring = document.createElement("span");
-    ring.className = "mwi-progress-ring";
-    ring.style.setProperty(
-      "--mwi-ring-color",
-      effect.kind === "buff" ? "rgba(60,140,60,0.7)" : "rgba(180,60,60,0.7)",
-    );
-    chip.append(iconWrap, ring);
+    const countdown = document.createElement("span");
+    countdown.className = "mwi-countdown";
+    iconWrap.append(countdown);
+    chip.append(iconWrap);
     return chip;
   }
 
@@ -560,27 +606,102 @@ function createBuffTracker(scope) {
     updateMarqueeMetrics(bar, entries.length);
   }
 
-  function updateCountdownRings(bar, entries, now) {
-    for (const effect of entries) {
-      const total = Math.max(1, effect.durationSec);
-      const elapsed = Math.max(
-        0,
-        Math.min(total, (now - effect.startedAt) / 1000),
-      );
-      const degrees = Math.min(1, Math.max(0, elapsed / total)) * 360;
-      const key = effectKey(effect.kind, effect.abilityHrid);
-      for (const chip of bar.querySelectorAll(".mwi-chip")) {
-        if (chip.dataset.effectKey !== key) continue;
-        chip
-          .querySelector(".mwi-progress-ring")
-          ?.style.setProperty("--mwi-ring-deg", `${degrees}deg`);
-      }
+  function formatRemainingTime(effect, now) {
+    const seconds = Math.max(0, Math.ceil((effect.expiresAt - now) / 1000));
+    return seconds > 60 ? `${Math.ceil(seconds / 60)}m` : String(seconds);
+  }
+
+  function updateCountdownLabels(bar, entries, now) {
+    const effectsByKey = new Map(
+      entries.map((effect) => [
+        effectKey(effect.kind, effect.abilityHrid),
+        effect,
+      ]),
+    );
+    for (const chip of bar.querySelectorAll(".mwi-chip")) {
+      const effect = effectsByKey.get(chip.dataset.effectKey);
+      if (!effect) continue;
+      const label = chip.querySelector(".mwi-countdown");
+      if (!label) continue;
+      const remaining = formatRemainingTime(effect, now);
+      if (label.textContent !== remaining) label.textContent = remaining;
+      label.title = runtime.config.isZH
+        ? `剩余 ${remaining}`
+        : `${remaining} remaining`;
     }
+  }
+
+  function readUnitName(unitEl) {
+    return String(
+      unitEl?.querySelector('[class*="CombatUnit_name"]')?.textContent ?? "",
+    ).trim();
+  }
+
+  function formatCombatRate(value) {
+    const number = Number(value) || 0;
+    const absolute = Math.abs(number);
+    if (absolute >= 1_000_000) return `${(number / 1_000_000).toFixed(1)}M`;
+    if (absolute >= 1_000) return `${(number / 1_000).toFixed(1)}K`;
+    return number.toFixed(1);
+  }
+
+  function updateBarTitle(bar, state) {
+    if (state.side !== "players") {
+      bar.title = runtime.config.isZH
+        ? "Buff / Debuff 状态"
+        : "Buff / Debuff status";
+      return;
+    }
+    if (runtime.api.dps?.enabled !== true) {
+      bar.title = runtime.config.isZH
+        ? "DPS 统计未启用"
+        : "DPS tracking is disabled";
+      return;
+    }
+    const nextLabel =
+      state.displayMode === "buffs"
+        ? "DPS"
+        : state.displayMode === "dps"
+          ? "HPS"
+          : runtime.config.isZH
+            ? "Buff"
+            : "Buffs";
+    bar.title = runtime.config.isZH
+      ? `点击在本栏显示 ${nextLabel}`
+      : `Click to show ${nextLabel} in this bar`;
+  }
+
+  function renderMetric(bar, state) {
+    const mode = state.displayMode;
+    const playerName =
+      state.playerName ||
+      readUnitName(bar.closest('[class*="CombatUnit_combatUnit"]'));
+    if (playerName) state.playerName = playerName;
+    const getter =
+      mode === "dps"
+        ? runtime.api.dps?.getPlayerDps
+        : runtime.api.dps?.getPlayerHps;
+    const value = typeof getter === "function" ? getter(playerName) : 0;
+    const text = `${mode.toUpperCase()} ${formatCombatRate(value)}`;
+    const signature = `metric:${mode}:${text}`;
+    if (state.renderSignature !== signature) {
+      const metric = document.createElement("div");
+      metric.className = "mwi-buff-metric";
+      metric.dataset.mode = mode;
+      metric.textContent = text;
+      bar.replaceChildren(metric);
+      state.renderSignature = signature;
+    }
+    bar.dataset.displayMode = mode;
+    delete bar.dataset.scrolling;
+    bar.style.removeProperty("--mwi-marquee-distance");
+    bar.style.removeProperty("--mwi-marquee-duration");
+    updateBarTitle(bar, state);
   }
 
   function renderUnit(unitEl) {
     const state = getState(unitEl);
-    const bar = ensureBuffBar(unitEl);
+    const bar = ensureBuffBar(unitEl, state.side, state.unitIndex);
     const now = Date.now();
     const entries = Array.from(state.effects.values())
       .filter((effect) => effect.expiresAt > now)
@@ -591,16 +712,29 @@ function createBuffTracker(scope) {
         effect,
       ]),
     );
+    if (
+      state.displayMode !== "buffs" &&
+      (state.side !== "players" || runtime.api.dps?.enabled !== true)
+    ) {
+      state.displayMode = "buffs";
+    }
+    if (state.displayMode !== "buffs") {
+      renderMetric(bar, state);
+      return;
+    }
     const signature = entries
       .map((effect) => effectKey(effect.kind, effect.abilityHrid))
       .join("\u001e");
-    if (state.renderSignature !== signature) {
+    const buffSignature = `buffs:${signature}`;
+    if (state.renderSignature !== buffSignature) {
       rebuildEffectTrack(bar, entries);
-      state.renderSignature = signature;
+      state.renderSignature = buffSignature;
     } else {
       updateMarqueeMetrics(bar, entries.length);
     }
-    updateCountdownRings(bar, entries, now);
+    delete bar.dataset.displayMode;
+    updateBarTitle(bar, state);
+    updateCountdownLabels(bar, entries, now);
   }
 
   function updateUnitEffect(
@@ -759,7 +893,8 @@ function createBuffTracker(scope) {
     for (const unitEl of [...units.players, ...units.monsters]) {
       if (!UNIT_STATE.has(unitEl)) continue;
       renderUnit(unitEl);
-      if (UNIT_STATE.get(unitEl)?.effects?.size) active = true;
+      const state = UNIT_STATE.get(unitEl);
+      if (state?.effects?.size || state?.displayMode !== "buffs") active = true;
     }
     return active;
   }
@@ -767,11 +902,15 @@ function createBuffTracker(scope) {
   function hasActiveEffects() {
     const now = Date.now();
     const units = getBattleUnits();
-    return [...units.players, ...units.monsters].some((unitEl) =>
-      [...(UNIT_STATE.get(unitEl)?.effects?.values?.() ?? [])].some(
-        (effect) => effect.expiresAt > now,
-      ),
-    );
+    return [...units.players, ...units.monsters].some((unitEl) => {
+      const state = UNIT_STATE.get(unitEl);
+      return (
+        state?.displayMode !== "buffs" ||
+        [...(state?.effects?.values?.() ?? [])].some(
+          (effect) => effect.expiresAt > now,
+        )
+      );
+    });
   }
 
   function removeAllBuffBars() {
@@ -802,7 +941,8 @@ runtime.features.register({
   id: "battleBuffs",
   setting: "battleBuffs",
   initialize({ scope }) {
-    const tracker = createBuffTracker(scope);
+    let ensureCountdown = () => {};
+    const tracker = createBuffTracker(scope, () => ensureCountdown());
     ensureBuffStyles(scope);
     tracker.mountBuffBars();
     let countdownTimer = null;
@@ -812,7 +952,7 @@ runtime.features.register({
         countdownTimer = setTimeout(tick, 1000);
       }
     };
-    const ensureCountdown = () => {
+    ensureCountdown = () => {
       if (countdownTimer === null && tracker.hasActiveEffects()) {
         countdownTimer = setTimeout(tick, 1000);
       }

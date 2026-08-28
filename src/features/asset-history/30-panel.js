@@ -66,125 +66,138 @@ export function buildAssetShareMessage(
   const signedAmount = formatNumber(change, true);
   const signedPercent = `${percent > 0 ? "+" : ""}${percent.toFixed(2)}%`;
   const zhProfitTemplates = [
-    () => `📈 ${period}资产战报：赚了 ${amount}，总资产增长 ${percentText}。`,
-    () => `${period}的奶牛账本飘绿：进账 ${amount}，身家上涨 ${percentText}。`,
-    () => `汇报一下${period}战果：盈利 ${amount}，资产增加 ${percentText}。`,
-    () => `${period}收工报数：净赚 ${amount}，总资产提升 ${percentText}。`,
-    () => `财富成绩单更新：赚到 ${amount}，资产涨幅 ${percentText}。`,
+    () => `📈 ${period}资产含金量还在上升：+${amount}，涨幅 +${percentText}。`,
+    () => `来财，来：${period}进账 ${amount}，总资产 +${percentText}。`,
+    () => `${period}收益 +${amount}，助我破鼎；资产再涨 ${percentText}。`,
+    () => `千百次练习只为这一刻：${period} +${amount}，资产 +${percentText}。`,
+    () => `敬今天的自己一杯：${period}赚了 ${amount}，身家 +${percentText}。`,
+    () => `${period}就这么水灵灵地赚了 ${amount}，资产 +${percentText}。`,
+    () => `${period}财富曲线直接硬控全场：+${amount}，资产 +${percentText}。`,
     () =>
-      `牛棚财报新鲜出炉：${period}盈利 ${amount}，身家增长 ${percentText}。`,
-    () => `${period}搬砖结算：收入 ${amount}，资产上涨 ${percentText}。`,
-    () => `小小炫耀一下：${period}赚了 ${amount}，总资产 +${percentText}。`,
-    () => `账本一翻，${period}多了 ${amount}，身家涨了 ${percentText}。`,
-    () => `🚀 财富进度向前：+${amount}，涨幅 +${percentText}。`,
+      `不知道，我的资产很曼妙：${period} +${amount}，身家 +${percentText}。`,
     () =>
-      `挤奶之余看了眼资产：${period}进账 ${amount}，总计增长 ${percentText}。`,
-    () => `MWITools 资产盘点：${period}盈利 +${amount}，变化 +${percentText}。`,
+      `资产敢这么涨，胆子真是肥嘟嘟的啊：${period} +${amount}，+${percentText}。`,
+    () =>
+      `来杯好茶摇一摇，余额跟着往上飘：${period} +${amount}，+${percentText}。`,
+    () => `中式 DNA 动了，先存钱：${period} +${amount}，资产 +${percentText}。`,
+    () =>
+      `这收益，大人真乃神人也：${period} +${amount}，资产 +${percentText}。`,
   ];
   const zhLossTemplates = [
-    () => `📉 ${period}资产战报：亏了 ${amount}，总资产缩水 ${percentText}。`,
-    () => `${period}的奶牛账本飘红：损失 ${amount}，身家下降 ${percentText}。`,
-    () => `汇报一下${period}战况：亏损 ${amount}，资产减少 ${percentText}。`,
-    () => `${period}收工报数：净亏 ${amount}，总资产回落 ${percentText}。`,
-    () => `财富成绩单更新：少了 ${amount}，资产跌幅 ${percentText}。`,
-    () => `牛棚财报有点红：${period}亏损 ${amount}，身家缩水 ${percentText}。`,
-    () => `${period}搬砖结算：支出 ${amount}，资产下降 ${percentText}。`,
-    () => `今天不炫耀了：${period}亏了 ${amount}，总资产 -${percentText}。`,
-    () => `账本一翻，${period}少了 ${amount}，身家跌了 ${percentText}。`,
-    () => `🩹 财富进度回撤：−${amount}，跌幅 −${percentText}。`,
+    () => `📉 这跌幅我要验牌：${period} -${amount}，资产 -${percentText}。`,
+    () => `余额进入奥德赛时期：${period} -${amount}，资产 -${percentText}。`,
     () =>
-      `挤奶之余看了眼资产：${period}损失 ${amount}，总计下降 ${percentText}。`,
-    () => `MWITools 资产盘点：${period}亏损 −${amount}，变化 −${percentText}。`,
+      `财富肉体还在线，精神已经下班：${period} -${amount}，-${percentText}。`,
+    () => `这次我绷住了：${period}亏 ${amount}，资产 -${percentText}。`,
+    () => `账本像个草台班子：${period} -${amount}，身家 -${percentText}。`,
+    () => `一下亏出班味：${period} -${amount}，资产 -${percentText}。`,
+    () => `钱走得很有偷感：${period}少了 ${amount}，资产 -${percentText}。`,
+    () => `浪浪山小妖怪下山填坑：${period}亏 ${amount}，资产 -${percentText}。`,
+    () => `富婆哦？不讲不讲，${period}刚亏 ${amount}，身家 -${percentText}。`,
+    () => `参考文献：${period}亏损 ${amount}，资产变化 -${percentText}。`,
+    () =>
+      `低山臭水遇至阴，账户一路向下：${period} -${amount}，-${percentText}。`,
+    () =>
+      `野生狗奶保质期永久，我的余额不是：${period} -${amount}，-${percentText}。`,
   ];
   const enProfitTemplates = [
     () =>
-      `📈 Asset report: ${period} I gained ${amount}; total assets are up ${percentText}.`,
+      `📈 POV: the balance finally popped off — ${period}, +${amount} and assets up ${percentText}.`,
+    () => `Big W for the balance: ${period}, +${amount} and +${percentText}.`,
     () =>
-      `${period}'s cow ledger is green: +${amount}, net worth up ${percentText}.`,
+      `The portfolio understood the assignment: ${period}, +${amount} and +${percentText}.`,
     () =>
-      `The grind paid off: ${period} I made ${amount}, growing assets by ${percentText}.`,
+      `The grind ate and left no crumbs: ${period}, +${amount} and +${percentText}.`,
     () =>
-      `Closing the books ${period}: profit ${amount}, total wealth up ${percentText}.`,
+      `Aura farming paid off: ${period} earned ${amount}, net worth up ${percentText}.`,
     () =>
-      `My wealth scorecard: +${amount}, with a ${percentText} gain ${period.toLowerCase()}.`,
+      `Locked in, ledger edition: ${period}, +${amount}; assets up ${percentText}.`,
     () =>
-      `Fresh from the cowshed: ${period} brought ${amount}, net worth up ${percentText}.`,
+      `The rent was due and the portfolio delivered: ${period}, +${amount} and +${percentText}.`,
     () =>
-      `Tiny flex: I earned ${amount} ${period.toLowerCase()}, assets +${percentText}.`,
+      `Let the portfolio cook: ${period}, +${amount}; assets up ${percentText}.`,
     () =>
-      `Checked the books: ${period} added ${amount} to the pile, up ${percentText}.`,
+      `Main-character balance energy: ${period}, +${amount} and +${percentText}.`,
     () =>
-      `🚀 Wealth progress unlocked: +${amount} (+${percentText}) ${period.toLowerCase()}.`,
+      `In my compounding era: ${period}, +${amount}; assets up ${percentText}.`,
     () =>
-      `Milk money report: ${period} profit ${amount}, portfolio growth ${percentText}.`,
-    () =>
-      `A green day in the galaxy: +${amount}, total assets climbed ${percentText}.`,
-    () =>
-      `MWITools flex: ${period} P/L +${amount}, asset change +${percentText}.`,
+      `Chef's kiss for this balance: ${period}, +${amount} and +${percentText}.`,
+    () => `We love to see it: ${period}, +${amount}; assets up ${percentText}.`,
   ];
   const enLossTemplates = [
     () =>
-      `📉 Asset report: ${period} I lost ${amount}; total assets are down ${percentText}.`,
+      `📉 Financial canon event: ${period}, -${amount} and assets down ${percentText}.`,
+    () => `The portfolio is cooked: ${period}, -${amount} and -${percentText}.`,
+    () => `The math is not mathing: ${period}, -${amount} and -${percentText}.`,
     () =>
-      `${period}'s cow ledger took a hit: -${amount}, net worth down ${percentText}.`,
+      `Caught the balance slipping in 4K: ${period}, -${amount} and -${percentText}.`,
+    () => `Portfolio skill issue: ${period}, -${amount}; down ${percentText}.`,
     () =>
-      `Rough shift: ${period} cost me ${amount}, and assets slipped ${percentText}.`,
+      `Villain-origin-story numbers: ${period}, -${amount}; net worth down ${percentText}.`,
     () =>
-      `Closing the books ${period}: loss ${amount}, total wealth down ${percentText}.`,
+      `Plot twist nobody ordered: ${period} lost ${amount}, down ${percentText}.`,
     () =>
-      `My wealth scorecard: -${amount}, with a ${percentText} drop ${period.toLowerCase()}.`,
+      `That side quest had microtransactions: ${period}, -${amount} and -${percentText}.`,
     () =>
-      `The cowshed report is red: ${period} lost ${amount}, net worth down ${percentText}.`,
+      `Critical aura loss: ${period}, -${amount}; net worth down ${percentText}.`,
     () =>
-      `Painful little update: I dropped ${amount}, and assets fell ${percentText}.`,
+      `Entering the crash-out arc: ${period}, -${amount} and -${percentText}.`,
     () =>
-      `Checked the books twice: ${period} erased ${amount}, down ${percentText}.`,
+      `Task failed successfully: ${period}, -${amount}; assets down ${percentText}.`,
     () =>
-      `🩹 Wealth progress setback: -${amount} (-${percentText}) ${period.toLowerCase()}.`,
-    () =>
-      `Spilled milk report: ${period} loss ${amount}, portfolio down ${percentText}.`,
-    () =>
-      `A red day in the galaxy: -${amount}, total assets fell ${percentText}.`,
-    () =>
-      `MWITools reality check: ${period} P/L -${amount}, asset change -${percentText}.`,
+      `Chat, is this real? ${period} dropped ${amount}, down ${percentText}.`,
   ];
   const neutralTemplates = runtime.config.isZH
     ? [
-        () => `${period}资产持平：盈亏 0，变化 ${signedPercent}。`,
-        () => `${period}的奶牛账本没动：资产变化 0（${signedPercent}）。`,
-        () => `财富成绩单：${period}盈亏 0，涨跌 ${signedPercent}。`,
-        () => `收工报数：${period}资产不增不减，变化 ${signedPercent}。`,
-        () => `账本平静：${period}盈亏 0，资产变化 ${signedPercent}。`,
-        () => `牛棚财报：${period}资产持平，盈亏 0（${signedPercent}）。`,
-        () => `${period}搬砖结算：收入支出相抵，变化 ${signedPercent}。`,
-        () => `今天低调一下：${period}盈亏 0，资产持平 ${signedPercent}。`,
-        () => `账本一翻：${period}没有盈亏，变化 ${signedPercent}。`,
-        () => `➖ 财富进度原地踏步：${signedAmount}（${signedPercent}）。`,
-        () => `挤奶之余看了眼资产：${period}盈亏 0，变化 ${signedPercent}。`,
         () =>
-          `MWITools 资产盘点：${period}盈亏 ${signedAmount}，变化 ${signedPercent}。`,
+          `➖ ${period}账本松弛感拉满：${signedAmount}，变化 ${signedPercent}。`,
+        () => `${period}盈亏 ${signedAmount}，变化 ${signedPercent}，那咋了。`,
+        () =>
+          `${period}资产 ${signedAmount}，变化 ${signedPercent}；如何呢，又能怎。`,
+        () =>
+          `持平基础，稳得不基础：${period} ${signedAmount}，${signedPercent}。`,
+        () =>
+          `财富进城办事还没回来：${period}盈亏 ${signedAmount}，变化 ${signedPercent}。`,
+        () =>
+          `账本切换豆包型人格：${period} ${signedAmount}，情绪稳定在 ${signedPercent}。`,
+        () =>
+          `做完你的，做你的；资产先不做：${period} ${signedAmount}（${signedPercent}）。`,
+        () =>
+          `我们不说没动，我们可以说：${period}资产稳得很具体，${signedAmount}（${signedPercent}）。`,
+        () =>
+          `牌没有问题，资产也没动：${period} ${signedAmount}（${signedPercent}）。`,
+        () =>
+          `城巴佬第一次看资产曲线：怎么是一条直线？${period} ${signedAmount}（${signedPercent}）。`,
+        () =>
+          `数值没变，情绪价值给满：${period} ${signedAmount}，变化 ${signedPercent}。`,
+        () =>
+          `今日村咖特调：零涨跌。${period} ${signedAmount}（${signedPercent}）。`,
       ]
     : [
         () =>
-          `${period}'s asset report is flat: P/L 0, change ${signedPercent}.`,
-        () => `${period}'s cow ledger did not move: 0 P/L (${signedPercent}).`,
-        () => `Wealth scorecard: ${period} finished flat at ${signedPercent}.`,
+          `➖ Very demure, very mindful, very unchanged: ${period}, P/L ${signedAmount}, change ${signedPercent}.`,
         () =>
-          `Closing the books ${period}: no gain or loss, change ${signedPercent}.`,
-        () => `Quiet ledger: ${period} P/L 0, asset change ${signedPercent}.`,
+          `The balance entered NPC idle animation: ${period}, P/L 0 and change ${signedPercent}.`,
         () =>
-          `Cowshed report: ${period} assets stayed flat at ${signedPercent}.`,
-        () => `${period}'s grind broke even: P/L 0, change ${signedPercent}.`,
+          `Portfolio loading screen: ${period}, P/L ${signedAmount}, change ${signedPercent}.`,
         () =>
-          `Keeping it low-key: ${period} assets stayed flat at ${signedPercent}.`,
+          `No gains, no losses, just vibes: ${period}, ${signedAmount} (${signedPercent}).`,
         () =>
-          `Checked the books: ${period} had no P/L, change ${signedPercent}.`,
+          `Standing on business, literally not moving: ${period}, ${signedAmount} (${signedPercent}).`,
         () =>
-          `➖ Wealth progress held steady: ${signedAmount} (${signedPercent}).`,
+          `Zero lore progression: ${period}, P/L 0 and change ${signedPercent}.`,
         () =>
-          `Paused milking to check: ${period} P/L 0, change ${signedPercent}.`,
+          `The chart is buffering: ${period}, ${signedAmount} and ${signedPercent}.`,
         () =>
-          `MWITools asset check: ${period} P/L ${signedAmount}, change ${signedPercent}.`,
+          `The portfolio went to touch grass: ${period}, P/L 0 (${signedPercent}).`,
+        () =>
+          `Low-key the same balance: ${period}, ${signedAmount}; change ${signedPercent}.`,
+        () =>
+          `No thoughts, head empty, P/L zero: ${period}, ${signedAmount} (${signedPercent}).`,
+        () =>
+          `Not beating the flat-chart allegations: ${period}, ${signedAmount} (${signedPercent}).`,
+        () =>
+          `It's giving... absolutely no movement: ${period}, ${signedAmount} (${signedPercent}).`,
       ];
   const templates =
     change === 0
@@ -234,158 +247,157 @@ export function buildAssetComponentShareMessage(
       : "up from zero (no comparable percentage)";
   const zhProfitTemplates = [
     () =>
-      `📈 今日${component}结算：${period}上涨 ${amount}（${percentText}），当前 ${currentText}。`,
+      `📈 ${component}含金量还在上升：${period} +${amount}（${percentText}），当前 ${currentText}。`,
     () =>
-      `${component}今日收官：当前 ${currentText}，${period}多了 ${amount}，涨幅 ${percentText}。`,
+      `${component}来财，来：${period} +${amount}（${percentText}），当前 ${currentText}。`,
     () =>
-      `晒一下${component}战绩：${period}增长 ${amount} / ${percentText}，现值 ${currentText}。`,
+      `${component}助我破鼎：${period} +${amount}（${percentText}），现值 ${currentText}。`,
     () =>
-      `牛棚分项财报｜${component}：当前 ${currentText}，${period}盈利 ${amount}（${percentText}）。`,
+      `千百次练习只为这一刻，${component}${period} +${amount}（${percentText}），当前 ${currentText}。`,
     () =>
-      `今日${component}成绩单：现有 ${currentText}，${period}增加 ${amount}，提升 ${percentText}。`,
+      `敬${component}一杯：${period}赚 ${amount}（${percentText}），现值 ${currentText}。`,
     () =>
-      `${component}进度向上：${period}赚到 ${amount}，涨了 ${percentText}，目前 ${currentText}。`,
+      `${component}就这么水灵灵地涨了：${period} +${amount}（${percentText}），当前 ${currentText}。`,
     () =>
-      `MWITools ${component}盘点：当前 ${currentText}；${period} +${amount}（+${percentText}）。`,
+      `${component}直接硬控收益榜：${period} +${amount}（${percentText}），当前 ${currentText}。`,
     () =>
-      `小小炫耀${component}：${period}进账 ${amount}，增长 ${percentText}，总计 ${currentText}。`,
+      `不知道，我的${component}很曼妙：${period} +${amount}（${percentText}），现在 ${currentText}。`,
     () =>
-      `${component}账本飘绿：现值 ${currentText}，${period}上涨 ${amount}，比例 ${percentText}。`,
+      `${component}敢这么涨，胆子真是肥嘟嘟的啊：${period} +${amount}（${percentText}），当前 ${currentText}。`,
     () =>
-      `🚀 ${component}里程碑：当前 ${currentText}，${period}净增 ${amount}（${percentText}）。`,
+      `${component}来杯好茶摇一摇：${period} +${amount}（${percentText}），现值 ${currentText}。`,
     () =>
-      `今日分项播报：${component} ${currentText}，${period}收获 ${amount}，涨幅 ${percentText}。`,
+      `中式 DNA 看到${component}上涨就想存：${period} +${amount}（${percentText}），当前 ${currentText}。`,
     () =>
-      `挤奶之余看了眼${component}：当前 ${currentText}，${period}多出 ${amount}（${percentText}）。`,
+      `${component}这波，大人真乃神人也：${period} +${amount}（${percentText}），现值 ${currentText}。`,
   ];
   const zhLossTemplates = [
     () =>
-      `📉 今日${component}结算：${period}下跌 ${amount}（${percentText}），当前 ${currentText}。`,
+      `📉 ${component}这跌幅我要验牌：${period} -${amount}（${percentText}），当前 ${currentText}。`,
     () =>
-      `${component}今日收官：当前 ${currentText}，${period}少了 ${amount}，跌幅 ${percentText}。`,
+      `${component}进入奥德赛时期：${period} -${amount}（${percentText}），现值 ${currentText}。`,
     () =>
-      `汇报${component}战况：${period}回撤 ${amount} / ${percentText}，现值 ${currentText}。`,
+      `${component}肉体还在账户，精神已经下班：${period} -${amount}（${percentText}），当前 ${currentText}。`,
     () =>
-      `牛棚分项财报｜${component}：当前 ${currentText}，${period}亏损 ${amount}（${percentText}）。`,
+      `${component}这下不绷住也得绷住：${period} -${amount}（${percentText}），现值 ${currentText}。`,
     () =>
-      `今日${component}成绩单：现有 ${currentText}，${period}减少 ${amount}，下降 ${percentText}。`,
+      `${component}账本临时草台班子：${period} -${amount}（${percentText}），当前 ${currentText}。`,
     () =>
-      `${component}进度回落：${period}损失 ${amount}，跌了 ${percentText}，目前 ${currentText}。`,
+      `${component}一下亏出班味：${period} -${amount}（${percentText}），现在 ${currentText}。`,
     () =>
-      `MWITools ${component}盘点：当前 ${currentText}；${period} −${amount}（−${percentText}）。`,
+      `${component}的钱走得很有偷感：${period} -${amount}（${percentText}），当前 ${currentText}。`,
     () =>
-      `这次晒晒${component}回撤：${period}少了 ${amount}，下降 ${percentText}，总计 ${currentText}。`,
+      `浪浪山小妖怪下山给${component}填坑：${period} -${amount}（${percentText}），现值 ${currentText}。`,
     () =>
-      `${component}账本飘红：现值 ${currentText}，${period}下跌 ${amount}，比例 ${percentText}。`,
+      `富婆哦？不讲不讲，${component}${period} -${amount}（${percentText}），当前 ${currentText}。`,
     () =>
-      `🩹 ${component}暂时回调：当前 ${currentText}，${period}净减 ${amount}（${percentText}）。`,
+      `${component}亏损参考文献：${period} -${amount}（${percentText}），现值 ${currentText}。`,
     () =>
-      `今日分项播报：${component} ${currentText}，${period}损失 ${amount}，跌幅 ${percentText}。`,
+      `${component}低山臭水遇至阴：${period} -${amount}（${percentText}），当前 ${currentText}。`,
     () =>
-      `挤奶之余看了眼${component}：当前 ${currentText}，${period}少了 ${amount}（${percentText}）。`,
+      `野生狗奶永久，${component}余额不永久：${period} -${amount}（${percentText}），现值 ${currentText}。`,
   ];
   const zhNeutralTemplates = [
     () =>
-      `➖ 今日${component}结算：${period}持平，变化 0（0.00%），当前 ${currentText}。`,
+      `➖ ${component}松弛感拉满：${period}变化 0（0.00%），当前 ${currentText}。`,
+    () => `${component}${period}变化 0（0.00%），当前 ${currentText}，那咋了。`,
     () =>
-      `${component}今日收官：当前 ${currentText}，${period}没有变化，比例 0.00%。`,
+      `${component}${period}变化 0（0.00%），现值 ${currentText}；如何呢，又能怎。`,
     () =>
-      `晒一下${component}战绩：${period}不增不减，现值 ${currentText}，变化 0 / 0.00%。`,
+      `${component}持平基础，稳得不基础：${period} 0（0.00%），当前 ${currentText}。`,
     () =>
-      `牛棚分项财报｜${component}：当前 ${currentText}，${period}盈亏 0（0.00%）。`,
+      `${component}进城办事还没回来：${period} 0（0.00%），当前 ${currentText}。`,
     () =>
-      `今日${component}成绩单：现有 ${currentText}，${period}变化 0，涨跌 0.00%。`,
+      `${component}切换豆包型人格：${period} 0（0.00%），情绪稳定在 ${currentText}。`,
     () =>
-      `${component}进度原地踏步：${period}变化 0，比例 0.00%，目前 ${currentText}。`,
+      `做完你的，做你的；${component}先不做：${period} 0（0.00%），现值 ${currentText}。`,
     () =>
-      `MWITools ${component}盘点：当前 ${currentText}；${period} ±0（0.00%）。`,
+      `我们不说${component}没动，我们可以说：${period}稳得很具体，0（0.00%），现值 ${currentText}。`,
+    () => `${component}牌没有问题：${period} 0（0.00%），当前 ${currentText}。`,
     () =>
-      `低调晒晒${component}：${period}收支相抵，变化 0.00%，总计 ${currentText}。`,
+      `城巴佬看${component}曲线：怎么不动？${period} 0（0.00%），当前 ${currentText}。`,
     () =>
-      `${component}账本很平静：现值 ${currentText}，${period}变化 0，比例 0.00%。`,
+      `${component}数值没变，情绪价值给满：${period} 0（0.00%），现值 ${currentText}。`,
     () =>
-      `📊 ${component}保持稳定：当前 ${currentText}，${period}净变化 0（0.00%）。`,
-    () =>
-      `今日分项播报：${component} ${currentText}，${period}盈亏 0，变化 0.00%。`,
-    () =>
-      `挤奶之余看了眼${component}：当前 ${currentText}，${period}一分没变（0.00%）。`,
+      `${component}今日村咖特调：零涨跌。${period} 0（0.00%），当前 ${currentText}。`,
   ];
   const enProfitTemplates = [
     () =>
-      `📈 Today's ${component} close: ${period}, up ${amount} (${percentText}) to ${currentText}.`,
+      `📈 POV: ${component} popped off — ${period}, +${amount} (${percentText}) to ${currentText}.`,
     () =>
-      `${component} finished at ${currentText}: ${period}, it gained ${amount}, up ${percentText}.`,
+      `Big W for ${component}: ${period}, +${amount} (${percentText}); now ${currentText}.`,
     () =>
-      `${component} flex: ${period}, +${amount} / +${percentText}; current value ${currentText}.`,
+      `${component} understood the assignment: ${period}, +${amount} (${percentText}); current ${currentText}.`,
     () =>
-      `Cowshed component report — ${component}: ${currentText}, ${period}, profit ${amount} (${percentText}).`,
+      `${component} ate and left no crumbs: ${period}, +${amount} (${percentText}); current ${currentText}.`,
     () =>
-      `Today's ${component} scorecard: ${currentText}; ${period}, +${amount}, a ${percentText} rise.`,
+      `${component} is aura farming: ${period}, +${amount} (${percentText}); total ${currentText}.`,
     () =>
-      `${component} moved up: ${period}, I gained ${amount} (${percentText}); now ${currentText}.`,
+      `${component} is locked in: ${period}, +${amount} (${percentText}); current value ${currentText}.`,
     () =>
-      `MWITools ${component} check: ${currentText}; ${period}, +${amount} (+${percentText}).`,
+      `The rent was due and ${component} delivered: ${period}, +${amount} (${percentText}); now ${currentText}.`,
     () =>
-      `Tiny ${component} flex: ${period}, +${amount}, up ${percentText}, total ${currentText}.`,
+      `Let ${component} cook: ${period}, +${amount} (${percentText}); total ${currentText}.`,
     () =>
-      `${component} ledger is green: ${currentText}; ${period}, up ${amount} (${percentText}).`,
+      `${component} has main-character energy: ${period}, +${amount} (${percentText}); total ${currentText}.`,
     () =>
-      `🚀 ${component} milestone: ${currentText}; ${period}, net gain ${amount} (${percentText}).`,
+      `In my ${component} gains era: ${period}, +${amount} (${percentText}); now ${currentText}.`,
     () =>
-      `Component update: ${component} is ${currentText}; ${period}, +${amount}, up ${percentText}.`,
+      `Chef's kiss for ${component}: ${period}, +${amount} (${percentText}); current ${currentText}.`,
     () =>
-      `Checked ${component} between milkings: ${currentText}; ${period}, +${amount} (${percentText}).`,
+      `We love to see ${component} win: ${period}, +${amount} (${percentText}); now ${currentText}.`,
   ];
   const enLossTemplates = [
     () =>
-      `📉 Today's ${component} close: ${period}, down ${amount} (${percentText}) to ${currentText}.`,
+      `📉 ${component} canon event: ${period}, -${amount} (${percentText}) to ${currentText}.`,
     () =>
-      `${component} finished at ${currentText}: ${period}, it lost ${amount}, down ${percentText}.`,
+      `${component} is cooked: ${period}, -${amount} (${percentText}); now ${currentText}.`,
     () =>
-      `${component} update: ${period}, -${amount} / -${percentText}; current value ${currentText}.`,
+      `${component} math is not mathing: ${period}, -${amount} (${percentText}); current ${currentText}.`,
     () =>
-      `Cowshed component report — ${component}: ${currentText}, ${period}, loss ${amount} (${percentText}).`,
+      `${component} got caught slipping in 4K: ${period}, -${amount} (${percentText}); now ${currentText}.`,
     () =>
-      `Today's ${component} scorecard: ${currentText}; ${period}, -${amount}, a ${percentText} drop.`,
+      `${component} skill issue: ${period}, -${amount} (${percentText}); total ${currentText}.`,
     () =>
-      `${component} pulled back: ${period}, I lost ${amount} (${percentText}); now ${currentText}.`,
+      `${component} entered its villain-origin story: ${period}, -${amount} (${percentText}); now ${currentText}.`,
     () =>
-      `MWITools ${component} check: ${currentText}; ${period}, -${amount} (-${percentText}).`,
+      `${component} plot twist nobody ordered: ${period}, -${amount} (${percentText}); now ${currentText}.`,
     () =>
-      `A candid ${component} flex: ${period}, -${amount}, down ${percentText}, total ${currentText}.`,
+      `That ${component} side quest had microtransactions: ${period}, -${amount} (${percentText}); current ${currentText}.`,
     () =>
-      `${component} ledger is red: ${currentText}; ${period}, down ${amount} (${percentText}).`,
+      `${component} suffered critical aura loss: ${period}, -${amount} (${percentText}); total ${currentText}.`,
     () =>
-      `🩹 ${component} setback: ${currentText}; ${period}, net loss ${amount} (${percentText}).`,
+      `${component} entered the crash-out arc: ${period}, -${amount} (${percentText}); now ${currentText}.`,
     () =>
-      `Component update: ${component} is ${currentText}; ${period}, -${amount}, down ${percentText}.`,
+      `${component} task failed successfully: ${period}, -${amount} (${percentText}); current ${currentText}.`,
     () =>
-      `Checked ${component} between milkings: ${currentText}; ${period}, -${amount} (${percentText}).`,
+      `Chat, is this real? ${component}: ${period}, -${amount} (${percentText}); now ${currentText}.`,
   ];
   const enNeutralTemplates = [
     () =>
-      `➖ Today's ${component} close: ${period}, flat by 0 (0.00%) at ${currentText}.`,
+      `➖ Very demure, very mindful: ${component} stayed unchanged ${period}, 0 (0.00%); current ${currentText}.`,
     () =>
-      `${component} finished at ${currentText}: ${period}, no change, 0.00%.`,
+      `${component} entered NPC idle animation: ${period}, 0 (0.00%); current ${currentText}.`,
     () =>
-      `${component} flex: ${period}, neither up nor down; current ${currentText}, change 0 / 0.00%.`,
+      `${component} loading screen: ${period}, 0 (0.00%); current ${currentText}.`,
     () =>
-      `Cowshed component report — ${component}: ${currentText}, ${period}, P/L 0 (0.00%).`,
+      `${component}: no gains, no losses, just vibes ${period}, 0 (0.00%); current ${currentText}.`,
     () =>
-      `Today's ${component} scorecard: ${currentText}; ${period}, change 0, or 0.00%.`,
+      `${component} is standing on business, literally not moving: ${period}, 0 (0.00%); current ${currentText}.`,
     () =>
-      `${component} held steady: ${period}, change 0 (0.00%); now ${currentText}.`,
-    () => `MWITools ${component} check: ${currentText}; ${period}, ±0 (0.00%).`,
+      `${component} logged zero lore progression: ${period}, 0 (0.00%); now ${currentText}.`,
     () =>
-      `A low-key ${component} flex: ${period}, break-even at ${currentText}, change 0.00%.`,
+      `${component} is buffering: ${period}, 0 (0.00%); current ${currentText}.`,
     () =>
-      `${component} ledger stayed quiet: ${currentText}; ${period}, change 0 (0.00%).`,
+      `${component} went to touch grass: ${period}, 0 (0.00%); total ${currentText}.`,
     () =>
-      `📊 ${component} stayed stable: ${currentText}; ${period}, net change 0 (0.00%).`,
+      `${component} stayed low-key the same: ${period}, 0 (0.00%); now ${currentText}.`,
     () =>
-      `Component update: ${component} is ${currentText}; ${period}, P/L 0, change 0.00%.`,
+      `${component}: no thoughts, head empty, P/L zero ${period}, 0 (0.00%); current ${currentText}.`,
     () =>
-      `Checked ${component} between milkings: ${currentText}; ${period}, unchanged (0.00%).`,
+      `${component} is not beating the flat-chart allegations: ${period}, 0 (0.00%); now ${currentText}.`,
+    () =>
+      `It's giving... absolutely no ${component} movement: ${period}, 0 (0.00%); current ${currentText}.`,
   ];
   const templates = runtime.config.isZH
     ? change > 0
@@ -645,7 +657,7 @@ class AssetHistoryPanel {
   build() {
     this.host.innerHTML = `
       <p class="mwi-asset-disclaimer">${t("盈亏按资产估值变化计算，包含市场价格波动，并非已实现交易利润。", "P/L is based on asset valuation changes, including market price movement; it is not realized trading profit.")}</p>
-      <div class="mwi-asset-share"><button type="button" class="mwi-asset-action" id="mwi-asset-open-center">${t("打开资产中心", "Open Asset Center")}</button><button type="button" class="mwi-asset-action" id="mwi-asset-share-chat" disabled>${t("炫耀", "Flex")}</button><span class="mwi-asset-share-status">${t("需要至少两天的资产记录", "At least two asset records are required")}</span></div>
+      <div class="mwi-asset-share"><button type="button" class="mwi-asset-action" id="mwi-asset-open-center">${t("打开资产中心", "Open Asset Center")}</button><span class="mwi-asset-share-status"></span></div>
       <div class="mwi-asset-summary">
         ${createCard(t("当前总资产", "Current total assets"), "mwi-asset-current-total")}
         ${createCard(t("总盈亏", "Total P/L"), "mwi-asset-total-change", "mwi-asset-compare-date")}
@@ -702,9 +714,6 @@ class AssetHistoryPanel {
     this.host
       .querySelector("#mwi-asset-open-center")
       .addEventListener("click", () => this.center?.open());
-    this.host
-      .querySelector("#mwi-asset-share-chat")
-      .addEventListener("click", () => this.shareToChat());
     this.host
       .querySelector("#mwi-asset-breakdown")
       .addEventListener("click", (event) => {
@@ -931,20 +940,8 @@ class AssetHistoryPanel {
             gapDays: comparison.gapDays,
           }
         : null;
-    const shareButton = this.host.querySelector("#mwi-asset-share-chat");
     const shareStatus = this.host.querySelector(".mwi-asset-share-status");
-    shareButton.disabled = !this.shareStats;
-    if (!this.shareStats) {
-      shareStatus.textContent = t(
-        "需要至少两天的资产记录",
-        "At least two asset records are required",
-      );
-    } else if (shareStatus.dataset.pasted !== "true") {
-      shareStatus.textContent = t(
-        "随机生成今日战报并放入聊天框",
-        "Generate a random report and paste it into chat",
-      );
-    }
+    if (shareStatus.dataset.pasted !== "true") shareStatus.textContent = "";
     const compareText = comparison
       ? comparison.gapDays === 1
         ? t(`较昨日（${comparison.date}）`, `vs yesterday (${comparison.date})`)

@@ -281,28 +281,38 @@ function addStyles() {
     .mwi-guild-trend polyline { fill:none; stroke:#ffa500; stroke-width:2; vector-effect:non-scaling-stroke; }
     .mwi-guild-idle { display:flex; flex-wrap:wrap; gap:5px; align-items:center; margin-top:8px; }
     .mwi-guild-idle span { padding:2px 7px; border-radius:999px; background:rgba(255,255,255,.07); font-size:.68rem; }
-    .mwi-guild-members-wide { width:100% !important; max-width:none !important; min-width:0 !important; }
-    .mwi-guild-member-table-wrap { width:100%; max-width:100%; overflow-x:auto; overscroll-behavior-x:contain; }
-    .mwi-guild-members-wide .mwi-guild-member-table { width:max-content !important; min-width:100% !important; table-layout:auto !important; }
+    .mwi-guild-members-wide { box-sizing:border-box; width:min(100%,960px) !important; max-width:960px !important; min-width:0 !important; margin-inline:0 auto; }
+    .mwi-guild-member-table-wrap { box-sizing:border-box; width:min(100%,960px); max-width:960px; margin-inline:0 auto; overflow-x:hidden; }
+    .mwi-guild-member-table-wrap .mwi-guild-member-table { width:100% !important; min-width:0 !important; table-layout:fixed !important; }
+    .mwi-guild-member-table > thead > tr > th,
+    .mwi-guild-member-table > tbody > tr > td { box-sizing:border-box; vertical-align:middle; }
     .mwi-guild-member-table > thead > tr > th { white-space:nowrap; word-break:keep-all; }
     .mwi-guild-member-table > tbody > tr > td:not(:first-child) { white-space:nowrap; word-break:keep-all; }
+    .mwi-guild-member-table > thead > tr > th:first-child,
+    .mwi-guild-member-table > tbody > tr > td:first-child { text-align:left; }
     .mwi-guild-member-table > thead > tr > th:nth-child(2),
+    .mwi-guild-member-table > tbody > tr > td:nth-child(2) { width:90px; }
     .mwi-guild-member-table > thead > tr > th:nth-child(3),
+    .mwi-guild-member-table > tbody > tr > td:nth-child(3) { width:84px; }
     .mwi-guild-member-table > thead > tr > th:nth-child(4),
-    .mwi-guild-member-table > tbody > tr > td:nth-child(2),
-    .mwi-guild-member-table > tbody > tr > td:nth-child(3),
-    .mwi-guild-member-table > tbody > tr > td:nth-child(4) { min-width:38px; }
-    .mwi-guild-member-table > thead > tr > th:nth-child(5),
-    .mwi-guild-member-table > tbody > tr > td:nth-child(5) { min-width:96px; }
-    .mwi-guild-rate-cell { color:#ffa500; white-space:nowrap; min-width:105px; }
-    .mwi-guild-rate-content { display:flex; align-items:center; gap:5px; }
-    .mwi-guild-rate-value { flex:0 0 auto; }
-    .mwi-guild-rate-track { display:block; flex:1 1 42px; min-width:24px; max-width:68px; height:5px; overflow:hidden; border-radius:999px; background:rgba(255,255,255,.08); }
+    .mwi-guild-member-table > tbody > tr > td:nth-child(4) { width:100px; }
+    .mwi-guild-member-table > thead > tr > th:not(:first-child):not(.mwi-guild-day-head),
+    .mwi-guild-member-table > tbody > tr > td:not(:first-child):not(.mwi-guild-rate-cell) { text-align:center; }
+    .mwi-guild-member-table .mwi-guild-day-head,
+    .mwi-guild-member-table .mwi-guild-rate-cell { width:190px; min-width:190px; text-align:center; }
+    .mwi-guild-rate-cell { color:#ffa500; white-space:nowrap; }
+    .mwi-guild-rate-content { display:grid; grid-template-columns:86px 72px; align-items:center; justify-content:center; gap:8px; }
+    .mwi-guild-rate-value { min-width:0; text-align:right; font-variant-numeric:tabular-nums; }
+    .mwi-guild-rate-track { display:block; width:72px; height:5px; overflow:hidden; border-radius:999px; background:rgba(255,255,255,.08); }
     .mwi-guild-rate-fill { display:block; height:100%; min-width:2px; border-radius:inherit; background:rgba(91,134,255,.58); }
     .mwi-guild-rate-sort { margin-left:4px; color:var(--color-text-secondary,#aaa); font-size:.62rem; }
     .mwi-guild-div-rate-head,.mwi-guild-div-rates { display:grid; grid-template-columns:repeat(2,minmax(92px,1fr)); gap:8px; margin-left:auto; text-align:right; }
     .mwi-guild-div-rate-head { padding:5px 8px; color:var(--color-text-secondary,#aaa); font-size:.68rem; }
     .mwi-guild-div-rates { padding-left:10px; color:#ffa500; font-size:.7rem; }
+    @media(max-width:760px) {
+      .mwi-guild-member-table-wrap { overflow-x:auto; overscroll-behavior-x:contain; }
+      .mwi-guild-member-table-wrap .mwi-guild-member-table { min-width:720px !important; }
+    }
   `;
   (document.head ?? document.documentElement).appendChild(style);
 }
@@ -617,20 +627,29 @@ function appendRateColumns(table, rows, kind, parentId = "") {
   table.classList.add(`mwi-guild-${kind}-table`);
   if (kind === "member") {
     table
-      .closest('[class*="GuildPanel_membersTab__"]')
+      .closest('[class*="GuildPanel_membersTab"]')
       ?.classList.add("mwi-guild-members-wide");
     table.parentElement?.classList.add("mwi-guild-member-table-wrap");
   }
   const header = table.tHead.rows[0];
-  if (!header.querySelector(".mwi-guild-recent-head")) {
+  if (kind === "member") {
+    header
+      .querySelectorAll(".mwi-guild-recent-head,.mwi-guild-week-head")
+      .forEach((cell) => cell.remove());
+  }
+  if (
+    !header.querySelector(
+      kind === "member" ? ".mwi-guild-day-head" : ".mwi-guild-recent-head",
+    )
+  ) {
     const sortable = kind === "member";
-    const columns = [
-      ["mwi-guild-recent-head", t("近 6 小时 XP/h", "6h XP/h")],
-      ["mwi-guild-day-head", t("24 小时 XP/h", "24h XP/h")],
-      ...(kind === "member"
-        ? [["mwi-guild-week-head", t("本周平均 XP/h", "This-week avg XP/h")]]
-        : []),
-    ];
+    const columns =
+      kind === "member"
+        ? [["mwi-guild-day-head", t("24 小时 XP/h", "24h XP/h")]]
+        : [
+            ["mwi-guild-recent-head", t("近 6 小时 XP/h", "6h XP/h")],
+            ["mwi-guild-day-head", t("24 小时 XP/h", "24h XP/h")],
+          ];
     for (const [rateIndex, [className, label]] of columns.entries()) {
       const cell = document.createElement("th");
       cell.className = className;
@@ -699,9 +718,8 @@ function appendRateColumns(table, rows, kind, parentId = "") {
     }
   }
   for (const selector of [
-    ".mwi-guild-recent-head",
+    ...(kind === "member" ? [] : [".mwi-guild-recent-head"]),
     ".mwi-guild-day-head",
-    ...(kind === "member" ? [".mwi-guild-week-head"] : []),
   ]) {
     const rateHeader = header.querySelector(selector);
     if (rateHeader) header.append(rateHeader);
@@ -723,14 +741,10 @@ function appendRateColumns(table, rows, kind, parentId = "") {
       row,
       key,
       rates,
-      values: [
-        rates?.recent,
-        rates?.day,
-        ...(kind === "member" ? [entityWeeklyXpRate(source)] : []),
-      ],
+      values: kind === "member" ? [rates?.day] : [rates?.recent, rates?.day],
     };
   });
-  const maxima = Array.from({ length: kind === "member" ? 3 : 2 }, (_, index) =>
+  const maxima = Array.from({ length: kind === "member" ? 1 : 2 }, (_, index) =>
     Math.max(
       0,
       ...rowEntries.map(({ values }) =>
@@ -817,6 +831,7 @@ function appendLeaderboardDivRates(rows) {
 }
 
 function renderGuildTables() {
+  addStyles();
   if (runtime.settings.get("guildMemberXp")) {
     const memberTable = document.querySelector(
       'div[class*="GuildPanel_membersTab"] table',

@@ -33,9 +33,6 @@ const {
   formatExperienceRate,
   normalizeLeaderboardPayload,
 } = await import("../src/features/leaderboard-overlay.js");
-await runtime.features.enable("leaderboardOverlay");
-await runtime.features.enable("leaderboardXpRate");
-
 after(async () => {
   await runtime.features.disable("leaderboardOverlay");
   await runtime.features.disable("leaderboardXpRate");
@@ -64,7 +61,7 @@ function rowNames() {
 }
 
 test("exports the standalone overlay API and formatting helpers", () => {
-  assert.equal(dom.window.MWILeaderboardOverlay.VERSION, "1.4.0");
+  assert.equal(dom.window.MWILeaderboardOverlay.VERSION, "1.4.1");
   assert.equal(dom.window.MWILeaderboardOverlay.create, create);
   assert.equal(badgeTier(1), "rainbow");
   assert.equal(badgeTier(35), "gold");
@@ -168,7 +165,7 @@ test("renders top-100 ranking badges beside matching character names", async () 
   assert.equal(document.querySelector("[data-mwi-leaderboard-badges]"), null);
 });
 
-test("places guild badges below names and friend badges beside names", async () => {
+test("places guild and friend badges immediately after names", async () => {
   document.body.innerHTML = `
     <svg><use href="/static/media/skills_sprite.current.svg#milking"></use></svg>
     <div class="GuildPanel_characterName__test">
@@ -199,19 +196,20 @@ test("places guild badges below names and friend badges beside names", async () 
   await settle();
 
   const guildBlock = document.querySelector(".GuildPanel_characterName__test");
-  const guildBadges = guildBlock.querySelector(
+  const guildName = guildBlock.querySelector(
+    ".CharacterName_characterName__test",
+  );
+  const guildBadges = guildName.querySelector(
     ":scope > [data-mwi-leaderboard-badges]",
   );
   assert.ok(guildBadges);
-  assert.equal(guildBadges.dataset.mwiLeaderboardPlacement, "list");
+  assert.equal(guildBadges.dataset.mwiLeaderboardPlacement, "guild");
   assert.equal(
-    guildBadges.previousElementSibling,
-    guildBlock.firstElementChild,
+    guildBadges.previousElementSibling.dataset.name,
+    "LongGuildName",
   );
   assert.equal(
-    guildBlock.querySelector(
-      ".CharacterName_characterName__test > [data-mwi-leaderboard-badges]",
-    ),
+    guildBlock.querySelector(":scope > [data-mwi-leaderboard-badges]"),
     null,
   );
 
@@ -244,7 +242,7 @@ test("places guild badges below names and friend badges beside names", async () 
   }
   assert.match(
     document.getElementById("mwi-leaderboard-overlay-style").textContent,
-    /placement="list"[^}]*justify-content:center/,
+    /placement="guild"[^}]*display:inline-flex[^}]*width:auto[^}]*flex-wrap:nowrap/,
   );
 
   overlay.destroy();
@@ -303,18 +301,64 @@ test("default ranking badges use the game's native skill sprite", async () => {
   document.body.innerHTML = `
     <svg><use href="/static/media/skills_sprite.current.svg#foraging"></use></svg>
     <span class="CharacterName_name__test" data-name="Alice">Alice</span>`;
-  const overlay = create({ document });
-  overlay.setRankings({
-    milking: { rows: [{ characterName: "Alice", rank: 12 }] },
-  });
-  await settle();
-  const badge = document.querySelector(".mwi-lb-badge--rainbow");
-  assert.equal(badge.querySelector("img"), null);
-  assert.equal(
-    badge.querySelector("use").getAttribute("href"),
-    "/static/media/skills_sprite.current.svg#milking",
-  );
-  overlay.destroy();
+  const querySelectorAll = document.querySelectorAll.bind(document);
+  let directUseScans = 0;
+  document.querySelectorAll = (selector) => {
+    if (selector === "use") directUseScans += 1;
+    return querySelectorAll(selector);
+  };
+  try {
+    const overlay = create({ document });
+    overlay.setRankings({
+      milking: { rows: [{ characterName: "Alice", rank: 12 }] },
+    });
+    await settle();
+    const badge = document.querySelector(".mwi-lb-badge--rainbow");
+    assert.equal(badge.querySelector("img"), null);
+    assert.equal(
+      badge.querySelector("use").getAttribute("href"),
+      "/static/media/skills_sprite.current.svg#milking",
+    );
+    assert.equal(directUseScans, 0);
+    overlay.destroy();
+  } finally {
+    document.querySelectorAll = querySelectorAll;
+  }
+});
+
+test("unrelated DOM mutations do not rescan character names", async () => {
+  document.body.innerHTML = `
+    <span class="CharacterName_name__test" data-name="Alice">Alice</span>`;
+  const querySelectorAll = document.querySelectorAll.bind(document);
+  let nameScans = 0;
+  document.querySelectorAll = (selector) => {
+    if (selector === '[class*="CharacterName_name"][data-name]') nameScans += 1;
+    return querySelectorAll(selector);
+  };
+  try {
+    const overlay = create({ document });
+    overlay.setRankings({
+      milking: { rows: [{ characterName: "Alice", rank: 4 }] },
+    });
+    await settle();
+    const settledScans = nameScans;
+    const unrelated = document.createElement("div");
+    unrelated.className = "ActionProgress_animation__test";
+    document.body.append(unrelated);
+    await settle();
+    assert.equal(nameScans, settledScans);
+
+    const host = document.createElement("div");
+    host.innerHTML =
+      '<span class="CharacterName_name__test" data-name="Alice">Alice</span>';
+    document.body.append(host);
+    await settle();
+    assert.ok(nameScans > settledScans);
+    assert.ok(host.querySelector(".mwi-lb-badge"));
+    overlay.destroy();
+  } finally {
+    document.querySelectorAll = querySelectorAll;
+  }
 });
 
 test("new aggregate rankings use the matching native game icons", async () => {
@@ -419,10 +463,16 @@ test("profile names show every badge on an independent second row", async () => 
 
 test("top-five rainbow badges sweep for one second, glint for one, then pause", async () => {
   document.body.innerHTML = `
-    <span class="CharacterName_name__test" data-name="Alice">Alice</span>`;
+    <div><span class="CharacterName_name__test" data-name="Alice">Alice</span></div>
+    <div><span class="CharacterName_name__test" data-name="Bob">Bob</span></div>`;
   const overlay = create({ document, showEffects: true });
   overlay.setRankings({
-    total_level: { rows: [{ characterName: "Alice", rank: 5 }] },
+    total_level: {
+      rows: [
+        { characterName: "Alice", rank: 5 },
+        { characterName: "Bob", rank: 4 },
+      ],
+    },
     stamina: { rows: [{ characterName: "Alice", rank: 6 }] },
   });
   await settle();
@@ -435,9 +485,24 @@ test("top-five rainbow badges sweep for one second, glint for one, then pause", 
   ).textContent;
   assert.match(styles, /::before[^}]*mwi-lb-badge-light-sweep 5s/);
   assert.match(styles, /::after[^}]*mwi-lb-badge-corner-glint 5s/);
-  assert.match(styles, /18%\{left:128%;opacity:\.96\}20%,100%/);
+  assert.match(styles, /contain:paint/);
+  assert.match(styles, /18%\{transform:translate3d\(470%,0,0\)/);
+  assert.doesNotMatch(styles, /@keyframes mwi-lb-badge-light-sweep[^@]*left:/);
+  assert.doesNotMatch(
+    styles,
+    /mwi-lb-badge--top-five::(?:before|after)[^}]*filter:/,
+  );
   assert.match(styles, /0%,20%,40%,100%\{opacity:0/);
-  assert.match(styles, /30%\{opacity:1;transform:scale\(1\.15\)\}/);
+  assert.match(
+    styles,
+    /30%\{opacity:1;transform:translateZ\(0\) scale\(1\.15\)\}/,
+  );
+  assert.deepEqual(
+    [...document.querySelectorAll(".mwi-lb-badge--top-five")].map((badge) =>
+      badge.style.getPropertyValue("--mwi-lb-effect-delay"),
+    ),
+    ["0s", "-1s"],
+  );
   assert.match(styles, /prefers-reduced-motion:reduce/);
   overlay.destroy();
 });
@@ -717,7 +782,6 @@ test("leaderboard copy follows the MWITools language", async () => {
   await runtime.settings.set("leaderboardXpRate", false, { persist: false });
   localStorage.removeItem("MWITools_leaderboard_overlay_cache_v2");
   runtime.config.isZH = false;
-  await runtime.settings.set("leaderboardOverlay", true, { persist: false });
   document.body.innerHTML = `
     <div><span class="CharacterName_name__test" data-name="Alice">Alice</span></div>`;
   const overlay = create({ document });

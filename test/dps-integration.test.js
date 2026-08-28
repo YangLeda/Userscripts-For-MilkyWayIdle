@@ -196,6 +196,12 @@ test("DPS feature reuses settings and cleans repeated enable-disable cycles", as
   installBoxMetrics(launcher, 54, 28);
   assert.equal(launcher.style.left, "102px");
   assert.equal(launcher.style.top, "10px");
+  assert.equal(launcher.textContent, "DPS");
+  assert.equal(window.__MWI_DPS.togglePrimaryMode(), "hps");
+  assert.equal(launcher.textContent, "HPS");
+  assert.equal(dpsPanel.style.display, "none");
+  assert.equal(window.__MWI_DPS.togglePrimaryMode(), "dps");
+  assert.equal(launcher.textContent, "DPS");
 
   installBoxMetrics(dpsPanel, 330, 212);
   let hiddenPanelMutations = 0;
@@ -243,7 +249,7 @@ test("DPS feature reuses settings and cleans repeated enable-disable cycles", as
     attackAttemptCounter: 0,
     isPreparingAutoAttack: true,
     combatDetails: {
-      magicAccuracyRating: 100,
+      magicAccuracyRating: 661.966368000001,
       combatStats: {
         combatStyleHrids: ["/combat_styles/magic"],
         damageType: "/damage_types/fire",
@@ -262,7 +268,7 @@ test("DPS feature reuses settings and cleans repeated enable-disable cycles", as
           name: "Training Rat",
           hrid: "/monsters/training_rat",
           currentHitpoints: 100,
-          combatDetails: { magicEvasionRating: 100 },
+          combatDetails: { magicEvasionRating: 661.966368000001 },
         },
       ],
     },
@@ -289,14 +295,18 @@ test("DPS feature reuses settings and cleans repeated enable-disable cycles", as
     '[data-kikimeter-accuracy-player-tab="集成甲"]',
   );
   assert.ok(playerTab, "the accuracy view must expose a player sub-tab");
+  const playerTabs = playerTab.parentElement;
+  playerTabs.scrollLeft = 37;
   let accuracyRow = dpsPanel.querySelector(
     "[data-kikimeter-accuracy-monster-row]",
   );
   assert.ok(accuracyRow);
   assert.match(accuracyRow.textContent, /Training Rat/);
   assert.match(accuracyRow.textContent, /50\.00%/);
-  assert.match(accuracyRow.title, /Accuracy rating: 100/);
-  assert.match(accuracyRow.title, /Evasion rating: 100/);
+  assert.match(dpsPanel.textContent, /Accuracy rating 661\.97/);
+  assert.match(accuracyRow.title, /Accuracy rating: 661\.97/);
+  assert.match(accuracyRow.title, /Evasion rating: 661\.97/);
+  assert.doesNotMatch(accuracyRow.title, /661\.966/);
   assert.match(
     accuracyRow.querySelector("svg use")?.getAttribute("href") || "",
     /combat_monsters_sprite\.test\.svg#training_rat$/,
@@ -309,6 +319,11 @@ test("DPS feature reuses settings and cleans repeated enable-disable cycles", as
   };
   runtime.dispatchMessage(missPayload, JSON.stringify(missPayload));
   window.__MWI_DPS.selectSegment("current");
+  assert.equal(
+    dpsPanel.querySelector('[data-kikimeter-accuracy-player-tab="集成甲"]'),
+    playerTab,
+  );
+  assert.equal(playerTabs.scrollLeft, 37);
   accuracyRow = dpsPanel.querySelector("[data-kikimeter-accuracy-monster-row]");
   assert.match(accuracyRow.textContent, /50\.00%/);
 

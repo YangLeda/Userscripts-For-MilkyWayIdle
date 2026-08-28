@@ -484,6 +484,73 @@ test("asset sharing provides separate Chinese and English profit/loss phrases", 
   assert.equal(document.activeElement, input);
 });
 
+test("rise, fall, and flat sharing pools use distinct recent meme styles", () => {
+  const memePatterns = {
+    zh: {
+      profit:
+        /含金量|来财|助我破鼎|千百次练习|敬.+一杯|水灵灵|硬控|很曼妙|肥嘟嘟|好茶摇一摇|中式 DNA|神人也/,
+      loss: /验牌|奥德赛|精神已经下班|绷住|草台班子|班味|偷感|浪浪山|富婆哦|参考文献|低山臭水|野生狗奶/,
+      neutral:
+        /松弛感|那咋了|如何呢|不基础|进城办事|豆包型人格|做完你的|我们不说|牌没有问题|城巴佬|情绪价值|村咖/,
+    },
+    en: {
+      profit:
+        /\bPOV\b|big W|understood the assignment|ate .*crumbs|aura farming|locked in|rent was due|let .+ cook|main-character|in my .+ era|chef's kiss|we love to see/i,
+      loss: /canon event|is cooked|not mathing|in 4K|skill issue|villain-origin|plot twist nobody ordered|side quest had microtransactions|aura loss|crash-out|task failed successfully|chat, is this real/i,
+      neutral:
+        /very demure|NPC idle|loading screen|just vibes|standing on business|zero lore|buffering|touch grass|low-key|no thoughts|flat-chart allegations|it's giving/i,
+    },
+  };
+  for (const isZH of [true, false]) {
+    runtime.config.isZH = isZH;
+    const languagePatterns = isZH ? memePatterns.zh : memePatterns.en;
+    for (const [state, change] of [
+      ["profit", 250],
+      ["loss", -250],
+      ["neutral", 0],
+    ]) {
+      const percent = change === 0 ? 0 : change / 10;
+      for (let index = 0; index < ASSET_SHARE_TEMPLATE_COUNT; index += 1) {
+        const message = buildAssetShareMessage(
+          { change, percent, gapDays: 3 },
+          index,
+        );
+        assert.match(message, languagePatterns[state]);
+        for (const [otherState, otherPattern] of Object.entries(
+          languagePatterns,
+        )) {
+          if (otherState !== state) assert.doesNotMatch(message, otherPattern);
+        }
+        assert.doesNotMatch(message, /三代不准|心理委员/);
+      }
+      for (
+        let index = 0;
+        index < ASSET_COMPONENT_SHARE_TEMPLATE_COUNT;
+        index += 1
+      ) {
+        const message = buildAssetComponentShareMessage(
+          {
+            key: "equipment",
+            current: 1_000,
+            change,
+            percent,
+            gapDays: 3,
+          },
+          index,
+        );
+        assert.match(message, languagePatterns[state]);
+        for (const [otherState, otherPattern] of Object.entries(
+          languagePatterns,
+        )) {
+          if (otherState !== state) assert.doesNotMatch(message, otherPattern);
+        }
+        assert.doesNotMatch(message, /三代不准|心理委员/);
+      }
+    }
+  }
+  runtime.config.isZH = true;
+});
+
 test("component asset sharing has bilingual rise, fall, and flat phrase pools", () => {
   assert.ok(ASSET_COMPONENT_SHARE_TEMPLATE_COUNT >= 10);
   const components = [
@@ -642,10 +709,7 @@ test("盈亏 visually suppresses native selection without mutating React tab sta
     assetStyles,
     /--mwi-asset-idle-background,rgba\(255,255,255,\.08\)/,
   );
-  assert.equal(
-    document.querySelector("#mwi-asset-share-chat").textContent,
-    "炫耀",
-  );
+  assert.equal(document.querySelector("#mwi-asset-share-chat"), null);
   assert.match(
     document.querySelector("#mwitools-asset-history-style").textContent,
     /overflow-y:auto/,

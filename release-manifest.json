@@ -1,13 +1,13 @@
 {
   "version": 1,
-  "latestVersion": "26.4.16",
-  "importantVersion": "26.4.16",
+  "latestVersion": "26.4.17",
+  "importantVersion": "26.4.17",
   "title": {
-    "zh": "MWITools 26.4.16 重要更新",
-    "en": "Important MWITools 26.4.16 update"
+    "zh": "MWITools 26.4.17 重要更新",
+    "en": "Important MWITools 26.4.17 update"
   },
   "message": {
-    "zh": "26.4.16 是重要更新：新增铁牛排行榜、徽章与经验速度；修复任务刷新图片和锁定串联，战斗状态栏改为单行循环滚动并让 Debuff 跟随实际目标；同时加入市场备用接口、理论命中率、任务代币资产开关，并修复本地化数值、资产历史、无限队列、购物车、生产与公会兑换等问题。建议前往 Greasy Fork 更新。",
-    "en": "Version 26.4.16 is an important update. It adds Iron Cow rankings, badges, and XP rates; fixes rerolled task artwork and isolated locks; changes battle status bars to a single-row marquee and keeps Debuffs on affected targets; adds marketplace fallback, theoretical accuracy, and a Task Token asset switch; and fixes localized numbers, asset history, infinite queues, shopping, Production, and Guild exchanges. Update on Greasy Fork."
+    "zh": "26.4.17 是重要更新：总资产与各分项的中英文“炫耀”文案已全部换成 2024–2026 高热网络梗，上涨、下跌和持平各有不同主题；玩家 Buff 条可在本栏循环显示 Buff、DPS 与 HPS，不会联动主面板或误开交战信息，命中与闪避等级也会以最多两位小数显示。建议前往 Greasy Fork 更新。",
+    "en": "Version 26.4.17 is an important update. Every Chinese and English total-asset and component Flex message now uses distinct high-recognition 2024–2026 meme themes for rises, falls, and flat results. Player Buff bars cycle locally through Buff, DPS, and HPS without changing the main meter or opening combat-unit details, and accuracy and evasion ratings now show at most two decimal places. Update on Greasy Fork."
   }
 }

@@ -431,6 +431,13 @@ let settingsMap = {
     desc: isZH ? "任务卡显示物品或怪物图标" : "Show item or monster task art.",
     isTrue: true,
   },
+  taskDungeonIcons: {
+    id: "taskDungeonIcons",
+    desc: isZH
+      ? "任务卡右上角显示地牢图标"
+      : "Show dungeon badges in the top-right of task cards.",
+    isTrue: true,
+  },
   taskStatistics: {
     id: "taskStatistics",
     desc: isZH
@@ -460,7 +467,9 @@ let settingsMap = {
   },
   guildMemberXp: {
     id: "guildMemberXp",
-    desc: isZH ? "成员表显示每小时经验" : "Show XP rates for guild members.",
+    desc: isZH
+      ? "成员表显示 24 小时经验速率"
+      : "Show the 24-hour XP rate for guild members.",
     isTrue: true,
   },
   guildLeaderboardXp: {
@@ -989,8 +998,16 @@ const catalogRows = [
     "tasks",
     "任务背景图标",
     "Task artwork",
-    "用低透明度原生图标标识任务物品、怪物和副本。",
-    "Use subtle native item, monster, and dungeon artwork on task cards.",
+    "用低透明度原生图标标识任务物品或怪物。",
+    "Use subtle native item or monster artwork on task cards.",
+  ],
+  [
+    "taskDungeonIcons",
+    "tasks",
+    "地牢任务图标",
+    "Dungeon task badges",
+    "在任务卡右上角显示独立的地牢小图标；关闭后仍保留怪物主图。",
+    "Show separate dungeon badges in the task card's top-right; monster artwork remains visible when disabled.",
   ],
   [
     "taskStatistics",
@@ -1093,8 +1110,8 @@ const catalogRows = [
     "guild",
     "成员经验速率",
     "Member XP rates",
-    "在成员表增加近 6 小时、24 小时和本周平均 XP/h。",
-    "Add 6-hour, 24-hour, and this-week average XP/h columns to the member table.",
+    "在成员表增加可排序的 24 小时 XP/h 与相对速率条，可在设置中关闭。",
+    "Add a sortable 24-hour XP/h column with relative bars to the member table; it can be disabled in settings.",
   ],
   [
     "guildLeaderboardXp",
@@ -1241,6 +1258,7 @@ const settingParents = {
   taskQueueProgress: "taskInsights",
   taskAutoSort: "taskInsights",
   taskIcons: "taskInsights",
+  taskDungeonIcons: "taskIcons",
   taskStatistics: "taskInsights",
   taskClaimCollector: "taskInsights",
   taskMergeActions: "taskInsights",

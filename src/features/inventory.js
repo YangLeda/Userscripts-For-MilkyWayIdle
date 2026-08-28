@@ -3,6 +3,10 @@ import {
   getLocalizedEntityName,
   resolveEntityFromElement,
 } from "../core/game-localization.js";
+import {
+  buildAssetShareMessage,
+  pasteAssetShareToChat,
+} from "./asset-history/30-panel.js";
 
 let inventoryRefreshTimer = null;
 let inventoryDisplayVersion = 0;
@@ -330,7 +334,37 @@ function inventoryTodayProfitHtml(values) {
   return `<span class="mwi-summary-today-profit ${className}" title="${exact}">${open}${sign}${formatted}${close}</span>`;
 }
 
+function currentInventoryRenderVersion() {
+  const display = frozenInventoryDisplays.get(inventoryDisplayKey());
+  return display
+    ? `${display.version}:${runtime.config.isZH ? "zh" : "en"}`
+    : "";
+}
+
+function inventoryDisplayIsMounted() {
+  const nodes = [...document.querySelectorAll('div[class*="Inventory_items"]')];
+  if (!nodes.length) return false;
+  const showWorth = runtime.settings.settingsMap.invWorth.isTrue;
+  const showSort = runtime.settings.settingsMap.invSort.isTrue;
+  const renderVersion = showWorth ? currentInventoryRenderVersion() : "";
+  if (showWorth && !renderVersion) return false;
+  return nodes.every((node) => {
+    const parent = node.parentElement;
+    if (showWorth) {
+      if (node.dataset.mwitoolsInventoryDisplayVersion !== renderVersion) {
+        return false;
+      }
+      const summary = parent?.querySelector("#script_inventory_summary");
+      if (!summary || summary.style.display === "none") return false;
+    }
+    if (!showSort && !showWorth) return true;
+    const controls = parent?.querySelector("#script_inv_sort_controls");
+    return Boolean(controls && controls.style.display !== "none");
+  });
+}
+
 function scheduleNetworthRefresh() {
+  if (inventoryDisplayIsMounted()) return;
   addInventorySummaryStyles();
   if (!Array.isArray(runtime.state.initData_characterItems)) return;
   clearTimeout(inventoryRefreshTimer);
@@ -477,10 +511,7 @@ async function getFrozenInventoryDisplay(force = false) {
 
 async function calculateNetworth(options = {}) {
   if (!Array.isArray(runtime.state.initData_characterItems)) return;
-  const targetNodes = document.querySelectorAll(
-    'div[class*="Inventory_items"]',
-  );
-  if (!targetNodes.length) return;
+  if (options.force !== true && inventoryDisplayIsMounted()) return;
 
   const showWorth = runtime.settings.settingsMap.invWorth.isTrue;
   const showSort = runtime.settings.settingsMap.invSort.isTrue;
@@ -488,6 +519,10 @@ async function calculateNetworth(options = {}) {
     ? await getFrozenInventoryDisplay(options.force === true)
     : null;
   if (showWorth && !display) return;
+  const targetNodes = document.querySelectorAll(
+    'div[class*="Inventory_items"]',
+  );
+  if (!targetNodes.length) return;
   const snapshot = display?.snapshot;
   addInventorySummaryStyles();
 
@@ -673,6 +708,7 @@ async function calculateNetworth(options = {}) {
           addInvSortButton(node);
         }
       }
+      syncInventoryShareButton(node);
       const summary = node.parentElement?.querySelector(
         "#script_inventory_summary",
       );
@@ -728,6 +764,37 @@ function isSortableInventoryCategory(typeName, categoryHrid = "") {
   return Boolean(categoryHrid || String(typeName ?? "").trim());
 }
 
+function currentAssetShareStats() {
+  const display = frozenInventoryDisplays.get(inventoryDisplayKey());
+  const current = display?.snapshot?.values;
+  const comparison = runtime.api.assetHistory?.getComparison?.();
+  const previous = comparison?.record?.values;
+  if (!Number.isFinite(current?.total) || !Number.isFinite(previous?.total)) {
+    return null;
+  }
+  const change = current.total - previous.total;
+  const percent = previous.total ? (change / previous.total) * 100 : null;
+  return Number.isFinite(percent)
+    ? { change, percent, gapDays: comparison.gapDays }
+    : null;
+}
+
+function syncInventoryShareButton(invElem) {
+  const button = invElem.parentElement?.querySelector(
+    "#script_share_inventory_btn",
+  );
+  if (!button) return;
+  const available = Boolean(currentAssetShareStats());
+  button.disabled = !available;
+  button.title = available
+    ? runtime.config.isZH
+      ? "生成资产对比文案并放入聊天框"
+      : "Generate an asset comparison and paste it into chat"
+    : runtime.config.isZH
+      ? "需要至少两天可对比的资产记录"
+      : "At least two comparable asset records are required";
+}
+
 async function addInvSortButton(invElem) {
   const showSort = runtime.settings.settingsMap.invSort.isTrue;
   const showWorth = runtime.settings.settingsMap.invWorth.isTrue;
@@ -763,9 +830,13 @@ async function addInvSortButton(invElem) {
         id="script_refresh_inventory_btn">
         ${runtime.config.isZH ? "刷新价值" : "Refresh values"}
         </button>`;
+  const shareButton = `<button
+        id="script_share_inventory_btn" disabled>
+        ${runtime.config.isZH ? "炫耀" : "Flex"}
+        </button>`;
   const buttonsDiv = `<div id="script_inv_sort_controls" data-sort-order="none" style="color: ${runtime.config.SCRIPT_COLOR_MAIN}; font-size: 0.875rem; text-align: left; ">${
     showSort ? (runtime.config.isZH ? "物品排序：" : "Sort items by: ") : ""
-  }${showSort ? `${fairButton} ${askButton} ${bidButton} ${noneButton}` : ""}${showWorth ? ` ${refreshButton}` : ""}</div>`;
+  }${showSort ? `${fairButton} ${askButton} ${bidButton} ${noneButton}` : ""}${showWorth ? ` ${refreshButton} ${shareButton}` : ""}</div>`;
   if (!invElem.isConnected || !invElem.parentElement) return;
   const existingSummary = invElem.parentElement.querySelector(
     "#script_inventory_summary",
@@ -887,6 +958,30 @@ async function addInvSortButton(invElem) {
       ?.addEventListener("click", () => sortItemsBy("none"));
   }
   if (showWorth) {
+    const share = invElem.parentElement.querySelector(
+      "button#script_share_inventory_btn",
+    );
+    syncInventoryShareButton(invElem);
+    share?.addEventListener("click", () => {
+      const stats = currentAssetShareStats();
+      const message = stats ? buildAssetShareMessage(stats) : "";
+      if (!message) {
+        syncInventoryShareButton(invElem);
+        return;
+      }
+      const original = runtime.config.isZH ? "炫耀" : "Flex";
+      const pasted = pasteAssetShareToChat(message);
+      share.textContent = pasted
+        ? runtime.config.isZH
+          ? "已放入聊天框"
+          : "Pasted"
+        : runtime.config.isZH
+          ? "未找到聊天框"
+          : "Chat not found";
+      setTimeout(() => {
+        if (share.isConnected) share.textContent = original;
+      }, 1_800);
+    });
     invElem.parentElement
       .querySelector("button#script_refresh_inventory_btn")
       ?.addEventListener("click", async (event) => {

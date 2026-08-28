@@ -97,6 +97,7 @@ function addStyles() {
     .mwi-procurement-summary-line{display:flex;min-width:0;align-items:center;gap:5px;flex-wrap:wrap}
     .mwi-procurement-summary-state{min-width:0;flex:1;color:var(--color-text-secondary,#aaa);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .mwi-procurement-summary-state strong{color:#ffad62}
+    .mwi-procurement-upgrade-badge{align-self:center;flex:none}
     .mwi-procurement-chain-mode{display:inline-flex;align-items:center;gap:4px;color:var(--color-text-secondary,#aaa);font-size:inherit;white-space:nowrap;cursor:pointer}
     .mwi-procurement-chain-mode input{width:14px;height:14px;margin:0;accent-color:#8293d6;cursor:pointer}
     .mwi-procurement-inline-button{min-height:24px;padding:2px 8px;border:1px solid rgba(255,255,255,.16);border-radius:4px;background:var(--color-midnight-500,#343a54);color:var(--color-neutral-100,#eee);font:inherit;cursor:pointer}
@@ -161,7 +162,7 @@ function shellStyles() {
     .panel-footer{display:flex;flex:0 0 auto;align-items:center;gap:8px;min-height:56px;padding:10px 14px;border-top:1px solid color-mix(in srgb,var(--line) 55%,transparent);color:var(--muted);font-size:11px}.panel-footer:empty{display:none}.footer-total{font-size:10px;line-height:1.35}.footer-total strong{display:block;color:var(--gold);font-size:15px;font-weight:700;font-variant-numeric:tabular-nums}.footer-total small{display:block;color:var(--muted);font-size:9px}.clear{margin-left:auto;padding:9px 18px;border-radius:6px;background:color-mix(in srgb,var(--text) 8%,transparent);color:var(--text);font-size:12.5px;font-weight:700}.clear:hover{background:color-mix(in srgb,#e05a64 14%,transparent);color:#ff8d96}
     .plan-row{display:flex;min-height:58px;flex-direction:column;gap:6px;padding:8px 4px;border-bottom:1px solid color-mix(in srgb,var(--line) 40%,transparent)}.row-top{display:flex;align-items:center;gap:8px;min-width:0}.plan-title{min-width:0;flex:1;overflow:hidden;color:var(--text);font-size:13px;font-weight:600;text-overflow:ellipsis;white-space:nowrap}.plan-status{color:var(--gold);font-size:10.5px}.progress{height:4px;overflow:hidden;border-radius:2px;background:color-mix(in srgb,var(--text) 7%,transparent)}.progress>span{display:block;height:100%;background:var(--accent)}.plan-meta{display:flex;justify-content:space-between;color:var(--muted);font-size:10.5px}.plan-actions{display:flex;gap:5px}.plan-actions button{padding:6px 9px;border-radius:6px;background:color-mix(in srgb,var(--text) 7%,transparent);color:var(--muted);font-size:11px;font-weight:600}.plan-actions button:hover{background:color-mix(in srgb,var(--text) 11%,transparent);color:var(--text)}
     .setting-section{margin-top:5px}.setting-section-title{padding:8px 4px 4px;color:var(--muted);font-size:10.5px;font-weight:700;letter-spacing:.4px}.setting-row{display:flex;min-height:48px;align-items:center;gap:10px;padding:5px 4px;border-bottom:1px solid color-mix(in srgb,var(--line) 32%,transparent)}.setting-label{min-width:0;flex:1;color:var(--text);font-size:13px;font-weight:600}.setting-label small{display:block;margin-top:2px;color:var(--muted);font-size:10.5px;font-weight:400}.switch-state{min-width:18px;color:var(--muted);font-size:10.5px;text-align:right}.switch-state[data-on="true"]{color:#3edd8b;font-weight:700}.switch{position:relative;width:42px;height:23px;flex:0 0 auto;border-radius:99px;background:color-mix(in srgb,var(--text) 10%,transparent);transition:background-color .15s}.switch::after{content:"";position:absolute;top:3px;left:3px;width:17px;height:17px;border-radius:50%;background:#fff;opacity:.5;transition:transform .15s,opacity .15s}.switch[data-on="true"]{background:#29c274}.switch[data-on="true"]::after{transform:translateX(19px);opacity:1}
-    .setting-row input[type="number"],.setting-row select,.setting-button{flex:0 0 auto;min-height:28px;padding:5px 8px;border-radius:6px;background:color-mix(in srgb,var(--text) 7%,transparent);color:var(--text);font-size:11.5px}.setting-row input[type="number"]{width:76px;border:1px solid color-mix(in srgb,var(--text) 14%,transparent);outline:0;text-align:center}.setting-row select{max-width:116px}.setting-button{font-weight:600}.setting-button:hover{background:color-mix(in srgb,var(--text) 11%,transparent)}.shortcut{max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .setting-row input[type="number"],.setting-row select,.setting-button{flex:0 0 auto;min-height:28px;padding:5px 8px;border-radius:6px;background:color-mix(in srgb,var(--text) 7%,transparent);color:var(--text);font-size:11.5px}.setting-row input[type="number"]{width:76px;border:1px solid color-mix(in srgb,var(--text) 14%,transparent);outline:0;text-align:center}.setting-row select{max-width:116px}.setting-row select option{background:#f4f6fa;color:#172033}.setting-button{font-weight:600}.setting-button:hover{background:color-mix(in srgb,var(--text) 11%,transparent)}.shortcut{max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     @media(max-width:760px){
       .drawer{left:0;right:0;top:auto;bottom:0;width:100%!important;max-width:none;height:52%;min-height:0;max-height:90%;border-radius:14px 14px 0 0;box-shadow:0 -10px 32px rgba(0,0,0,.5);transform:translateY(105%)}
       .drawer[data-open="true"]{transform:translateY(0)}
@@ -816,9 +817,45 @@ const SETTING_DESCRIPTIONS = {
   resetDrawer: ["恢复悬浮购物车的默认宽度", "Restore the floating cart width"],
 };
 
+function syncProcurementSettings(body) {
+  const settings = procurement.getSettings();
+  for (const control of body.querySelectorAll("[data-procurement-setting]")) {
+    const id = control.dataset.procurementSetting;
+    const type = control.dataset.procurementSettingType;
+    if (type === "bool") {
+      const enabled = Boolean(settings[id]);
+      control.dataset.on = String(enabled);
+      control.setAttribute("aria-checked", String(enabled));
+      const state = control
+        .closest(".setting-row")
+        ?.querySelector(".switch-state");
+      if (state) {
+        state.dataset.on = String(enabled);
+        state.textContent = enabled ? t("开", "On") : t("关", "Off");
+      }
+    } else if (type === "shortcut") {
+      control.textContent =
+        formatShortcut(settings.nextItemShortcut) || t("录制", "Record");
+    } else if (type !== "button") {
+      const value = String(settings[id]);
+      if (control.value !== value && !control.matches(":focus")) {
+        control.value = value;
+      }
+    }
+  }
+}
+
 function renderProcurementSettings(body) {
-  body.replaceChildren();
   prepareFooter("settings");
+  if (
+    body.dataset.procurementSettingsBuilt === "true" &&
+    body.childElementCount
+  ) {
+    syncProcurementSettings(body);
+    return;
+  }
+  body.replaceChildren();
+  body.dataset.procurementSettingsBuilt = "true";
   const settings = procurement.getSettings();
   for (const sectionDefinition of SETTING_SECTIONS) {
     const section = document.createElement("section");
@@ -850,7 +887,7 @@ function renderProcurementSettings(body) {
         control.setAttribute("aria-checked", String(Boolean(settings[id])));
         control.setAttribute("aria-label", t(zh, en));
         control.addEventListener("click", () =>
-          procurement.setSetting(id, !settings[id]),
+          procurement.setSetting(id, !procurement.getSettings()[id]),
         );
       } else if (type === "safety") {
         control = document.createElement("select");
@@ -901,11 +938,14 @@ function renderProcurementSettings(body) {
           procurement.setSetting(id, Number(control.value)),
         );
       }
+      control.dataset.procurementSetting = id;
+      control.dataset.procurementSettingType = type;
       row.append(control);
       section.append(row);
     }
     body.append(section);
   }
+  syncProcurementSettings(body);
 }
 
 function formatShortcut(shortcut) {
@@ -1320,6 +1360,22 @@ function findMaterialHost(panel, itemHrid) {
   return null;
 }
 
+function findUpgradeItemBadgeMount(panel) {
+  const emptyCopy =
+    /^(?:没有选择升级物品|未选择升级物品|no (?:upgrade )?item selected)$/i;
+  const emptyState = [...panel.querySelectorAll("span,div,p")].find(
+    (element) =>
+      element.childElementCount === 0 &&
+      emptyCopy.test(String(element.textContent ?? "").trim()),
+  );
+  if (emptyState) return { host: emptyState, mode: "after" };
+
+  const upgradeRow = panel.querySelector(
+    '[class*="SkillActionDetail_upgradeItem"],[class*="SkillActionDetail_UpgradeItem"]',
+  );
+  return upgradeRow ? { host: upgradeRow, mode: "append" } : null;
+}
+
 function itemHridFromSpriteHref(href) {
   const source = String(href ?? "");
   const hashIndex = source.lastIndexOf("#");
@@ -1643,12 +1699,25 @@ function renderProductionProcurement() {
   }
   clearProductionUi();
   lastProductionSignature = signature;
+  const upgradeItemHrid = procurement.normalizeItemHrid(
+    direct.detail?.upgradeItemHrid,
+  );
   if (settings.badgesEnabled) {
     for (const material of direct.materials) {
-      const host = findMaterialHost(context.panel, material.itemHrid);
-      if (!host) continue;
+      const itemHrid = procurement.normalizeItemHrid(material.itemHrid);
+      const isUpgradeItem = Boolean(
+        upgradeItemHrid && itemHrid === upgradeItemHrid,
+      );
+      const upgradeMount = isUpgradeItem
+        ? findUpgradeItemBadgeMount(context.panel)
+        : null;
+      const host = upgradeMount
+        ? null
+        : findMaterialHost(context.panel, material.itemHrid);
+      if (!host && !upgradeMount) continue;
       const badge = document.createElement("span");
       badge.className = "mwi-procurement-badge";
+      if (isUpgradeItem) badge.classList.add("mwi-procurement-upgrade-badge");
       badge.dataset.state = material.shortage ? "missing" : "ready";
       badge.textContent = material.shortage
         ? `${t("缺", "Need")} ${formatNumber(material.shortage)}`
@@ -1657,8 +1726,12 @@ function renderProductionProcurement() {
         .map((entry) => `${entry.name}: ${exactNumber(entry.quantity)}`)
         .join("\n");
       badge.title = `${t("建议准备", "Suggested")}: ${exactNumber(material.suggested)}\n${t("当前拥有", "Owned")}: ${exactNumber(material.owned)}${material.locked ? `\n${t("计划锁定", "Locked")}: ${exactNumber(material.locked)}\n${locks}` : ""}`;
-      host.insertAdjacentElement("afterend", badge);
-      layoutMaterialBadge(context.panel, host, badge);
+      if (upgradeMount?.mode === "append") upgradeMount.host.append(badge);
+      else
+        (upgradeMount?.host ?? host).insertAdjacentElement("afterend", badge);
+      if (host?.closest('[class*="SkillActionDetail_itemRequirements"]')) {
+        layoutMaterialBadge(context.panel, host, badge);
+      }
     }
   }
   const root = document.createElement("section");

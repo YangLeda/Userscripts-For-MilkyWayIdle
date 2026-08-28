@@ -225,7 +225,7 @@ test("weekly guild experience is normalized to this-week XP per hour", () => {
 test("guild XP columns draw relative bars and sort in both directions", async () => {
   document.body.innerHTML = `
     <div class="GuildPanel_guildPanel__test">
-      <div class="GuildPanel_membersTab__test">
+      <div class="GuildPanel_membersTab-test">
         <table>
           <thead><tr><th>成员</th></tr></thead>
           <tbody><tr><td>Alice</td></tr><tr><td>Bob</td></tr><tr><td>Charlie</td></tr></tbody>
@@ -276,23 +276,41 @@ test("guild XP columns draw relative bars and sort in both directions", async ()
   await runtime.api.sampleGuildState(false);
   runtime.api.renderGuildTables();
 
-  const table = document.querySelector(".GuildPanel_membersTab__test table");
+  const table = document.querySelector(".GuildPanel_membersTab-test table");
   assert.ok(
     document
-      .querySelector(".GuildPanel_membersTab__test")
+      .querySelector(".GuildPanel_membersTab-test")
       .classList.contains("mwi-guild-members-wide"),
   );
   assert.ok(
     table.parentElement.classList.contains("mwi-guild-member-table-wrap"),
+  );
+  const guildStyles = document.getElementById("mwitools-guild-xp-style");
+  assert.ok(guildStyles, "guild XP styles should be mounted");
+  assert.match(
+    guildStyles.textContent,
+    /\.mwi-guild-members-wide\s*\{[^}]*box-sizing:border-box[^}]*width:min\(100%,960px\)[^}]*max-width:960px/s,
+  );
+  assert.match(
+    guildStyles.textContent,
+    /\.mwi-guild-member-table-wrap\s*\{[^}]*box-sizing:border-box[^}]*width:min\(100%,960px\)[^}]*overflow-x:hidden/s,
+  );
+  assert.match(
+    guildStyles.textContent,
+    /\.mwi-guild-member-table-wrap \.mwi-guild-member-table\s*\{[^}]*width:100%[^}]*min-width:0[^}]*table-layout:fixed/s,
+  );
+  assert.match(
+    guildStyles.textContent,
+    /\.mwi-guild-rate-content\s*\{[^}]*grid-template-columns:86px 72px/s,
   );
   assert.equal(table.rows[0].cells.length, table.rows[1].cells.length);
   assert.deepEqual(
     [...table.querySelectorAll("thead th")].map((cell) =>
       cell.textContent.replace("↕", ""),
     ),
-    ["成员", "近 6 小时 XP/h", "24 小时 XP/h", "本周平均 XP/h"],
+    ["成员", "24 小时 XP/h"],
   );
-  assert.equal(table.querySelectorAll(".mwi-guild-rate-cell").length, 9);
+  assert.equal(table.querySelectorAll(".mwi-guild-rate-cell").length, 3);
   assert.equal(
     document.querySelectorAll(
       "#application-table .mwi-guild-rate-cell,#application-table .mwi-guild-recent-head,#application-table .mwi-guild-day-head,#application-table .mwi-guild-week-head",
@@ -309,7 +327,7 @@ test("guild XP columns draw relative bars and sort in both directions", async ()
         (fill) => fill.style.width,
       ),
     ),
-    [["50%", "50%", "25%"], ["100%", "100%", "100%"], []],
+    [["50%"], ["100%"], []],
   );
 
   const trialHeader = document.createElement("th");
@@ -329,7 +347,7 @@ test("guild XP columns draw relative bars and sort in both directions", async ()
     [...table.querySelectorAll("thead th")].map((cell) =>
       cell.textContent.replace("↕", ""),
     ),
-    ["成员", "试炼层数", "近 6 小时 XP/h", "24 小时 XP/h", "本周平均 XP/h"],
+    ["成员", "试炼层数", "24 小时 XP/h"],
   );
   assert.ok(
     [...table.tBodies[0].rows].every(
@@ -339,15 +357,15 @@ test("guild XP columns draw relative bars and sort in both directions", async ()
     ),
   );
 
-  const recentHeader = table.querySelector(".mwi-guild-recent-head");
-  recentHeader.click();
+  const dayHeader = table.querySelector(".mwi-guild-day-head");
+  dayHeader.click();
   assert.deepEqual(
     [...table.querySelectorAll("tbody tr")].map(
       (row) => row.cells[0].textContent,
     ),
     ["Bob", "Alice", "Charlie"],
   );
-  recentHeader.click();
+  dayHeader.click();
   assert.deepEqual(
     [...table.querySelectorAll("tbody tr")].map(
       (row) => row.cells[0].textContent,

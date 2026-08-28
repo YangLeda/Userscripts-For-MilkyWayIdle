@@ -435,6 +435,8 @@ function start(scope) {
     getCurrentBattle: () => Session.serialize(),
     getBattleHistory: (type) => HistoryStore.getAll(type),
     getDisplayedSegment: () => ViewData.get(),
+    getMainMode: KikiMeter.getMainMode,
+    togglePrimaryMode: KikiMeter.togglePrimaryMode,
     listSegments: () =>
       SegmentSelection.options().map((x) => ({
         key: x.key,
