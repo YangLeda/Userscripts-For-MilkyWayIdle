@@ -425,10 +425,10 @@ test("announcement history preserves each release separately through 26.4.17", (
   assert.equal(release17.version, "26.4.17");
   assert.equal(release17.publishedAt, "2026-08-28");
   assert.equal(release17.body.zh.length, release17.body.en.length);
-  assert.equal(release17.body.zh.length, 8);
+  assert.equal(release17.body.zh.length, 10);
   assert.match(
     release17.body.zh.join("\n"),
-    /Buff\/Debuff.*数字倒计时[\s\S]*地牢标识.*右上角[\s\S]*库存资产.*冻结快照[\s\S]*生产升级配方.*升级自.*缺\/余[\s\S]*24 小时 XP\/h[\s\S]*放弃任务.*二次确认.*卡片顺序[\s\S]*游戏资源注册表.*扫描全页 SVG.*错峰播放.*动画.*自身徽章写入.*卡顿/,
+    /Buff\/Debuff.*数字倒计时[\s\S]*地牢标识.*右上角[\s\S]*库存资产.*冻结快照[\s\S]*生产升级配方.*升级自.*缺\/余[\s\S]*24 小时 XP\/h[\s\S]*放弃任务.*二次确认.*卡片顺序[\s\S]*游戏资源注册表.*扫描全页 SVG.*错峰播放.*动画.*自身徽章写入.*卡顿[\s\S]*高热网络梗[\s\S]*交战信息.*弹窗.*最多显示两位小数[\s\S]*标记为重要更新/,
   );
   assert.equal(release16.version, "26.4.16");
   assert.equal(release16.publishedAt, "2026-08-20");

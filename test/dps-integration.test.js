@@ -249,7 +249,7 @@ test("DPS feature reuses settings and cleans repeated enable-disable cycles", as
     attackAttemptCounter: 0,
     isPreparingAutoAttack: true,
     combatDetails: {
-      magicAccuracyRating: 100,
+      magicAccuracyRating: 661.966368000001,
       combatStats: {
         combatStyleHrids: ["/combat_styles/magic"],
         damageType: "/damage_types/fire",
@@ -268,7 +268,7 @@ test("DPS feature reuses settings and cleans repeated enable-disable cycles", as
           name: "Training Rat",
           hrid: "/monsters/training_rat",
           currentHitpoints: 100,
-          combatDetails: { magicEvasionRating: 100 },
+          combatDetails: { magicEvasionRating: 661.966368000001 },
         },
       ],
     },
@@ -303,8 +303,10 @@ test("DPS feature reuses settings and cleans repeated enable-disable cycles", as
   assert.ok(accuracyRow);
   assert.match(accuracyRow.textContent, /Training Rat/);
   assert.match(accuracyRow.textContent, /50\.00%/);
-  assert.match(accuracyRow.title, /Accuracy rating: 100/);
-  assert.match(accuracyRow.title, /Evasion rating: 100/);
+  assert.match(dpsPanel.textContent, /Accuracy rating 661\.97/);
+  assert.match(accuracyRow.title, /Accuracy rating: 661\.97/);
+  assert.match(accuracyRow.title, /Evasion rating: 661\.97/);
+  assert.doesNotMatch(accuracyRow.title, /661\.966/);
   assert.match(
     accuracyRow.querySelector("svg use")?.getAttribute("href") || "",
     /combat_monsters_sprite\.test\.svg#training_rat$/,

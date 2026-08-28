@@ -13,6 +13,10 @@ import { Session } from "./20-session.js";
 // ─── DPS Graph ────────────────────────────────────────────────────────────────
 const BOSS_COLOR = "#FF3F34";
 const langText = (zh, en) => (Settings.getLanguage() === "en" ? en : zh);
+const formatRating = (value) => {
+  const number = Number(value);
+  return Number.isFinite(number) ? String(Number(number.toFixed(2))) : "—";
+};
 
 function buildGraph() {
   // Durée d'un bucket — DOIT correspondre à Session.BUCKET_MS (2000ms).
@@ -961,9 +965,7 @@ function renderAccuracyRows(container, rows, rerender, emptyText) {
     fontSize: "9px",
     flexShrink: "0",
   });
-  const accuracyCopy = Number.isFinite(Number(selected.accuracyRating))
-    ? selected.accuracyRating
-    : "—";
+  const accuracyCopy = formatRating(selected.accuracyRating);
   summary.textContent = `${styleLabel} · ${langText("命中等级", "Accuracy rating")} ${accuracyCopy}`;
   body.replaceChildren(summary);
 
@@ -985,7 +987,8 @@ function renderAccuracyRows(container, rows, rerender, emptyText) {
     });
     line.dataset.kikimeterAccuracyMonsterRow = "true";
     line.dataset.monsterHrid = monster.monsterHrid || "";
-    line.title = `${selected.name} · ${styleLabel}\n${langText("命中等级", "Accuracy rating")}: ${accuracyCopy}\n${langText("闪避等级", "Evasion rating")}: ${Number.isFinite(Number(monster.evasionRating)) ? monster.evasionRating : "—"}\n${langText("理论命中率", "Theoretical hit chance")}: ${pct.toFixed(2)}%`;
+    const evasionCopy = formatRating(monster.evasionRating);
+    line.title = `${selected.name} · ${styleLabel}\n${langText("命中等级", "Accuracy rating")}: ${accuracyCopy}\n${langText("闪避等级", "Evasion rating")}: ${evasionCopy}\n${langText("理论命中率", "Theoretical hit chance")}: ${pct.toFixed(2)}%`;
     const bar = el("div", {
       position: "absolute",
       inset: "0 auto 0 0",

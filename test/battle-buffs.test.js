@@ -250,7 +250,12 @@ test("a cast buff renders an icon chip below the caster", async () => {
     mMap: {},
   });
 
-  const casterBar = playerUnits()[0].querySelector(".mwi-buffbar");
+  const casterUnit = playerUnits()[0];
+  let nativeUnitClicks = 0;
+  casterUnit.addEventListener("click", () => {
+    nativeUnitClicks += 1;
+  });
+  const casterBar = casterUnit.querySelector(".mwi-buffbar");
   assert.ok(casterBar, "buff bar exists on the caster");
   // The bar stays inside the status column, so it never overlaps neighbouring
   // units.
@@ -267,9 +272,19 @@ test("a cast buff renders an icon chip below the caster", async () => {
   assert.equal(casterBar.querySelector(".mwi-progress-ring"), null);
   casterBar.click();
   assert.equal(toggles, 1);
+  assert.equal(
+    nativeUnitClicks,
+    0,
+    "buff-bar clicks must not bubble into the native combat-unit card",
+  );
   runtime.api.dps.enabled = false;
   casterBar.click();
   assert.equal(toggles, 1, "disabled DPS must ignore buff-bar clicks");
+  assert.equal(
+    nativeUnitClicks,
+    0,
+    "disabled DPS must still suppress the native combat-unit click",
+  );
   runtime.api.dps.enabled = true;
 
   runtime.dispatchMessage({

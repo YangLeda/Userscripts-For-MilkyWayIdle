@@ -175,7 +175,9 @@ function createBuffTracker(scope) {
       bar.title = runtime.config.isZH
         ? "点击切换 DPS / HPS"
         : "Click to switch DPS / HPS";
-      bar.addEventListener("click", () => {
+      bar.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
         if (runtime.api.dps?.enabled !== true) return;
         runtime.api.dps.togglePrimaryMode?.();
       });
