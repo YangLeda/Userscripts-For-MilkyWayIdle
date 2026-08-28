@@ -67,140 +67,137 @@ export function buildAssetShareMessage(
   const signedPercent = `${percent > 0 ? "+" : ""}${percent.toFixed(2)}%`;
   const zhProfitTemplates = [
     () => `📈 ${period}资产含金量还在上升：+${amount}，涨幅 +${percentText}。`,
+    () => `来财，来：${period}进账 ${amount}，总资产 +${percentText}。`,
+    () => `${period}收益 +${amount}，助我破鼎；资产再涨 ${percentText}。`,
+    () => `千百次练习只为这一刻：${period} +${amount}，资产 +${percentText}。`,
+    () => `敬今天的自己一杯：${period}赚了 ${amount}，身家 +${percentText}。`,
+    () => `${period}就这么水灵灵地赚了 ${amount}，资产 +${percentText}。`,
+    () => `${period}财富曲线直接硬控全场：+${amount}，资产 +${percentText}。`,
     () =>
       `不知道，我的资产很曼妙：${period} +${amount}，身家 +${percentText}。`,
     () =>
-      `我们不说赚了 ${amount}，我们可以说：${period}资产含金量又涨了 ${percentText}。`,
-    () => `来财，来：${period}进账 ${amount}，总资产 +${percentText}。`,
-    () => `${period}的财富曲线直接硬控全场：+${amount}，资产 +${percentText}。`,
-    () => `${period}就这么水灵灵地赚了 ${amount}，资产 +${percentText}。`,
-    () => `${period}赚了 ${amount}还保持松弛感，身家 +${percentText}。`,
-    () =>
       `资产敢这么涨，胆子真是肥嘟嘟的啊：${period} +${amount}，+${percentText}。`,
-    () => `理财基础，${period}赚 ${amount}不基础；资产 +${percentText}。`,
-    () => `进城办事顺便赚了点：${period} +${amount}，资产 +${percentText}。`,
-    () => `${period}赚了 ${amount}，资产 +${percentText}，那咋了。`,
-    () => `${period}财富 +${amount}、资产 +${percentText}；如何呢，又能怎。`,
+    () =>
+      `来杯好茶摇一摇，余额跟着往上飘：${period} +${amount}，+${percentText}。`,
+    () => `中式 DNA 动了，先存钱：${period} +${amount}，资产 +${percentText}。`,
+    () =>
+      `这收益，大人真乃神人也：${period} +${amount}，资产 +${percentText}。`,
   ];
   const zhLossTemplates = [
-    () => `📉 ${period}资产含金量暂停上升：-${amount}，变化 -${percentText}。`,
+    () => `📉 这跌幅我要验牌：${period} -${amount}，资产 -${percentText}。`,
+    () => `余额进入奥德赛时期：${period} -${amount}，资产 -${percentText}。`,
     () =>
-      `不知道，我的身材很曼妙；知道的是${period}资产 -${amount}，-${percentText}。`,
+      `财富肉体还在线，精神已经下班：${period} -${amount}，-${percentText}。`,
+    () => `这次我绷住了：${period}亏 ${amount}，资产 -${percentText}。`,
+    () => `账本像个草台班子：${period} -${amount}，身家 -${percentText}。`,
+    () => `一下亏出班味：${period} -${amount}，资产 -${percentText}。`,
+    () => `钱走得很有偷感：${period}少了 ${amount}，资产 -${percentText}。`,
+    () => `浪浪山小妖怪下山填坑：${period}亏 ${amount}，资产 -${percentText}。`,
+    () => `富婆哦？不讲不讲，${period}刚亏 ${amount}，身家 -${percentText}。`,
+    () => `参考文献：${period}亏损 ${amount}，资产变化 -${percentText}。`,
     () =>
-      `我们不说亏了 ${amount}，我们可以说：${period}资产向下松弛了 ${percentText}。`,
-    () => `来财没来，去财先来：${period} -${amount}，资产 -${percentText}。`,
-    () => `${period}赤字直接硬控账本：-${amount}，资产 -${percentText}。`,
-    () => `${period}就这么水灵灵地掉了 ${amount}，身家 -${percentText}。`,
-    () => `账本很有松弛感，松到${period}掉了 ${amount}，资产 -${percentText}。`,
+      `低山臭水遇至阴，账户一路向下：${period} -${amount}，-${percentText}。`,
     () =>
-      `市场敢这么跌，胆子真是肥嘟嘟的啊：${period} -${amount}，-${percentText}。`,
-    () => `理财基础，${period}亏 ${amount}不基础；资产 -${percentText}。`,
-    () => `我的财富${period}进城办事了：带走 ${amount}，身家 -${percentText}。`,
-    () => `${period}亏了 ${amount}，资产 -${percentText}，那咋了。`,
-    () => `${period}财富 -${amount}、资产 -${percentText}；如何呢，又能怎。`,
+      `野生狗奶保质期永久，我的余额不是：${period} -${amount}，-${percentText}。`,
   ];
   const enProfitTemplates = [
     () =>
       `📈 POV: the balance finally popped off — ${period}, +${amount} and assets up ${percentText}.`,
+    () => `Big W for the balance: ${period}, +${amount} and +${percentText}.`,
     () =>
-      `Very demure, very mindful, very profitable: ${period}, +${amount} and +${percentText}.`,
-    () =>
-      `Locked in, ledger edition: ${period}, +${amount}; assets up ${percentText}.`,
-    () => `The math is mathing: ${period}, +${amount} and +${percentText}.`,
-    () =>
-      `Main-character balance energy: ${period}, +${amount} and +${percentText}.`,
-    () =>
-      `Plot twist: ${period} added ${amount}, and assets rose ${percentText}.`,
+      `The portfolio understood the assignment: ${period}, +${amount} and +${percentText}.`,
     () =>
       `The grind ate and left no crumbs: ${period}, +${amount} and +${percentText}.`,
     () =>
-      `Aura points added: ${period} earned ${amount}, net worth up ${percentText}.`,
+      `Aura farming paid off: ${period} earned ${amount}, net worth up ${percentText}.`,
     () =>
-      `In my compounding era: ${period}, +${amount}; assets up ${percentText}.`,
+      `Locked in, ledger edition: ${period}, +${amount}; assets up ${percentText}.`,
     () =>
-      `That side quest actually paid: ${period}, +${amount} and +${percentText}.`,
+      `The rent was due and the portfolio delivered: ${period}, +${amount} and +${percentText}.`,
     () =>
       `Let the portfolio cook: ${period}, +${amount}; assets up ${percentText}.`,
     () =>
-      `Chat, is this real? ${period} delivered +${amount} and +${percentText}.`,
+      `Main-character balance energy: ${period}, +${amount} and +${percentText}.`,
+    () =>
+      `In my compounding era: ${period}, +${amount}; assets up ${percentText}.`,
+    () =>
+      `Chef's kiss for this balance: ${period}, +${amount} and +${percentText}.`,
+    () => `We love to see it: ${period}, +${amount}; assets up ${percentText}.`,
   ];
   const enLossTemplates = [
     () =>
-      `📉 POV: the balance chose chaos — ${period}, -${amount} and assets down ${percentText}.`,
+      `📉 Financial canon event: ${period}, -${amount} and assets down ${percentText}.`,
+    () => `The portfolio is cooked: ${period}, -${amount} and -${percentText}.`,
+    () => `The math is not mathing: ${period}, -${amount} and -${percentText}.`,
     () =>
-      `Very demure, very mindful, very much a loss: ${period}, -${amount} and -${percentText}.`,
+      `Caught the balance slipping in 4K: ${period}, -${amount} and -${percentText}.`,
+    () => `Portfolio skill issue: ${period}, -${amount}; down ${percentText}.`,
     () =>
-      `Locked in; the balance logged out: ${period}, -${amount} and -${percentText}.`,
-    () =>
-      `The math is mathing, unfortunately: ${period}, -${amount} and -${percentText}.`,
-    () =>
-      `Main-character setback: ${period}, -${amount}; net worth down ${percentText}.`,
+      `Villain-origin-story numbers: ${period}, -${amount}; net worth down ${percentText}.`,
     () =>
       `Plot twist nobody ordered: ${period} lost ${amount}, down ${percentText}.`,
     () =>
-      `The market ate and left no crumbs: ${period}, -${amount} and -${percentText}.`,
-    () =>
-      `Aura points deducted: ${period} lost ${amount}, net worth down ${percentText}.`,
-    () =>
-      `In my financially humbled era: ${period}, -${amount}; assets down ${percentText}.`,
-    () =>
       `That side quest had microtransactions: ${period}, -${amount} and -${percentText}.`,
     () =>
-      `I let the portfolio cook; it burned ${amount}: ${period}, assets down ${percentText}.`,
+      `Critical aura loss: ${period}, -${amount}; net worth down ${percentText}.`,
+    () =>
+      `Entering the crash-out arc: ${period}, -${amount} and -${percentText}.`,
+    () =>
+      `Task failed successfully: ${period}, -${amount}; assets down ${percentText}.`,
     () =>
       `Chat, is this real? ${period} dropped ${amount}, down ${percentText}.`,
   ];
   const neutralTemplates = runtime.config.isZH
     ? [
         () =>
-          `➖ ${period}资产含金量还在原地：${signedAmount}，${signedPercent}。`,
-        () =>
-          `不知道，我的身材很曼妙；资产倒是${period}稳在 ${signedAmount}（${signedPercent}）。`,
-        () =>
-          `我们不说没动，我们可以说：${period}资产稳得很具体，${signedAmount}（${signedPercent}）。`,
-        () =>
-          `来财卡在加载中：${period}盈亏 ${signedAmount}，变化 ${signedPercent}。`,
-        () =>
-          `一条横线硬控全场：${period}资产 ${signedAmount}，${signedPercent}。`,
-        () =>
-          `${period}资产就这么水灵灵地持平了：${signedAmount}（${signedPercent}）。`,
-        () =>
-          `${period}账本松弛感拉满：${signedAmount}，变化 ${signedPercent}。`,
-        () =>
-          `不涨也不跌，资产的胆子还不够肥嘟嘟：${period} ${signedAmount}（${signedPercent}）。`,
-        () =>
-          `资产基础，稳得不基础：${period} ${signedAmount}，${signedPercent}。`,
-        () =>
-          `财富进城办事还没回来：${period}盈亏 ${signedAmount}，变化 ${signedPercent}。`,
+          `➖ ${period}账本松弛感拉满：${signedAmount}，变化 ${signedPercent}。`,
         () => `${period}盈亏 ${signedAmount}，变化 ${signedPercent}，那咋了。`,
         () =>
           `${period}资产 ${signedAmount}，变化 ${signedPercent}；如何呢，又能怎。`,
+        () =>
+          `持平基础，稳得不基础：${period} ${signedAmount}，${signedPercent}。`,
+        () =>
+          `财富进城办事还没回来：${period}盈亏 ${signedAmount}，变化 ${signedPercent}。`,
+        () =>
+          `账本切换豆包型人格：${period} ${signedAmount}，情绪稳定在 ${signedPercent}。`,
+        () =>
+          `做完你的，做你的；资产先不做：${period} ${signedAmount}（${signedPercent}）。`,
+        () =>
+          `我们不说没动，我们可以说：${period}资产稳得很具体，${signedAmount}（${signedPercent}）。`,
+        () =>
+          `牌没有问题，资产也没动：${period} ${signedAmount}（${signedPercent}）。`,
+        () =>
+          `城巴佬第一次看资产曲线：怎么是一条直线？${period} ${signedAmount}（${signedPercent}）。`,
+        () =>
+          `数值没变，情绪价值给满：${period} ${signedAmount}，变化 ${signedPercent}。`,
+        () =>
+          `今日村咖特调：零涨跌。${period} ${signedAmount}（${signedPercent}）。`,
       ]
     : [
         () =>
-          `➖ POV: the chart became a horizon — ${period}, P/L ${signedAmount}, change ${signedPercent}.`,
+          `➖ Very demure, very mindful, very unchanged: ${period}, P/L ${signedAmount}, change ${signedPercent}.`,
         () =>
-          `Very demure, very mindful, very unchanged: ${period}, P/L 0 and change ${signedPercent}.`,
+          `The balance entered NPC idle animation: ${period}, P/L 0 and change ${signedPercent}.`,
         () =>
-          `Locked in place: ${period}, P/L ${signedAmount} and change ${signedPercent}.`,
+          `Portfolio loading screen: ${period}, P/L ${signedAmount}, change ${signedPercent}.`,
         () =>
-          `The math is mathing to exactly zero: ${period}, P/L 0, change ${signedPercent}.`,
+          `No gains, no losses, just vibes: ${period}, ${signedAmount} (${signedPercent}).`,
         () =>
-          `Main-character balance is on a loading screen: ${period}, ${signedAmount} (${signedPercent}).`,
+          `Standing on business, literally not moving: ${period}, ${signedAmount} (${signedPercent}).`,
         () =>
-          `Plot twist: there was no plot — ${period}, P/L 0 (${signedPercent}).`,
+          `Zero lore progression: ${period}, P/L 0 and change ${signedPercent}.`,
         () =>
-          `The ledger ate exactly zero crumbs: ${period}, ${signedAmount} and ${signedPercent}.`,
+          `The chart is buffering: ${period}, ${signedAmount} and ${signedPercent}.`,
         () =>
-          `Aura points unchanged: ${period}, P/L 0 and change ${signedPercent}.`,
+          `The portfolio went to touch grass: ${period}, P/L 0 (${signedPercent}).`,
         () =>
-          `Still in my break-even era: ${period}, ${signedAmount}; assets stayed at ${signedPercent}.`,
+          `Low-key the same balance: ${period}, ${signedAmount}; change ${signedPercent}.`,
         () =>
-          `Side quest paused: ${period}, ${signedAmount}; assets stayed at ${signedPercent}.`,
+          `No thoughts, head empty, P/L zero: ${period}, ${signedAmount} (${signedPercent}).`,
         () =>
-          `Let the ledger cook; it served zero: ${period}, ${signedAmount} (${signedPercent}).`,
+          `Not beating the flat-chart allegations: ${period}, ${signedAmount} (${signedPercent}).`,
         () =>
-          `Chat, is this real? ${period} moved ${signedAmount}, exactly ${signedPercent}.`,
+          `It's giving... absolutely no movement: ${period}, ${signedAmount} (${signedPercent}).`,
       ];
   const templates =
     change === 0
@@ -252,156 +249,155 @@ export function buildAssetComponentShareMessage(
     () =>
       `📈 ${component}含金量还在上升：${period} +${amount}（${percentText}），当前 ${currentText}。`,
     () =>
-      `不知道，我的${component}很曼妙：${period} +${amount}（${percentText}），现在 ${currentText}。`,
-    () =>
-      `我们不说${component}赚了 ${amount}，我们可以说：${period}含金量涨 ${percentText}，现值 ${currentText}。`,
-    () =>
       `${component}来财，来：${period} +${amount}（${percentText}），当前 ${currentText}。`,
     () =>
-      `${component}直接硬控全场：${period} +${amount}（${percentText}），当前 ${currentText}。`,
+      `${component}助我破鼎：${period} +${amount}（${percentText}），现值 ${currentText}。`,
+    () =>
+      `千百次练习只为这一刻，${component}${period} +${amount}（${percentText}），当前 ${currentText}。`,
+    () =>
+      `敬${component}一杯：${period}赚 ${amount}（${percentText}），现值 ${currentText}。`,
     () =>
       `${component}就这么水灵灵地涨了：${period} +${amount}（${percentText}），当前 ${currentText}。`,
     () =>
-      `${component}赚钱还保持松弛感：${period} +${amount}（${percentText}），现值 ${currentText}。`,
+      `${component}直接硬控收益榜：${period} +${amount}（${percentText}），当前 ${currentText}。`,
+    () =>
+      `不知道，我的${component}很曼妙：${period} +${amount}（${percentText}），现在 ${currentText}。`,
     () =>
       `${component}敢这么涨，胆子真是肥嘟嘟的啊：${period} +${amount}（${percentText}），当前 ${currentText}。`,
     () =>
-      `${component}基础，${period}赚 ${amount}不基础；涨 ${percentText}，当前 ${currentText}。`,
+      `${component}来杯好茶摇一摇：${period} +${amount}（${percentText}），现值 ${currentText}。`,
     () =>
-      `${component}进城办事顺便赚了点：${period} +${amount}（${percentText}），当前 ${currentText}。`,
+      `中式 DNA 看到${component}上涨就想存：${period} +${amount}（${percentText}），当前 ${currentText}。`,
     () =>
-      `${component}${period} +${amount}（${percentText}），现在 ${currentText}，那咋了。`,
-    () =>
-      `${component}${period} +${amount}（${percentText}），当前 ${currentText}；如何呢，又能怎。`,
+      `${component}这波，大人真乃神人也：${period} +${amount}（${percentText}），现值 ${currentText}。`,
   ];
   const zhLossTemplates = [
     () =>
-      `📉 ${component}含金量暂停上升：${period} -${amount}（${percentText}），当前 ${currentText}。`,
+      `📉 ${component}这跌幅我要验牌：${period} -${amount}（${percentText}），当前 ${currentText}。`,
     () =>
-      `不知道，我的身材很曼妙；知道的是${component}${period} -${amount}（${percentText}），现值 ${currentText}。`,
+      `${component}进入奥德赛时期：${period} -${amount}（${percentText}），现值 ${currentText}。`,
     () =>
-      `我们不说${component}亏了 ${amount}，我们可以说：${period}向下松弛了 ${percentText}，现值 ${currentText}。`,
+      `${component}肉体还在账户，精神已经下班：${period} -${amount}（${percentText}），当前 ${currentText}。`,
     () =>
-      `${component}来财没来，去财先来：${period} -${amount}（${percentText}），当前 ${currentText}。`,
+      `${component}这下不绷住也得绷住：${period} -${amount}（${percentText}），现值 ${currentText}。`,
     () =>
-      `${component}赤字直接硬控账本：${period} -${amount}（${percentText}），当前 ${currentText}。`,
+      `${component}账本临时草台班子：${period} -${amount}（${percentText}），当前 ${currentText}。`,
     () =>
-      `${component}就这么水灵灵地掉了：${period} -${amount}（${percentText}），现在 ${currentText}。`,
+      `${component}一下亏出班味：${period} -${amount}（${percentText}），现在 ${currentText}。`,
     () =>
-      `${component}很有松弛感，松到${period} -${amount}（${percentText}），当前 ${currentText}。`,
+      `${component}的钱走得很有偷感：${period} -${amount}（${percentText}），当前 ${currentText}。`,
     () =>
-      `${component}敢这么跌，胆子真是肥嘟嘟的啊：${period} -${amount}（${percentText}），总计 ${currentText}。`,
+      `浪浪山小妖怪下山给${component}填坑：${period} -${amount}（${percentText}），现值 ${currentText}。`,
     () =>
-      `${component}基础，${period}亏 ${amount}不基础；跌 ${percentText}，现值 ${currentText}。`,
+      `富婆哦？不讲不讲，${component}${period} -${amount}（${percentText}），当前 ${currentText}。`,
     () =>
-      `${component}${period}进城办事了：带走 ${amount}（${percentText}），当前 ${currentText}。`,
+      `${component}亏损参考文献：${period} -${amount}（${percentText}），现值 ${currentText}。`,
     () =>
-      `${component}${period} -${amount}（${percentText}），当前 ${currentText}，那咋了。`,
+      `${component}低山臭水遇至阴：${period} -${amount}（${percentText}），当前 ${currentText}。`,
     () =>
-      `${component}${period} -${amount}（${percentText}），现在 ${currentText}；如何呢，又能怎。`,
+      `野生狗奶永久，${component}余额不永久：${period} -${amount}（${percentText}），现值 ${currentText}。`,
   ];
   const zhNeutralTemplates = [
     () =>
-      `➖ ${component}含金量还在原地：${period}变化 0（0.00%），当前 ${currentText}。`,
-    () =>
-      `不知道，我的身材很曼妙；${component}倒是${period}变化 0（0.00%），现值 ${currentText}。`,
-    () =>
-      `我们不说${component}没动，我们可以说：${period}稳得很具体，变化 0 / 0.00%，现值 ${currentText}。`,
-    () =>
-      `${component}来财卡在加载中：${period}变化 0（0.00%），当前 ${currentText}。`,
-    () =>
-      `${component}一条横线硬控全场：${period}变化 0（0.00%），当前 ${currentText}。`,
-    () =>
-      `${component}就这么水灵灵地持平了：${period} 0（0.00%），当前 ${currentText}。`,
-    () =>
-      `${component}松弛感拉满：${period} ±0（0.00%），当前 ${currentText}。`,
-    () =>
-      `${component}不涨也不跌，胆子还不够肥嘟嘟：${period} 0（0.00%），总计 ${currentText}。`,
-    () =>
-      `${component}基础，稳得不基础：${period}变化 0（0.00%），现值 ${currentText}。`,
-    () =>
-      `${component}进城办事还没回来：${period}变化 0（0.00%），当前 ${currentText}。`,
+      `➖ ${component}松弛感拉满：${period}变化 0（0.00%），当前 ${currentText}。`,
     () => `${component}${period}变化 0（0.00%），当前 ${currentText}，那咋了。`,
     () =>
-      `${component}${period}变化 0（0.00%），当前 ${currentText}；如何呢，又能怎。`,
+      `${component}${period}变化 0（0.00%），现值 ${currentText}；如何呢，又能怎。`,
+    () =>
+      `${component}持平基础，稳得不基础：${period} 0（0.00%），当前 ${currentText}。`,
+    () =>
+      `${component}进城办事还没回来：${period} 0（0.00%），当前 ${currentText}。`,
+    () =>
+      `${component}切换豆包型人格：${period} 0（0.00%），情绪稳定在 ${currentText}。`,
+    () =>
+      `做完你的，做你的；${component}先不做：${period} 0（0.00%），现值 ${currentText}。`,
+    () =>
+      `我们不说${component}没动，我们可以说：${period}稳得很具体，0（0.00%），现值 ${currentText}。`,
+    () => `${component}牌没有问题：${period} 0（0.00%），当前 ${currentText}。`,
+    () =>
+      `城巴佬看${component}曲线：怎么不动？${period} 0（0.00%），当前 ${currentText}。`,
+    () =>
+      `${component}数值没变，情绪价值给满：${period} 0（0.00%），现值 ${currentText}。`,
+    () =>
+      `${component}今日村咖特调：零涨跌。${period} 0（0.00%），当前 ${currentText}。`,
   ];
   const enProfitTemplates = [
     () =>
       `📈 POV: ${component} popped off — ${period}, +${amount} (${percentText}) to ${currentText}.`,
     () =>
-      `Very demure, very mindful: ${component} gained ${amount} ${period} (${percentText}); now ${currentText}.`,
+      `Big W for ${component}: ${period}, +${amount} (${percentText}); now ${currentText}.`,
     () =>
-      `${component} is locked in: ${period}, +${amount} (${percentText}); current value ${currentText}.`,
-    () =>
-      `${component} math is mathing: ${period}, +${amount} (${percentText}); now ${currentText}.`,
-    () =>
-      `${component} has main-character energy: ${period}, +${amount} (${percentText}); total ${currentText}.`,
-    () =>
-      `Plot twist: ${component} gained ${amount} ${period} (${percentText}); now ${currentText}.`,
+      `${component} understood the assignment: ${period}, +${amount} (${percentText}); current ${currentText}.`,
     () =>
       `${component} ate and left no crumbs: ${period}, +${amount} (${percentText}); current ${currentText}.`,
     () =>
-      `${component} aura points added: ${period}, +${amount} (${percentText}); total ${currentText}.`,
+      `${component} is aura farming: ${period}, +${amount} (${percentText}); total ${currentText}.`,
     () =>
-      `In my gains era, ${component} edition: ${period}, +${amount} (${percentText}); now ${currentText}.`,
+      `${component} is locked in: ${period}, +${amount} (${percentText}); current value ${currentText}.`,
     () =>
-      `That ${component} side quest actually paid: ${period}, +${amount} (${percentText}); current ${currentText}.`,
+      `The rent was due and ${component} delivered: ${period}, +${amount} (${percentText}); now ${currentText}.`,
     () =>
       `Let ${component} cook: ${period}, +${amount} (${percentText}); total ${currentText}.`,
     () =>
-      `Chat, is this real? ${component}: ${period}, +${amount} (${percentText}); now ${currentText}.`,
+      `${component} has main-character energy: ${period}, +${amount} (${percentText}); total ${currentText}.`,
+    () =>
+      `In my ${component} gains era: ${period}, +${amount} (${percentText}); now ${currentText}.`,
+    () =>
+      `Chef's kiss for ${component}: ${period}, +${amount} (${percentText}); current ${currentText}.`,
+    () =>
+      `We love to see ${component} win: ${period}, +${amount} (${percentText}); now ${currentText}.`,
   ];
   const enLossTemplates = [
     () =>
-      `📉 POV: ${component} chose chaos — ${period}, -${amount} (${percentText}) to ${currentText}.`,
+      `📉 ${component} canon event: ${period}, -${amount} (${percentText}) to ${currentText}.`,
     () =>
-      `Very demure, very mindful: ${component} lost ${amount} ${period} (${percentText}); now ${currentText}.`,
+      `${component} is cooked: ${period}, -${amount} (${percentText}); now ${currentText}.`,
     () =>
-      `${component} was locked in; the value logged out: ${period}, -${amount} (${percentText}); current ${currentText}.`,
+      `${component} math is not mathing: ${period}, -${amount} (${percentText}); current ${currentText}.`,
     () =>
-      `${component} math is mathing, unfortunately: ${period}, -${amount} (${percentText}); now ${currentText}.`,
+      `${component} got caught slipping in 4K: ${period}, -${amount} (${percentText}); now ${currentText}.`,
     () =>
-      `${component} has main-character setback energy: ${period}, -${amount} (${percentText}); total ${currentText}.`,
+      `${component} skill issue: ${period}, -${amount} (${percentText}); total ${currentText}.`,
+    () =>
+      `${component} entered its villain-origin story: ${period}, -${amount} (${percentText}); now ${currentText}.`,
     () =>
       `${component} plot twist nobody ordered: ${period}, -${amount} (${percentText}); now ${currentText}.`,
     () =>
-      `The market ate the ${component} gains and left no crumbs: ${period}, -${amount} (${percentText}); current ${currentText}.`,
-    () =>
-      `${component} aura points deducted: ${period}, -${amount} (${percentText}); total ${currentText}.`,
-    () =>
-      `In my financially humbled era, ${component} edition: ${period}, -${amount} (${percentText}); now ${currentText}.`,
-    () =>
       `That ${component} side quest had microtransactions: ${period}, -${amount} (${percentText}); current ${currentText}.`,
     () =>
-      `I let ${component} cook; it burned ${amount}: ${period}, down ${percentText}; now ${currentText}.`,
+      `${component} suffered critical aura loss: ${period}, -${amount} (${percentText}); total ${currentText}.`,
+    () =>
+      `${component} entered the crash-out arc: ${period}, -${amount} (${percentText}); now ${currentText}.`,
+    () =>
+      `${component} task failed successfully: ${period}, -${amount} (${percentText}); current ${currentText}.`,
     () =>
       `Chat, is this real? ${component}: ${period}, -${amount} (${percentText}); now ${currentText}.`,
   ];
   const enNeutralTemplates = [
     () =>
-      `➖ POV: ${component} became a horizon — ${period}, 0 (0.00%) at ${currentText}.`,
+      `➖ Very demure, very mindful: ${component} stayed unchanged ${period}, 0 (0.00%); current ${currentText}.`,
     () =>
-      `Very demure, very mindful: ${component} stayed unchanged ${period}, 0 (0.00%); current ${currentText}.`,
+      `${component} entered NPC idle animation: ${period}, 0 (0.00%); current ${currentText}.`,
     () =>
-      `${component} is locked in place: ${period}, 0 (0.00%); current ${currentText}.`,
+      `${component} loading screen: ${period}, 0 (0.00%); current ${currentText}.`,
     () =>
-      `${component} math is mathing to exactly zero: ${period}, 0 (0.00%); current ${currentText}.`,
+      `${component}: no gains, no losses, just vibes ${period}, 0 (0.00%); current ${currentText}.`,
     () =>
-      `${component} has main-character loading-screen energy: ${period}, 0 (0.00%); current ${currentText}.`,
+      `${component} is standing on business, literally not moving: ${period}, 0 (0.00%); current ${currentText}.`,
     () =>
-      `${component} plot twist: there was no plot — ${period}, 0 (0.00%); now ${currentText}.`,
+      `${component} logged zero lore progression: ${period}, 0 (0.00%); now ${currentText}.`,
     () =>
-      `${component} ate exactly zero crumbs: ${period}, 0 (0.00%); current ${currentText}.`,
+      `${component} is buffering: ${period}, 0 (0.00%); current ${currentText}.`,
     () =>
-      `${component} aura points unchanged: ${period}, 0 (0.00%); total ${currentText}.`,
+      `${component} went to touch grass: ${period}, 0 (0.00%); total ${currentText}.`,
     () =>
-      `In my break-even era, ${component} edition: ${period}, 0 (0.00%); now ${currentText}.`,
+      `${component} stayed low-key the same: ${period}, 0 (0.00%); now ${currentText}.`,
     () =>
-      `${component} side quest paused: ${period}, 0 (0.00%); current ${currentText}.`,
+      `${component}: no thoughts, head empty, P/L zero ${period}, 0 (0.00%); current ${currentText}.`,
     () =>
-      `Let ${component} cook; it served zero: ${period}, 0 (0.00%); now ${currentText}.`,
+      `${component} is not beating the flat-chart allegations: ${period}, 0 (0.00%); now ${currentText}.`,
     () =>
-      `Chat, is this real? ${component}: ${period}, 0 (0.00%); current ${currentText}.`,
+      `It's giving... absolutely no ${component} movement: ${period}, 0 (0.00%); current ${currentText}.`,
   ];
   const templates = runtime.config.isZH
     ? change > 0

@@ -484,40 +484,67 @@ test("asset sharing provides separate Chinese and English profit/loss phrases", 
   assert.equal(document.activeElement, input);
 });
 
-test("every asset sharing template uses a recognizable recent meme format", () => {
-  const memePattern = {
-    zh: /\u542b\u91d1\u91cf|\u5f88\u66fc\u5999|\u6211\u4eec\u4e0d\u8bf4|\u6765\u8d22|\u786c\u63a7|\u6c34\u7075\u7075|\u677e\u5f1b\u611f|\u80a5\u561f\u561f|\u4e0d\u57fa\u7840|\u8fdb\u57ce\u529e\u4e8b|\u90a3\u548b\u4e86|\u5982\u4f55\u5462/,
-    en: /\bPOV\b|very demure|locked in|math is mathing|main-character|plot twist|ate .*crumbs|aura points|in my .+ era|side quest|let .+ cook|chat, is this real/i,
+test("rise, fall, and flat sharing pools use distinct recent meme styles", () => {
+  const memePatterns = {
+    zh: {
+      profit:
+        /含金量|来财|助我破鼎|千百次练习|敬.+一杯|水灵灵|硬控|很曼妙|肥嘟嘟|好茶摇一摇|中式 DNA|神人也/,
+      loss: /验牌|奥德赛|精神已经下班|绷住|草台班子|班味|偷感|浪浪山|富婆哦|参考文献|低山臭水|野生狗奶/,
+      neutral:
+        /松弛感|那咋了|如何呢|不基础|进城办事|豆包型人格|做完你的|我们不说|牌没有问题|城巴佬|情绪价值|村咖/,
+    },
+    en: {
+      profit:
+        /\bPOV\b|big W|understood the assignment|ate .*crumbs|aura farming|locked in|rent was due|let .+ cook|main-character|in my .+ era|chef's kiss|we love to see/i,
+      loss: /canon event|is cooked|not mathing|in 4K|skill issue|villain-origin|plot twist nobody ordered|side quest had microtransactions|aura loss|crash-out|task failed successfully|chat, is this real/i,
+      neutral:
+        /very demure|NPC idle|loading screen|just vibes|standing on business|zero lore|buffering|touch grass|low-key|no thoughts|flat-chart allegations|it's giving/i,
+    },
   };
   for (const isZH of [true, false]) {
     runtime.config.isZH = isZH;
-    const pattern = isZH ? memePattern.zh : memePattern.en;
-    for (const change of [250, -250, 0]) {
+    const languagePatterns = isZH ? memePatterns.zh : memePatterns.en;
+    for (const [state, change] of [
+      ["profit", 250],
+      ["loss", -250],
+      ["neutral", 0],
+    ]) {
       const percent = change === 0 ? 0 : change / 10;
       for (let index = 0; index < ASSET_SHARE_TEMPLATE_COUNT; index += 1) {
-        assert.match(
-          buildAssetShareMessage({ change, percent, gapDays: 3 }, index),
-          pattern,
+        const message = buildAssetShareMessage(
+          { change, percent, gapDays: 3 },
+          index,
         );
+        assert.match(message, languagePatterns[state]);
+        for (const [otherState, otherPattern] of Object.entries(
+          languagePatterns,
+        )) {
+          if (otherState !== state) assert.doesNotMatch(message, otherPattern);
+        }
+        assert.doesNotMatch(message, /三代不准|心理委员/);
       }
       for (
         let index = 0;
         index < ASSET_COMPONENT_SHARE_TEMPLATE_COUNT;
         index += 1
       ) {
-        assert.match(
-          buildAssetComponentShareMessage(
-            {
-              key: "equipment",
-              current: 1_000,
-              change,
-              percent,
-              gapDays: 3,
-            },
-            index,
-          ),
-          pattern,
+        const message = buildAssetComponentShareMessage(
+          {
+            key: "equipment",
+            current: 1_000,
+            change,
+            percent,
+            gapDays: 3,
+          },
+          index,
         );
+        assert.match(message, languagePatterns[state]);
+        for (const [otherState, otherPattern] of Object.entries(
+          languagePatterns,
+        )) {
+          if (otherState !== state) assert.doesNotMatch(message, otherPattern);
+        }
+        assert.doesNotMatch(message, /三代不准|心理委员/);
       }
     }
   }

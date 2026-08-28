@@ -13234,86 +13234,86 @@ ${values.map((item) => item.date).join("\n")}`
     const signedPercent = `${percent > 0 ? "+" : ""}${percent.toFixed(2)}%`;
     const zhProfitTemplates = [
       () => `📈 ${period}资产含金量还在上升：+${amount}，涨幅 +${percentText}。`,
-      () => `不知道，我的资产很曼妙：${period} +${amount}，身家 +${percentText}。`,
-      () => `我们不说赚了 ${amount}，我们可以说：${period}资产含金量又涨了 ${percentText}。`,
       () => `来财，来：${period}进账 ${amount}，总资产 +${percentText}。`,
-      () => `${period}的财富曲线直接硬控全场：+${amount}，资产 +${percentText}。`,
+      () => `${period}收益 +${amount}，助我破鼎；资产再涨 ${percentText}。`,
+      () => `千百次练习只为这一刻：${period} +${amount}，资产 +${percentText}。`,
+      () => `敬今天的自己一杯：${period}赚了 ${amount}，身家 +${percentText}。`,
       () => `${period}就这么水灵灵地赚了 ${amount}，资产 +${percentText}。`,
-      () => `${period}赚了 ${amount}还保持松弛感，身家 +${percentText}。`,
+      () => `${period}财富曲线直接硬控全场：+${amount}，资产 +${percentText}。`,
+      () => `不知道，我的资产很曼妙：${period} +${amount}，身家 +${percentText}。`,
       () => `资产敢这么涨，胆子真是肥嘟嘟的啊：${period} +${amount}，+${percentText}。`,
-      () => `理财基础，${period}赚 ${amount}不基础；资产 +${percentText}。`,
-      () => `进城办事顺便赚了点：${period} +${amount}，资产 +${percentText}。`,
-      () => `${period}赚了 ${amount}，资产 +${percentText}，那咋了。`,
-      () => `${period}财富 +${amount}、资产 +${percentText}；如何呢，又能怎。`
+      () => `来杯好茶摇一摇，余额跟着往上飘：${period} +${amount}，+${percentText}。`,
+      () => `中式 DNA 动了，先存钱：${period} +${amount}，资产 +${percentText}。`,
+      () => `这收益，大人真乃神人也：${period} +${amount}，资产 +${percentText}。`
     ];
     const zhLossTemplates = [
-      () => `📉 ${period}资产含金量暂停上升：-${amount}，变化 -${percentText}。`,
-      () => `不知道，我的身材很曼妙；知道的是${period}资产 -${amount}，-${percentText}。`,
-      () => `我们不说亏了 ${amount}，我们可以说：${period}资产向下松弛了 ${percentText}。`,
-      () => `来财没来，去财先来：${period} -${amount}，资产 -${percentText}。`,
-      () => `${period}赤字直接硬控账本：-${amount}，资产 -${percentText}。`,
-      () => `${period}就这么水灵灵地掉了 ${amount}，身家 -${percentText}。`,
-      () => `账本很有松弛感，松到${period}掉了 ${amount}，资产 -${percentText}。`,
-      () => `市场敢这么跌，胆子真是肥嘟嘟的啊：${period} -${amount}，-${percentText}。`,
-      () => `理财基础，${period}亏 ${amount}不基础；资产 -${percentText}。`,
-      () => `我的财富${period}进城办事了：带走 ${amount}，身家 -${percentText}。`,
-      () => `${period}亏了 ${amount}，资产 -${percentText}，那咋了。`,
-      () => `${period}财富 -${amount}、资产 -${percentText}；如何呢，又能怎。`
+      () => `📉 这跌幅我要验牌：${period} -${amount}，资产 -${percentText}。`,
+      () => `余额进入奥德赛时期：${period} -${amount}，资产 -${percentText}。`,
+      () => `财富肉体还在线，精神已经下班：${period} -${amount}，-${percentText}。`,
+      () => `这次我绷住了：${period}亏 ${amount}，资产 -${percentText}。`,
+      () => `账本像个草台班子：${period} -${amount}，身家 -${percentText}。`,
+      () => `一下亏出班味：${period} -${amount}，资产 -${percentText}。`,
+      () => `钱走得很有偷感：${period}少了 ${amount}，资产 -${percentText}。`,
+      () => `浪浪山小妖怪下山填坑：${period}亏 ${amount}，资产 -${percentText}。`,
+      () => `富婆哦？不讲不讲，${period}刚亏 ${amount}，身家 -${percentText}。`,
+      () => `参考文献：${period}亏损 ${amount}，资产变化 -${percentText}。`,
+      () => `低山臭水遇至阴，账户一路向下：${period} -${amount}，-${percentText}。`,
+      () => `野生狗奶保质期永久，我的余额不是：${period} -${amount}，-${percentText}。`
     ];
     const enProfitTemplates = [
       () => `📈 POV: the balance finally popped off — ${period}, +${amount} and assets up ${percentText}.`,
-      () => `Very demure, very mindful, very profitable: ${period}, +${amount} and +${percentText}.`,
-      () => `Locked in, ledger edition: ${period}, +${amount}; assets up ${percentText}.`,
-      () => `The math is mathing: ${period}, +${amount} and +${percentText}.`,
-      () => `Main-character balance energy: ${period}, +${amount} and +${percentText}.`,
-      () => `Plot twist: ${period} added ${amount}, and assets rose ${percentText}.`,
+      () => `Big W for the balance: ${period}, +${amount} and +${percentText}.`,
+      () => `The portfolio understood the assignment: ${period}, +${amount} and +${percentText}.`,
       () => `The grind ate and left no crumbs: ${period}, +${amount} and +${percentText}.`,
-      () => `Aura points added: ${period} earned ${amount}, net worth up ${percentText}.`,
-      () => `In my compounding era: ${period}, +${amount}; assets up ${percentText}.`,
-      () => `That side quest actually paid: ${period}, +${amount} and +${percentText}.`,
+      () => `Aura farming paid off: ${period} earned ${amount}, net worth up ${percentText}.`,
+      () => `Locked in, ledger edition: ${period}, +${amount}; assets up ${percentText}.`,
+      () => `The rent was due and the portfolio delivered: ${period}, +${amount} and +${percentText}.`,
       () => `Let the portfolio cook: ${period}, +${amount}; assets up ${percentText}.`,
-      () => `Chat, is this real? ${period} delivered +${amount} and +${percentText}.`
+      () => `Main-character balance energy: ${period}, +${amount} and +${percentText}.`,
+      () => `In my compounding era: ${period}, +${amount}; assets up ${percentText}.`,
+      () => `Chef's kiss for this balance: ${period}, +${amount} and +${percentText}.`,
+      () => `We love to see it: ${period}, +${amount}; assets up ${percentText}.`
     ];
     const enLossTemplates = [
-      () => `📉 POV: the balance chose chaos — ${period}, -${amount} and assets down ${percentText}.`,
-      () => `Very demure, very mindful, very much a loss: ${period}, -${amount} and -${percentText}.`,
-      () => `Locked in; the balance logged out: ${period}, -${amount} and -${percentText}.`,
-      () => `The math is mathing, unfortunately: ${period}, -${amount} and -${percentText}.`,
-      () => `Main-character setback: ${period}, -${amount}; net worth down ${percentText}.`,
+      () => `📉 Financial canon event: ${period}, -${amount} and assets down ${percentText}.`,
+      () => `The portfolio is cooked: ${period}, -${amount} and -${percentText}.`,
+      () => `The math is not mathing: ${period}, -${amount} and -${percentText}.`,
+      () => `Caught the balance slipping in 4K: ${period}, -${amount} and -${percentText}.`,
+      () => `Portfolio skill issue: ${period}, -${amount}; down ${percentText}.`,
+      () => `Villain-origin-story numbers: ${period}, -${amount}; net worth down ${percentText}.`,
       () => `Plot twist nobody ordered: ${period} lost ${amount}, down ${percentText}.`,
-      () => `The market ate and left no crumbs: ${period}, -${amount} and -${percentText}.`,
-      () => `Aura points deducted: ${period} lost ${amount}, net worth down ${percentText}.`,
-      () => `In my financially humbled era: ${period}, -${amount}; assets down ${percentText}.`,
       () => `That side quest had microtransactions: ${period}, -${amount} and -${percentText}.`,
-      () => `I let the portfolio cook; it burned ${amount}: ${period}, assets down ${percentText}.`,
+      () => `Critical aura loss: ${period}, -${amount}; net worth down ${percentText}.`,
+      () => `Entering the crash-out arc: ${period}, -${amount} and -${percentText}.`,
+      () => `Task failed successfully: ${period}, -${amount}; assets down ${percentText}.`,
       () => `Chat, is this real? ${period} dropped ${amount}, down ${percentText}.`
     ];
     const neutralTemplates = runtime.config.isZH ? [
-      () => `➖ ${period}资产含金量还在原地：${signedAmount}，${signedPercent}。`,
-      () => `不知道，我的身材很曼妙；资产倒是${period}稳在 ${signedAmount}（${signedPercent}）。`,
-      () => `我们不说没动，我们可以说：${period}资产稳得很具体，${signedAmount}（${signedPercent}）。`,
-      () => `来财卡在加载中：${period}盈亏 ${signedAmount}，变化 ${signedPercent}。`,
-      () => `一条横线硬控全场：${period}资产 ${signedAmount}，${signedPercent}。`,
-      () => `${period}资产就这么水灵灵地持平了：${signedAmount}（${signedPercent}）。`,
-      () => `${period}账本松弛感拉满：${signedAmount}，变化 ${signedPercent}。`,
-      () => `不涨也不跌，资产的胆子还不够肥嘟嘟：${period} ${signedAmount}（${signedPercent}）。`,
-      () => `资产基础，稳得不基础：${period} ${signedAmount}，${signedPercent}。`,
-      () => `财富进城办事还没回来：${period}盈亏 ${signedAmount}，变化 ${signedPercent}。`,
+      () => `➖ ${period}账本松弛感拉满：${signedAmount}，变化 ${signedPercent}。`,
       () => `${period}盈亏 ${signedAmount}，变化 ${signedPercent}，那咋了。`,
-      () => `${period}资产 ${signedAmount}，变化 ${signedPercent}；如何呢，又能怎。`
+      () => `${period}资产 ${signedAmount}，变化 ${signedPercent}；如何呢，又能怎。`,
+      () => `持平基础，稳得不基础：${period} ${signedAmount}，${signedPercent}。`,
+      () => `财富进城办事还没回来：${period}盈亏 ${signedAmount}，变化 ${signedPercent}。`,
+      () => `账本切换豆包型人格：${period} ${signedAmount}，情绪稳定在 ${signedPercent}。`,
+      () => `做完你的，做你的；资产先不做：${period} ${signedAmount}（${signedPercent}）。`,
+      () => `我们不说没动，我们可以说：${period}资产稳得很具体，${signedAmount}（${signedPercent}）。`,
+      () => `牌没有问题，资产也没动：${period} ${signedAmount}（${signedPercent}）。`,
+      () => `城巴佬第一次看资产曲线：怎么是一条直线？${period} ${signedAmount}（${signedPercent}）。`,
+      () => `数值没变，情绪价值给满：${period} ${signedAmount}，变化 ${signedPercent}。`,
+      () => `今日村咖特调：零涨跌。${period} ${signedAmount}（${signedPercent}）。`
     ] : [
-      () => `➖ POV: the chart became a horizon — ${period}, P/L ${signedAmount}, change ${signedPercent}.`,
-      () => `Very demure, very mindful, very unchanged: ${period}, P/L 0 and change ${signedPercent}.`,
-      () => `Locked in place: ${period}, P/L ${signedAmount} and change ${signedPercent}.`,
-      () => `The math is mathing to exactly zero: ${period}, P/L 0, change ${signedPercent}.`,
-      () => `Main-character balance is on a loading screen: ${period}, ${signedAmount} (${signedPercent}).`,
-      () => `Plot twist: there was no plot — ${period}, P/L 0 (${signedPercent}).`,
-      () => `The ledger ate exactly zero crumbs: ${period}, ${signedAmount} and ${signedPercent}.`,
-      () => `Aura points unchanged: ${period}, P/L 0 and change ${signedPercent}.`,
-      () => `Still in my break-even era: ${period}, ${signedAmount}; assets stayed at ${signedPercent}.`,
-      () => `Side quest paused: ${period}, ${signedAmount}; assets stayed at ${signedPercent}.`,
-      () => `Let the ledger cook; it served zero: ${period}, ${signedAmount} (${signedPercent}).`,
-      () => `Chat, is this real? ${period} moved ${signedAmount}, exactly ${signedPercent}.`
+      () => `➖ Very demure, very mindful, very unchanged: ${period}, P/L ${signedAmount}, change ${signedPercent}.`,
+      () => `The balance entered NPC idle animation: ${period}, P/L 0 and change ${signedPercent}.`,
+      () => `Portfolio loading screen: ${period}, P/L ${signedAmount}, change ${signedPercent}.`,
+      () => `No gains, no losses, just vibes: ${period}, ${signedAmount} (${signedPercent}).`,
+      () => `Standing on business, literally not moving: ${period}, ${signedAmount} (${signedPercent}).`,
+      () => `Zero lore progression: ${period}, P/L 0 and change ${signedPercent}.`,
+      () => `The chart is buffering: ${period}, ${signedAmount} and ${signedPercent}.`,
+      () => `The portfolio went to touch grass: ${period}, P/L 0 (${signedPercent}).`,
+      () => `Low-key the same balance: ${period}, ${signedAmount}; change ${signedPercent}.`,
+      () => `No thoughts, head empty, P/L zero: ${period}, ${signedAmount} (${signedPercent}).`,
+      () => `Not beating the flat-chart allegations: ${period}, ${signedAmount} (${signedPercent}).`,
+      () => `It's giving... absolutely no movement: ${period}, ${signedAmount} (${signedPercent}).`
     ];
     const templates = change === 0 ? neutralTemplates : runtime.config.isZH ? change > 0 ? zhProfitTemplates : zhLossTemplates : change > 0 ? enProfitTemplates : enLossTemplates;
     const normalizedIndex = ((Number(templateIndex) || 0) % templates.length + templates.length) % templates.length;
@@ -13339,87 +13339,87 @@ ${values.map((item) => item.date).join("\n")}`
     const percentText = Number.isFinite(percent) ? `${Math.abs(percent).toFixed(2)}%` : runtime.config.isZH ? "由 0 起步（无可比百分比）" : "up from zero (no comparable percentage)";
     const zhProfitTemplates = [
       () => `📈 ${component}含金量还在上升：${period} +${amount}（${percentText}），当前 ${currentText}。`,
-      () => `不知道，我的${component}很曼妙：${period} +${amount}（${percentText}），现在 ${currentText}。`,
-      () => `我们不说${component}赚了 ${amount}，我们可以说：${period}含金量涨 ${percentText}，现值 ${currentText}。`,
       () => `${component}来财，来：${period} +${amount}（${percentText}），当前 ${currentText}。`,
-      () => `${component}直接硬控全场：${period} +${amount}（${percentText}），当前 ${currentText}。`,
+      () => `${component}助我破鼎：${period} +${amount}（${percentText}），现值 ${currentText}。`,
+      () => `千百次练习只为这一刻，${component}${period} +${amount}（${percentText}），当前 ${currentText}。`,
+      () => `敬${component}一杯：${period}赚 ${amount}（${percentText}），现值 ${currentText}。`,
       () => `${component}就这么水灵灵地涨了：${period} +${amount}（${percentText}），当前 ${currentText}。`,
-      () => `${component}赚钱还保持松弛感：${period} +${amount}（${percentText}），现值 ${currentText}。`,
+      () => `${component}直接硬控收益榜：${period} +${amount}（${percentText}），当前 ${currentText}。`,
+      () => `不知道，我的${component}很曼妙：${period} +${amount}（${percentText}），现在 ${currentText}。`,
       () => `${component}敢这么涨，胆子真是肥嘟嘟的啊：${period} +${amount}（${percentText}），当前 ${currentText}。`,
-      () => `${component}基础，${period}赚 ${amount}不基础；涨 ${percentText}，当前 ${currentText}。`,
-      () => `${component}进城办事顺便赚了点：${period} +${amount}（${percentText}），当前 ${currentText}。`,
-      () => `${component}${period} +${amount}（${percentText}），现在 ${currentText}，那咋了。`,
-      () => `${component}${period} +${amount}（${percentText}），当前 ${currentText}；如何呢，又能怎。`
+      () => `${component}来杯好茶摇一摇：${period} +${amount}（${percentText}），现值 ${currentText}。`,
+      () => `中式 DNA 看到${component}上涨就想存：${period} +${amount}（${percentText}），当前 ${currentText}。`,
+      () => `${component}这波，大人真乃神人也：${period} +${amount}（${percentText}），现值 ${currentText}。`
     ];
     const zhLossTemplates = [
-      () => `📉 ${component}含金量暂停上升：${period} -${amount}（${percentText}），当前 ${currentText}。`,
-      () => `不知道，我的身材很曼妙；知道的是${component}${period} -${amount}（${percentText}），现值 ${currentText}。`,
-      () => `我们不说${component}亏了 ${amount}，我们可以说：${period}向下松弛了 ${percentText}，现值 ${currentText}。`,
-      () => `${component}来财没来，去财先来：${period} -${amount}（${percentText}），当前 ${currentText}。`,
-      () => `${component}赤字直接硬控账本：${period} -${amount}（${percentText}），当前 ${currentText}。`,
-      () => `${component}就这么水灵灵地掉了：${period} -${amount}（${percentText}），现在 ${currentText}。`,
-      () => `${component}很有松弛感，松到${period} -${amount}（${percentText}），当前 ${currentText}。`,
-      () => `${component}敢这么跌，胆子真是肥嘟嘟的啊：${period} -${amount}（${percentText}），总计 ${currentText}。`,
-      () => `${component}基础，${period}亏 ${amount}不基础；跌 ${percentText}，现值 ${currentText}。`,
-      () => `${component}${period}进城办事了：带走 ${amount}（${percentText}），当前 ${currentText}。`,
-      () => `${component}${period} -${amount}（${percentText}），当前 ${currentText}，那咋了。`,
-      () => `${component}${period} -${amount}（${percentText}），现在 ${currentText}；如何呢，又能怎。`
+      () => `📉 ${component}这跌幅我要验牌：${period} -${amount}（${percentText}），当前 ${currentText}。`,
+      () => `${component}进入奥德赛时期：${period} -${amount}（${percentText}），现值 ${currentText}。`,
+      () => `${component}肉体还在账户，精神已经下班：${period} -${amount}（${percentText}），当前 ${currentText}。`,
+      () => `${component}这下不绷住也得绷住：${period} -${amount}（${percentText}），现值 ${currentText}。`,
+      () => `${component}账本临时草台班子：${period} -${amount}（${percentText}），当前 ${currentText}。`,
+      () => `${component}一下亏出班味：${period} -${amount}（${percentText}），现在 ${currentText}。`,
+      () => `${component}的钱走得很有偷感：${period} -${amount}（${percentText}），当前 ${currentText}。`,
+      () => `浪浪山小妖怪下山给${component}填坑：${period} -${amount}（${percentText}），现值 ${currentText}。`,
+      () => `富婆哦？不讲不讲，${component}${period} -${amount}（${percentText}），当前 ${currentText}。`,
+      () => `${component}亏损参考文献：${period} -${amount}（${percentText}），现值 ${currentText}。`,
+      () => `${component}低山臭水遇至阴：${period} -${amount}（${percentText}），当前 ${currentText}。`,
+      () => `野生狗奶永久，${component}余额不永久：${period} -${amount}（${percentText}），现值 ${currentText}。`
     ];
     const zhNeutralTemplates = [
-      () => `➖ ${component}含金量还在原地：${period}变化 0（0.00%），当前 ${currentText}。`,
-      () => `不知道，我的身材很曼妙；${component}倒是${period}变化 0（0.00%），现值 ${currentText}。`,
-      () => `我们不说${component}没动，我们可以说：${period}稳得很具体，变化 0 / 0.00%，现值 ${currentText}。`,
-      () => `${component}来财卡在加载中：${period}变化 0（0.00%），当前 ${currentText}。`,
-      () => `${component}一条横线硬控全场：${period}变化 0（0.00%），当前 ${currentText}。`,
-      () => `${component}就这么水灵灵地持平了：${period} 0（0.00%），当前 ${currentText}。`,
-      () => `${component}松弛感拉满：${period} ±0（0.00%），当前 ${currentText}。`,
-      () => `${component}不涨也不跌，胆子还不够肥嘟嘟：${period} 0（0.00%），总计 ${currentText}。`,
-      () => `${component}基础，稳得不基础：${period}变化 0（0.00%），现值 ${currentText}。`,
-      () => `${component}进城办事还没回来：${period}变化 0（0.00%），当前 ${currentText}。`,
+      () => `➖ ${component}松弛感拉满：${period}变化 0（0.00%），当前 ${currentText}。`,
       () => `${component}${period}变化 0（0.00%），当前 ${currentText}，那咋了。`,
-      () => `${component}${period}变化 0（0.00%），当前 ${currentText}；如何呢，又能怎。`
+      () => `${component}${period}变化 0（0.00%），现值 ${currentText}；如何呢，又能怎。`,
+      () => `${component}持平基础，稳得不基础：${period} 0（0.00%），当前 ${currentText}。`,
+      () => `${component}进城办事还没回来：${period} 0（0.00%），当前 ${currentText}。`,
+      () => `${component}切换豆包型人格：${period} 0（0.00%），情绪稳定在 ${currentText}。`,
+      () => `做完你的，做你的；${component}先不做：${period} 0（0.00%），现值 ${currentText}。`,
+      () => `我们不说${component}没动，我们可以说：${period}稳得很具体，0（0.00%），现值 ${currentText}。`,
+      () => `${component}牌没有问题：${period} 0（0.00%），当前 ${currentText}。`,
+      () => `城巴佬看${component}曲线：怎么不动？${period} 0（0.00%），当前 ${currentText}。`,
+      () => `${component}数值没变，情绪价值给满：${period} 0（0.00%），现值 ${currentText}。`,
+      () => `${component}今日村咖特调：零涨跌。${period} 0（0.00%），当前 ${currentText}。`
     ];
     const enProfitTemplates = [
       () => `📈 POV: ${component} popped off — ${period}, +${amount} (${percentText}) to ${currentText}.`,
-      () => `Very demure, very mindful: ${component} gained ${amount} ${period} (${percentText}); now ${currentText}.`,
-      () => `${component} is locked in: ${period}, +${amount} (${percentText}); current value ${currentText}.`,
-      () => `${component} math is mathing: ${period}, +${amount} (${percentText}); now ${currentText}.`,
-      () => `${component} has main-character energy: ${period}, +${amount} (${percentText}); total ${currentText}.`,
-      () => `Plot twist: ${component} gained ${amount} ${period} (${percentText}); now ${currentText}.`,
+      () => `Big W for ${component}: ${period}, +${amount} (${percentText}); now ${currentText}.`,
+      () => `${component} understood the assignment: ${period}, +${amount} (${percentText}); current ${currentText}.`,
       () => `${component} ate and left no crumbs: ${period}, +${amount} (${percentText}); current ${currentText}.`,
-      () => `${component} aura points added: ${period}, +${amount} (${percentText}); total ${currentText}.`,
-      () => `In my gains era, ${component} edition: ${period}, +${amount} (${percentText}); now ${currentText}.`,
-      () => `That ${component} side quest actually paid: ${period}, +${amount} (${percentText}); current ${currentText}.`,
+      () => `${component} is aura farming: ${period}, +${amount} (${percentText}); total ${currentText}.`,
+      () => `${component} is locked in: ${period}, +${amount} (${percentText}); current value ${currentText}.`,
+      () => `The rent was due and ${component} delivered: ${period}, +${amount} (${percentText}); now ${currentText}.`,
       () => `Let ${component} cook: ${period}, +${amount} (${percentText}); total ${currentText}.`,
-      () => `Chat, is this real? ${component}: ${period}, +${amount} (${percentText}); now ${currentText}.`
+      () => `${component} has main-character energy: ${period}, +${amount} (${percentText}); total ${currentText}.`,
+      () => `In my ${component} gains era: ${period}, +${amount} (${percentText}); now ${currentText}.`,
+      () => `Chef's kiss for ${component}: ${period}, +${amount} (${percentText}); current ${currentText}.`,
+      () => `We love to see ${component} win: ${period}, +${amount} (${percentText}); now ${currentText}.`
     ];
     const enLossTemplates = [
-      () => `📉 POV: ${component} chose chaos — ${period}, -${amount} (${percentText}) to ${currentText}.`,
-      () => `Very demure, very mindful: ${component} lost ${amount} ${period} (${percentText}); now ${currentText}.`,
-      () => `${component} was locked in; the value logged out: ${period}, -${amount} (${percentText}); current ${currentText}.`,
-      () => `${component} math is mathing, unfortunately: ${period}, -${amount} (${percentText}); now ${currentText}.`,
-      () => `${component} has main-character setback energy: ${period}, -${amount} (${percentText}); total ${currentText}.`,
+      () => `📉 ${component} canon event: ${period}, -${amount} (${percentText}) to ${currentText}.`,
+      () => `${component} is cooked: ${period}, -${amount} (${percentText}); now ${currentText}.`,
+      () => `${component} math is not mathing: ${period}, -${amount} (${percentText}); current ${currentText}.`,
+      () => `${component} got caught slipping in 4K: ${period}, -${amount} (${percentText}); now ${currentText}.`,
+      () => `${component} skill issue: ${period}, -${amount} (${percentText}); total ${currentText}.`,
+      () => `${component} entered its villain-origin story: ${period}, -${amount} (${percentText}); now ${currentText}.`,
       () => `${component} plot twist nobody ordered: ${period}, -${amount} (${percentText}); now ${currentText}.`,
-      () => `The market ate the ${component} gains and left no crumbs: ${period}, -${amount} (${percentText}); current ${currentText}.`,
-      () => `${component} aura points deducted: ${period}, -${amount} (${percentText}); total ${currentText}.`,
-      () => `In my financially humbled era, ${component} edition: ${period}, -${amount} (${percentText}); now ${currentText}.`,
       () => `That ${component} side quest had microtransactions: ${period}, -${amount} (${percentText}); current ${currentText}.`,
-      () => `I let ${component} cook; it burned ${amount}: ${period}, down ${percentText}; now ${currentText}.`,
+      () => `${component} suffered critical aura loss: ${period}, -${amount} (${percentText}); total ${currentText}.`,
+      () => `${component} entered the crash-out arc: ${period}, -${amount} (${percentText}); now ${currentText}.`,
+      () => `${component} task failed successfully: ${period}, -${amount} (${percentText}); current ${currentText}.`,
       () => `Chat, is this real? ${component}: ${period}, -${amount} (${percentText}); now ${currentText}.`
     ];
     const enNeutralTemplates = [
-      () => `➖ POV: ${component} became a horizon — ${period}, 0 (0.00%) at ${currentText}.`,
-      () => `Very demure, very mindful: ${component} stayed unchanged ${period}, 0 (0.00%); current ${currentText}.`,
-      () => `${component} is locked in place: ${period}, 0 (0.00%); current ${currentText}.`,
-      () => `${component} math is mathing to exactly zero: ${period}, 0 (0.00%); current ${currentText}.`,
-      () => `${component} has main-character loading-screen energy: ${period}, 0 (0.00%); current ${currentText}.`,
-      () => `${component} plot twist: there was no plot — ${period}, 0 (0.00%); now ${currentText}.`,
-      () => `${component} ate exactly zero crumbs: ${period}, 0 (0.00%); current ${currentText}.`,
-      () => `${component} aura points unchanged: ${period}, 0 (0.00%); total ${currentText}.`,
-      () => `In my break-even era, ${component} edition: ${period}, 0 (0.00%); now ${currentText}.`,
-      () => `${component} side quest paused: ${period}, 0 (0.00%); current ${currentText}.`,
-      () => `Let ${component} cook; it served zero: ${period}, 0 (0.00%); now ${currentText}.`,
-      () => `Chat, is this real? ${component}: ${period}, 0 (0.00%); current ${currentText}.`
+      () => `➖ Very demure, very mindful: ${component} stayed unchanged ${period}, 0 (0.00%); current ${currentText}.`,
+      () => `${component} entered NPC idle animation: ${period}, 0 (0.00%); current ${currentText}.`,
+      () => `${component} loading screen: ${period}, 0 (0.00%); current ${currentText}.`,
+      () => `${component}: no gains, no losses, just vibes ${period}, 0 (0.00%); current ${currentText}.`,
+      () => `${component} is standing on business, literally not moving: ${period}, 0 (0.00%); current ${currentText}.`,
+      () => `${component} logged zero lore progression: ${period}, 0 (0.00%); now ${currentText}.`,
+      () => `${component} is buffering: ${period}, 0 (0.00%); current ${currentText}.`,
+      () => `${component} went to touch grass: ${period}, 0 (0.00%); total ${currentText}.`,
+      () => `${component} stayed low-key the same: ${period}, 0 (0.00%); now ${currentText}.`,
+      () => `${component}: no thoughts, head empty, P/L zero ${period}, 0 (0.00%); current ${currentText}.`,
+      () => `${component} is not beating the flat-chart allegations: ${period}, 0 (0.00%); now ${currentText}.`,
+      () => `It's giving... absolutely no ${component} movement: ${period}, 0 (0.00%); current ${currentText}.`
     ];
     const templates = runtime.config.isZH ? change > 0 ? zhProfitTemplates : change < 0 ? zhLossTemplates : zhNeutralTemplates : change > 0 ? enProfitTemplates : change < 0 ? enLossTemplates : enNeutralTemplates;
     const normalizedIndex = ((Number(templateIndex) || 0) % templates.length + templates.length) % templates.length;
@@ -16822,9 +16822,13 @@ ${preview}`
     style.textContent = `
 	.mwi-has-buffbar{height:auto!important;min-height:0;overflow:visible!important}
 	.mwi-buff-shell{width:100%;height:21px;box-sizing:border-box;margin-top:4px}
-	.mwi-buffbar{position:relative;width:100%;height:21px;box-sizing:border-box;overflow:hidden;cursor:pointer}
+	.mwi-buffbar{position:relative;width:100%;height:21px;box-sizing:border-box;overflow:hidden;cursor:default}
+	.mwi-buffbar[data-side="players"]{cursor:pointer}
 	.mwi-buff-track{width:100%;height:21px;display:flex;align-items:center}
 	.mwi-buff-sequence{width:100%;height:21px;display:flex;flex:none;gap:4px;align-items:center;justify-content:center}
+	.mwi-buff-metric{width:100%;height:21px;display:flex;align-items:center;justify-content:center;gap:5px;border-radius:3px;background:rgba(0,0,0,.34);font:700 11px/1 "Trebuchet MS",Verdana,Arial,sans-serif;font-variant-numeric:tabular-nums;text-shadow:0 1px 2px #000}
+	.mwi-buff-metric[data-mode="dps"]{color:#ff9b84}
+	.mwi-buff-metric[data-mode="hps"]{color:#78e09a}
 	.mwi-buffbar[data-scrolling="true"] .mwi-buff-track{width:max-content;animation:mwi-buff-marquee var(--mwi-marquee-duration,8s) linear infinite;will-change:transform}
 	.mwi-buffbar[data-scrolling="true"] .mwi-buff-sequence{width:max-content;justify-content:flex-start}
 	.mwi-chip{font:11px/1.2 "Trebuchet MS", Verdana, Arial, sans-serif;padding:2px 6px;border-radius:10px;white-space:nowrap;display:inline-flex;align-items:center;gap:4px;position:relative}
@@ -16839,7 +16843,8 @@ ${preview}`
     (document.head || document.documentElement).appendChild(style);
     scope.add(() => style.remove());
   }
-  function createBuffTracker(scope) {
+  function createBuffTracker(scope, requestTick = () => {
+  }) {
     const UNIT_STATE = /* @__PURE__ */ new WeakMap();
     const BATTLE_STATE = { players: /* @__PURE__ */ new Map(), monsters: /* @__PURE__ */ new Map() };
     const PENDING_BUFFS = [];
@@ -16859,7 +16864,16 @@ ${preview}`
         monsters: getUnitElements("BattlePanel_monstersArea")
       };
     }
-    function ensureBuffBar(unitEl) {
+    function ensureBuffBar(unitEl, side = "", unitIndex = -1) {
+      const state = getState2(unitEl);
+      if (side) {
+        state.side = side;
+        state.unitIndex = unitIndex;
+        if (side === "players") {
+          const knownName = BATTLE_STATE.players.get(String(unitIndex))?.name;
+          state.playerName = knownName || state.playerName || readUnitName(unitEl);
+        }
+      }
       let shell2 = unitEl.querySelector(".mwi-buff-shell");
       let bar = shell2?.querySelector(".mwi-buffbar");
       if (!shell2 || !bar) {
@@ -16867,24 +16881,28 @@ ${preview}`
         shell2.className = "mwi-buff-shell";
         bar = document.createElement("div");
         bar.className = "mwi-buffbar";
-        bar.title = runtime.config.isZH ? "点击切换 DPS / HPS" : "Click to switch DPS / HPS";
         bar.addEventListener("click", (event) => {
           event.preventDefault();
           event.stopPropagation();
-          if (runtime.api.dps?.enabled !== true) return;
-          runtime.api.dps.togglePrimaryMode?.();
+          if (state.side !== "players" || runtime.api.dps?.enabled !== true)
+            return;
+          state.displayMode = state.displayMode === "buffs" ? "dps" : state.displayMode === "dps" ? "hps" : "buffs";
+          renderUnit(unitEl);
+          requestTick();
         });
         shell2.append(bar);
         const statusHost = unitEl.querySelector('[class*="CombatUnit_status"]') ?? unitEl;
         statusHost.classList.add("mwi-has-buffbar");
         statusHost.appendChild(shell2);
       }
+      bar.dataset.side = state.side;
+      updateBarTitle(bar, state);
       return bar;
     }
     function ensureBattleBuffBars(units = getBattleUnits()) {
-      for (const unitList of Object.values(units)) {
-        unitList.forEach((unitEl) => {
-          if (unitEl) ensureBuffBar(unitEl);
+      for (const [side, unitList] of Object.entries(units)) {
+        unitList.forEach((unitEl, unitIndex) => {
+          if (unitEl) ensureBuffBar(unitEl, side, unitIndex);
         });
       }
       return units;
@@ -16892,7 +16910,13 @@ ${preview}`
     function getState2(unitEl) {
       let state = UNIT_STATE.get(unitEl);
       if (!state) {
-        state = { effects: /* @__PURE__ */ new Map() };
+        state = {
+          effects: /* @__PURE__ */ new Map(),
+          displayMode: "buffs",
+          side: "",
+          unitIndex: -1,
+          playerName: ""
+        };
         UNIT_STATE.set(unitEl, state);
       }
       return state;
@@ -16922,6 +16946,10 @@ ${preview}`
           state.cHP = entry.currentHitpoints;
         if (typeof entry.currentManapoints === "number")
           state.cMP = entry.currentManapoints;
+        const name = String(
+          entry.name ?? entry.playerName ?? entry.characterName ?? ""
+        ).trim();
+        if (name) state.name = name;
         stateMap.set(String(i), state);
       }
     }
@@ -16930,7 +16958,10 @@ ${preview}`
       for (const unitEl of units) {
         if (!unitEl) continue;
         const state = UNIT_STATE.get(unitEl);
-        if (state) state.effects.clear();
+        if (state) {
+          state.effects.clear();
+          state.renderSignature = "";
+        }
         const bar = unitEl.querySelector(".mwi-buffbar");
         if (bar) {
           bar.replaceChildren();
@@ -16939,16 +16970,23 @@ ${preview}`
       }
     }
     function resetForNewBattle() {
+      BATTLE_STATE.players.clear();
       BATTLE_STATE.monsters.clear();
       PENDING_BUFFS.length = 0;
       PENDING_DEBUFFS.length = 0;
     }
     function handleNewBattle(signal) {
       resetForNewBattle();
-      ensureBattleBuffBars();
-      clearMonsterBuffs();
       seedStateFromCombatant(signal.players, BATTLE_STATE.players);
       seedStateFromCombatant(signal.monsters, BATTLE_STATE.monsters);
+      const units = ensureBattleBuffBars();
+      for (const unitEl of [...units.players, ...units.monsters]) {
+        const state = getState2(unitEl);
+        state.displayMode = "buffs";
+        state.renderSignature = "";
+        renderUnit(unitEl);
+      }
+      clearMonsterBuffs();
     }
     function mergeState(stateMap, patchMap, mapName) {
       const actionChanges = [];
@@ -17194,9 +17232,55 @@ ${preview}`
         label.title = runtime.config.isZH ? `剩余 ${remaining}` : `${remaining} remaining`;
       }
     }
+    function readUnitName(unitEl) {
+      return String(
+        unitEl?.querySelector('[class*="CombatUnit_name"]')?.textContent ?? ""
+      ).trim();
+    }
+    function formatCombatRate(value) {
+      const number3 = Number(value) || 0;
+      const absolute = Math.abs(number3);
+      if (absolute >= 1e6) return `${(number3 / 1e6).toFixed(1)}M`;
+      if (absolute >= 1e3) return `${(number3 / 1e3).toFixed(1)}K`;
+      return number3.toFixed(1);
+    }
+    function updateBarTitle(bar, state) {
+      if (state.side !== "players") {
+        bar.title = runtime.config.isZH ? "Buff / Debuff 状态" : "Buff / Debuff status";
+        return;
+      }
+      if (runtime.api.dps?.enabled !== true) {
+        bar.title = runtime.config.isZH ? "DPS 统计未启用" : "DPS tracking is disabled";
+        return;
+      }
+      const nextLabel = state.displayMode === "buffs" ? "DPS" : state.displayMode === "dps" ? "HPS" : runtime.config.isZH ? "Buff" : "Buffs";
+      bar.title = runtime.config.isZH ? `点击在本栏显示 ${nextLabel}` : `Click to show ${nextLabel} in this bar`;
+    }
+    function renderMetric(bar, state) {
+      const mode = state.displayMode;
+      const playerName = state.playerName || readUnitName(bar.closest('[class*="CombatUnit_combatUnit"]'));
+      if (playerName) state.playerName = playerName;
+      const getter = mode === "dps" ? runtime.api.dps?.getPlayerDps : runtime.api.dps?.getPlayerHps;
+      const value = typeof getter === "function" ? getter(playerName) : 0;
+      const text = `${mode.toUpperCase()} ${formatCombatRate(value)}`;
+      const signature = `metric:${mode}:${text}`;
+      if (state.renderSignature !== signature) {
+        const metric4 = document.createElement("div");
+        metric4.className = "mwi-buff-metric";
+        metric4.dataset.mode = mode;
+        metric4.textContent = text;
+        bar.replaceChildren(metric4);
+        state.renderSignature = signature;
+      }
+      bar.dataset.displayMode = mode;
+      delete bar.dataset.scrolling;
+      bar.style.removeProperty("--mwi-marquee-distance");
+      bar.style.removeProperty("--mwi-marquee-duration");
+      updateBarTitle(bar, state);
+    }
     function renderUnit(unitEl) {
       const state = getState2(unitEl);
-      const bar = ensureBuffBar(unitEl);
+      const bar = ensureBuffBar(unitEl, state.side, state.unitIndex);
       const now = Date.now();
       const entries = Array.from(state.effects.values()).filter((effect) => effect.expiresAt > now).sort((a, b) => a.expiresAt - b.expiresAt);
       state.effects = new Map(
@@ -17205,13 +17289,23 @@ ${preview}`
           effect
         ])
       );
+      if (state.displayMode !== "buffs" && (state.side !== "players" || runtime.api.dps?.enabled !== true)) {
+        state.displayMode = "buffs";
+      }
+      if (state.displayMode !== "buffs") {
+        renderMetric(bar, state);
+        return;
+      }
       const signature = entries.map((effect) => effectKey(effect.kind, effect.abilityHrid)).join("");
-      if (state.renderSignature !== signature) {
+      const buffSignature = `buffs:${signature}`;
+      if (state.renderSignature !== buffSignature) {
         rebuildEffectTrack(bar, entries);
-        state.renderSignature = signature;
+        state.renderSignature = buffSignature;
       } else {
         updateMarqueeMetrics(bar, entries.length);
       }
+      delete bar.dataset.displayMode;
+      updateBarTitle(bar, state);
       updateCountdownLabels(bar, entries, now);
     }
     function updateUnitEffect(unitEl, kind, abilityHrid, durationSec, timing = {}) {
@@ -17330,18 +17424,20 @@ ${preview}`
       for (const unitEl of [...units.players, ...units.monsters]) {
         if (!UNIT_STATE.has(unitEl)) continue;
         renderUnit(unitEl);
-        if (UNIT_STATE.get(unitEl)?.effects?.size) active = true;
+        const state = UNIT_STATE.get(unitEl);
+        if (state?.effects?.size || state?.displayMode !== "buffs") active = true;
       }
       return active;
     }
     function hasActiveEffects() {
       const now = Date.now();
       const units = getBattleUnits();
-      return [...units.players, ...units.monsters].some(
-        (unitEl) => [...UNIT_STATE.get(unitEl)?.effects?.values?.() ?? []].some(
+      return [...units.players, ...units.monsters].some((unitEl) => {
+        const state = UNIT_STATE.get(unitEl);
+        return state?.displayMode !== "buffs" || [...state?.effects?.values?.() ?? []].some(
           (effect) => effect.expiresAt > now
-        )
-      );
+        );
+      });
     }
     function removeAllBuffBars() {
       const units = getBattleUnits();
@@ -17367,7 +17463,9 @@ ${preview}`
     id: "battleBuffs",
     setting: "battleBuffs",
     initialize({ scope }) {
-      const tracker = createBuffTracker(scope);
+      let ensureCountdown = () => {
+      };
+      const tracker = createBuffTracker(scope, () => ensureCountdown());
       ensureBuffStyles(scope);
       tracker.mountBuffBars();
       let countdownTimer = null;
@@ -17377,7 +17475,7 @@ ${preview}`
           countdownTimer = setTimeout(tick, 1e3);
         }
       };
-      const ensureCountdown = () => {
+      ensureCountdown = () => {
         if (countdownTimer === null && tracker.hasActiveEffects()) {
           countdownTimer = setTimeout(tick, 1e3);
         }
@@ -29892,27 +29990,27 @@ ${locks}` : ""}`;
       }),
       body: Object.freeze({
         zh: Object.freeze([
-          "战斗 Buff/Debuff 改为图标内数字倒计时，每秒原位更新；点击任一角色状态条只会在 DPS 与 HPS 间切换，不会擅自打开面板。命中率玩家标签和主名单刷新会保留滚动位置，不再查看第 4、5 名时回弹。",
+          "战斗 Buff/Debuff 改为图标内数字倒计时，每秒原位更新；点击玩家 Buff 条会在 Buff 图标、该角色 DPS 和该角色 HPS 三种内容间原位循环，不会改变或打开主统计面板。命中率玩家标签和主名单刷新会保留滚动位置，不再查看第 4、5 名时回弹。",
           "任务卡的地牢标识已从怪物背景拆到右上角独立小图标，并新增默认开启的从属设置；任务刷新会在服务端任务 ID、标题与进度稳定后再替换图标，点击牛铃或金币确认后即使支付选项仍展开也会立即解除过渡保护，避免第一次仍显示旧图。",
           "库存资产继续按角色与环境冻结快照；普通消息在同版本摘要已挂载时不再排队计算、扫描分类或重建 DOM，原生库存重建只挂回缓存。总资产“炫耀”已移到“刷新价值”旁边。",
           "生产升级配方会在原生“升级自”区域直接显示与材料行一致的“缺/余”徽章，不再把升级底材信息单独放在面板底部。购物车设置只同步现有控件，不再因后台消息重建整个页面；安全余量下拉菜单也提高了文字对比度。",
           "公会成员表只保留可排序的 24 小时 XP/h 与相对速率条，并继续由“成员经验速率”设置独立控制；公会总览趋势和排行榜不受影响。",
           "修复放弃任务进入二次确认、取消确认或真正删除期间任务卡片顺序跳动的问题；即使游戏暂时移除标题、进度和内联顺序，MWITools 也会按已保存的卡槽保持当前排列。",
           "优化排行榜名次徽章刷新、布局与发光性能：公会成员徽章改为紧跟姓名右侧，不再另占一行；徽章统一复用游戏资源注册表，不再为每个徽章扫描全页 SVG；发光效果改用不触发布局的合成位移并按徽章错峰播放；页面观察器只响应角色名、资料区和排行榜表格变化，忽略动画、进度与自身徽章写入，减少徽章较多时的降速和卡顿。",
-          "总资产与各分项的“炫耀”文案已全部换成 2024–2026 高热网络梗；中英文上涨、下跌和持平池每条都有梗，同时保留对比周期、金额、比例与当前价值。",
-          "修复点击战斗 Buff/Debuff 状态条时事件继续传到角色卡、误打开游戏原生“交战信息”弹窗的问题；状态条现在只切换 DPS/HPS，相关功能关闭时点击也不会打开角色详情。命中率面板的命中与闪避等级改为最多显示两位小数。",
+          "总资产与各分项的“炫耀”文案已全部换成 2024–2026 高热网络梗；中英文上涨、下跌和持平分别使用不同梗主题，总资产与分项也采用不同改编，减少正负翻面和重复句式，同时保留对比周期、金额、比例与当前价值。",
+          "修复点击战斗 Buff/Debuff 状态条时事件继续传到角色卡、误打开游戏原生“交战信息”弹窗的问题；玩家 Buff 条现在按 Buff → DPS → HPS → Buff 在本栏循环，完全不联动主统计面板，相关功能关闭时点击也不会打开角色详情。命中率面板的命中与闪避等级改为最多显示两位小数。",
           "26.4.17 已标记为重要更新；旧版本玩家会收到顶部更新提醒，以获取新的资产炫耀文案、战斗状态条点击修复和更易读的命中率数据。"
         ]),
         en: Object.freeze([
-          "Battle Buffs and Debuffs now use an in-icon numeric countdown updated in place each second. Clicking any combat-unit status bar only switches between DPS and HPS without opening the panel. Accuracy player tabs and primary lists preserve their scroll positions during live updates.",
+          "Battle Buffs and Debuffs now use an in-icon numeric countdown updated in place each second. Clicking a player Buff bar cycles locally through Buff icons, that player's DPS, and that player's HPS without changing or opening the main meter. Accuracy player tabs and primary lists preserve their scroll positions during live updates.",
           "Dungeon markers are now separate compact badges in the task card's top-right, with a new default-on child setting. Rerolled artwork waits for the server task ID, title, and progress to settle, and confirming either payment option now releases the transition guard immediately even while the choices remain open, preventing the previous icon from surviving the first refresh.",
           "Inventory assets remain frozen per character and environment. Ordinary messages no longer queue calculations, scan categories, or rebuild DOM when the same summary version is already mounted; replaced native inventory nodes only remount cached results. The total-asset Flex button now sits beside Refresh values.",
           "Production upgrade recipes now place a matching Need/Spare badge directly in the native Upgrade from area instead of showing the upgrade-item status separately at the bottom. Shopping-cart settings synchronize existing controls instead of rebuilding the page on background messages, and safety-margin menu options now have readable contrast.",
           "Guild member tables now keep only the sortable 24-hour XP/h column and relative bar, still controlled independently by Member XP rates. Guild overview trends and leaderboard rates are unchanged.",
           "Fixed task cards jumping when an abandon confirmation opens, is cancelled, or completes. Even while the game temporarily removes the title, progress, and inline order, MWITools now preserves the current arrangement from its saved card slots.",
           "Optimized leaderboard badge refreshes, layout, and glow performance. Guild-member badges now sit immediately after the name instead of taking a separate row. Badges reuse the shared game-asset registry instead of scanning every SVG, glow effects use layout-free composited movement with staggered phases, and the page observer responds only to character names, profile areas, and leaderboard tables while ignoring animations, progress updates, and its own badge writes. This prevents slow, stuttering effects on badge-heavy pages.",
-          "Every total-asset and component Flex message now uses a high-recognition 2024–2026 internet meme. All Chinese and English rise, fall, and flat templates are meme-styled while preserving the comparison period, amount, percentage, and current value.",
-          "Fixed Battle Buff and Debuff bar clicks reaching the combat-unit card and opening the game's native combat details dialog. Status-bar clicks now only switch DPS/HPS, and never open unit details when the related feature is disabled. Accuracy and evasion ratings now show at most two decimal places in the accuracy panel.",
+          "Every total-asset and component Flex message now uses a high-recognition 2024–2026 internet meme. Chinese and English rise, fall, and flat pools use distinct meme themes, and total versus component messages use different adaptations to avoid mirrored or repetitive lines while preserving the comparison period, amount, percentage, and current value.",
+          "Fixed Battle Buff and Debuff bar clicks reaching the combat-unit card and opening the game's native combat details dialog. Player Buff bars now cycle locally through Buff → DPS → HPS → Buff without affecting the main meter, and never open unit details when the related feature is disabled. Accuracy and evasion ratings now show at most two decimal places in the accuracy panel.",
           "Version 26.4.17 is now marked as an important update. Players on older releases will see the top update prompt for the new asset Flex messages, the battle-status click fix, and more readable accuracy data."
         ])
       })

@@ -231,17 +231,30 @@ test("battle buff catalog stays consistent", () => {
   }
 });
 
-test("a cast buff renders an icon chip below the caster", async () => {
+test("a cast buff bar cycles locally through buffs, DPS, and HPS", async () => {
   battleBuffsEnabled = true;
   battleMarkup(2, 1);
   let toggles = 0;
   runtime.api.dps = {
     enabled: true,
+    getPlayerDps(name) {
+      assert.equal(name, "Caster");
+      return 1_234.56;
+    },
+    getPlayerHps(name) {
+      assert.equal(name, "Caster");
+      return 78.9;
+    },
     togglePrimaryMode() {
       toggles += 1;
     },
   };
   await runtime.features.enable("battleBuffs");
+  runtime.dispatchMessage({
+    type: "new_battle",
+    players: [{ name: "Caster" }, { name: "Support" }],
+    monsters: [{ name: "Training Rat" }],
+  });
 
   // A single-target self buff comes from pMap[0] carrying the ability hrid.
   runtime.dispatchMessage({
@@ -267,19 +280,45 @@ test("a cast buff renders an icon chip below the caster", async () => {
   // The icon references the game's ability sprite by hrid tail.
   const use = casterBar.querySelector("use");
   assert.match(use.getAttribute("href"), /#berserk$/);
-  const chip = casterBar.querySelector(".mwi-chip");
-  assert.match(chip.querySelector(".mwi-countdown").textContent, /^\d+$/);
+  const initialChip = casterBar.querySelector(".mwi-chip");
+  assert.match(
+    initialChip.querySelector(".mwi-countdown").textContent,
+    /^\d+$/,
+  );
   assert.equal(casterBar.querySelector(".mwi-progress-ring"), null);
   casterBar.click();
-  assert.equal(toggles, 1);
+  assert.equal(casterBar.dataset.displayMode, "dps");
+  assert.equal(
+    casterBar.querySelector(".mwi-buff-metric").textContent,
+    "DPS 1.2K",
+  );
+  assert.equal(casterBar.querySelector(".mwi-chip"), null);
+  assert.equal(toggles, 0, "the main DPS panel mode must remain untouched");
   assert.equal(
     nativeUnitClicks,
     0,
     "buff-bar clicks must not bubble into the native combat-unit card",
   );
+  casterBar.click();
+  assert.equal(casterBar.dataset.displayMode, "hps");
+  assert.equal(
+    casterBar.querySelector(".mwi-buff-metric").textContent,
+    "HPS 78.9",
+  );
+  assert.equal(toggles, 0);
+  casterBar.click();
+  assert.equal(casterBar.dataset.displayMode, undefined);
+  const chip = casterBar.querySelector(".mwi-chip");
+  assert.ok(chip, "the third click restores the buff icons");
+  assert.match(chip.querySelector("use").getAttribute("href"), /#berserk$/);
+  assert.equal(toggles, 0);
   runtime.api.dps.enabled = false;
   casterBar.click();
-  assert.equal(toggles, 1, "disabled DPS must ignore buff-bar clicks");
+  assert.ok(
+    casterBar.querySelector(".mwi-chip"),
+    "disabled DPS keeps the bar in buff mode",
+  );
+  assert.equal(toggles, 0, "disabled DPS must ignore buff-bar clicks");
   assert.equal(
     nativeUnitClicks,
     0,

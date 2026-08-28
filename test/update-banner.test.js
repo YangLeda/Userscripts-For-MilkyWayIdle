@@ -116,11 +116,11 @@ test("release 26.4.17 becomes the important-update threshold", () => {
   assert.match(releaseManifest.title.en, /Important MWITools 26\.4\.17 update/);
   assert.match(
     releaseManifest.message.zh,
-    /炫耀.*高热网络梗.*Buff\/Debuff.*交战信息.*最多两位小数/,
+    /炫耀.*高热网络梗.*不同主题.*Buff 条.*循环显示 Buff、DPS 与 HPS.*主面板.*交战信息.*最多两位小数/,
   );
   assert.match(
     releaseManifest.message.en,
-    /Flex message.*internet meme.*Battle Buff or Debuff bar.*combat-unit details dialog.*two decimal places/i,
+    /Flex message.*meme themes.*Player Buff bars.*cycle locally.*main meter.*combat-unit details.*two decimal places/i,
   );
   for (const version of [
     "26.4.5",

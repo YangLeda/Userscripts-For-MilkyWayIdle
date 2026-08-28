@@ -7,7 +7,7 @@
     "en": "Important MWITools 26.4.17 update"
   },
   "message": {
-    "zh": "26.4.17 是重要更新：总资产与各分项的中英文“炫耀”文案已全部换成 2024–2026 高热网络梗；点击战斗 Buff/Debuff 状态条不再误打开原生交战信息弹窗，命中与闪避等级也会以最多两位小数显示。建议前往 Greasy Fork 更新。",
-    "en": "Version 26.4.17 is an important update. Every Chinese and English total-asset and component Flex message now uses a high-recognition 2024–2026 internet meme. Clicking a Battle Buff or Debuff bar no longer opens the game's combat-unit details dialog, and accuracy and evasion ratings now show at most two decimal places. Update on Greasy Fork."
+    "zh": "26.4.17 是重要更新：总资产与各分项的中英文“炫耀”文案已全部换成 2024–2026 高热网络梗，上涨、下跌和持平各有不同主题；玩家 Buff 条可在本栏循环显示 Buff、DPS 与 HPS，不会联动主面板或误开交战信息，命中与闪避等级也会以最多两位小数显示。建议前往 Greasy Fork 更新。",
+    "en": "Version 26.4.17 is an important update. Every Chinese and English total-asset and component Flex message now uses distinct high-recognition 2024–2026 meme themes for rises, falls, and flat results. Player Buff bars cycle locally through Buff, DPS, and HPS without changing the main meter or opening combat-unit details, and accuracy and evasion ratings now show at most two decimal places. Update on Greasy Fork."
   }
 }
