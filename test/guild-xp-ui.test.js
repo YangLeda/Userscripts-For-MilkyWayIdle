@@ -285,6 +285,20 @@ test("guild XP columns draw relative bars and sort in both directions", async ()
   assert.ok(
     table.parentElement.classList.contains("mwi-guild-member-table-wrap"),
   );
+  const guildStyles = document.getElementById("mwitools-guild-xp-style");
+  assert.ok(guildStyles, "guild XP styles should be mounted");
+  assert.match(
+    guildStyles.textContent,
+    /\.mwi-guild-members-wide\s*\{[^}]*width:min\(100%,1120px\)[^}]*max-width:1120px/s,
+  );
+  assert.match(
+    guildStyles.textContent,
+    /\.mwi-guild-members-wide \.mwi-guild-member-table\s*\{[^}]*width:100%[^}]*min-width:760px[^}]*table-layout:fixed/s,
+  );
+  assert.match(
+    guildStyles.textContent,
+    /\.mwi-guild-rate-content\s*\{[^}]*grid-template-columns:86px 72px/s,
+  );
   assert.equal(table.rows[0].cells.length, table.rows[1].cells.length);
   assert.deepEqual(
     [...table.querySelectorAll("thead th")].map((cell) =>
