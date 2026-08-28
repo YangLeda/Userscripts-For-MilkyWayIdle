@@ -196,6 +196,12 @@ test("DPS feature reuses settings and cleans repeated enable-disable cycles", as
   installBoxMetrics(launcher, 54, 28);
   assert.equal(launcher.style.left, "102px");
   assert.equal(launcher.style.top, "10px");
+  assert.equal(launcher.textContent, "DPS");
+  assert.equal(window.__MWI_DPS.togglePrimaryMode(), "hps");
+  assert.equal(launcher.textContent, "HPS");
+  assert.equal(dpsPanel.style.display, "none");
+  assert.equal(window.__MWI_DPS.togglePrimaryMode(), "dps");
+  assert.equal(launcher.textContent, "DPS");
 
   installBoxMetrics(dpsPanel, 330, 212);
   let hiddenPanelMutations = 0;
@@ -289,6 +295,8 @@ test("DPS feature reuses settings and cleans repeated enable-disable cycles", as
     '[data-kikimeter-accuracy-player-tab="集成甲"]',
   );
   assert.ok(playerTab, "the accuracy view must expose a player sub-tab");
+  const playerTabs = playerTab.parentElement;
+  playerTabs.scrollLeft = 37;
   let accuracyRow = dpsPanel.querySelector(
     "[data-kikimeter-accuracy-monster-row]",
   );
@@ -309,6 +317,11 @@ test("DPS feature reuses settings and cleans repeated enable-disable cycles", as
   };
   runtime.dispatchMessage(missPayload, JSON.stringify(missPayload));
   window.__MWI_DPS.selectSegment("current");
+  assert.equal(
+    dpsPanel.querySelector('[data-kikimeter-accuracy-player-tab="集成甲"]'),
+    playerTab,
+  );
+  assert.equal(playerTabs.scrollLeft, 37);
   accuracyRow = dpsPanel.querySelector("[data-kikimeter-accuracy-monster-row]");
   assert.match(accuracyRow.textContent, /50\.00%/);
 

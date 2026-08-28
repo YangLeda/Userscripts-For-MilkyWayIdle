@@ -185,8 +185,23 @@ const KikiMeter = (() => {
       : "dps";
     if (mainMode === "debug" && !Settings.getDebugMode()) mainMode = "dps";
     Settings.setMainMode(mainMode);
+    refreshLauncherMode();
     refreshModeTabs();
     renderView(ViewData.get());
+  }
+  function refreshLauncherMode(button = tabBtn) {
+    if (!button) return;
+    const primaryMode = mainMode === "hps" ? "HPS" : "DPS";
+    button.textContent = primaryMode;
+    button.dataset.primaryMode = primaryMode.toLowerCase();
+    button.title =
+      Settings.getLanguage() === "en"
+        ? `Open ${primaryMode} meter`
+        : `打开 ${primaryMode} 统计`;
+  }
+  function togglePrimaryMode() {
+    setMainMode(mainMode === "dps" ? "hps" : "dps");
+    return mainMode;
   }
   function toggleMainGraph() {
     const shouldShowGraph = mainGraphWrap
@@ -234,6 +249,7 @@ const KikiMeter = (() => {
       trialClassNotice.textContent = english
         ? "Click each combat unit to identify its class accurately and cache it permanently."
         : "点击战斗界面中的人物，可准确识别职业并永久缓存。";
+    refreshLauncherMode();
   }
   function toggleLanguage() {
     DamageBreakdownTooltip.close();
@@ -1166,8 +1182,7 @@ const KikiMeter = (() => {
   }
 
   function setTabButtonStyle(btn) {
-    btn.title =
-      Settings.getLanguage() === "en" ? "Open DPS meter" : "打开 DPS 统计";
+    refreshLauncherMode(btn);
     if (btn._placeLauncher) btn._placeLauncher(false);
   }
 
@@ -1810,6 +1825,8 @@ const KikiMeter = (() => {
     isOpen: () => panelOpen,
     renderPlayers,
     renderView,
+    getMainMode: () => mainMode,
+    togglePrimaryMode,
     refreshSegments: () => refreshSegmentSelect(segmentSelect),
   };
 })();

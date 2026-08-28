@@ -864,7 +864,25 @@ const AccuracyBreakdownTooltip = (() => {
 
 function renderAccuracyRows(container, rows, rerender, emptyText) {
   AccuracyBreakdownTooltip.close();
-  container.replaceChildren();
+  let tabs = container.querySelector(":scope > [data-kikimeter-accuracy-tabs]");
+  let body = container.querySelector(":scope > [data-kikimeter-accuracy-body]");
+  if (!tabs || !body) {
+    tabs = el("div", {
+      display: "flex",
+      gap: "3px",
+      overflowX: "auto",
+      padding: "1px 0 5px",
+      flexShrink: "0",
+    });
+    tabs.dataset.kikimeterAccuracyTabs = "true";
+    body = document.createElement("div");
+    body.dataset.kikimeterAccuracyBody = "true";
+    body.style.display = "contents";
+    container.replaceChildren(tabs, body);
+  }
+  container._kikimeterAccuracyRows = rows;
+  container._kikimeterAccuracyRerender = rerender;
+  container._kikimeterAccuracyEmptyText = emptyText;
   if (!rows.length) {
     const empty = el("div", {
       padding: "14px",
@@ -874,7 +892,8 @@ function renderAccuracyRows(container, rows, rerender, emptyText) {
     empty.textContent =
       emptyText ||
       langText("暂无理论命中率数据", "No theoretical accuracy data");
-    container.appendChild(empty);
+    tabs.replaceChildren();
+    body.replaceChildren(empty);
     return;
   }
 
@@ -884,42 +903,53 @@ function renderAccuracyRows(container, rows, rerender, emptyText) {
     ? container.dataset.kikimeterAccuracyPlayer
     : rows[0].name;
   container.dataset.kikimeterAccuracyPlayer = selectedName;
-  const tabs = el("div", {
-    display: "flex",
-    gap: "3px",
-    overflowX: "auto",
-    padding: "1px 0 5px",
-    flexShrink: "0",
-  });
+  const activeNames = new Set(rows.map((row) => row.name));
+  for (const button of tabs.querySelectorAll("button")) {
+    if (!activeNames.has(button.dataset.kikimeterAccuracyPlayerTab)) {
+      button.remove();
+    }
+  }
   for (const row of rows) {
     const selected = row.name === selectedName;
-    const button = el("button", {
-      flex: "0 0 auto",
-      maxWidth: "130px",
-      overflow: "hidden",
-      textOverflow: "ellipsis",
-      whiteSpace: "nowrap",
-      padding: "3px 7px",
+    let button = [...tabs.querySelectorAll("button")].find(
+      (candidate) => candidate.dataset.kikimeterAccuracyPlayerTab === row.name,
+    );
+    if (!button) {
+      button = el("button", {
+        flex: "0 0 auto",
+        maxWidth: "130px",
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+        padding: "3px 7px",
+        borderRadius: "4px",
+        font: "600 10px/1.2 inherit",
+        cursor: "pointer",
+      });
+      button.type = "button";
+      button.dataset.kikimeterAccuracyPlayerTab = row.name;
+      button.addEventListener("click", () => {
+        container.dataset.kikimeterAccuracyPlayer =
+          button.dataset.kikimeterAccuracyPlayerTab;
+        renderAccuracyRows(
+          container,
+          container._kikimeterAccuracyRows ?? [],
+          container._kikimeterAccuracyRerender,
+          container._kikimeterAccuracyEmptyText,
+        );
+      });
+    }
+    button.textContent = row.name;
+    button.title = row.name;
+    Object.assign(button.style, {
       border: selected
         ? `1px solid ${ACCENT}`
         : "1px solid rgba(255,255,255,.14)",
-      borderRadius: "4px",
       background: selected ? "rgba(212,175,55,.18)" : "rgba(0,0,0,.3)",
       color: selected ? "#fff" : "rgba(255,255,255,.72)",
-      font: "600 10px/1.2 inherit",
-      cursor: "pointer",
-    });
-    button.type = "button";
-    button.textContent = row.name;
-    button.title = row.name;
-    button.dataset.kikimeterAccuracyPlayerTab = row.name;
-    button.addEventListener("click", () => {
-      container.dataset.kikimeterAccuracyPlayer = row.name;
-      renderAccuracyRows(container, rows, rerender, emptyText);
     });
     tabs.appendChild(button);
   }
-  container.appendChild(tabs);
 
   const selected = rows.find((row) => row.name === selectedName) || rows[0];
   const styleLabel = selected.combatStyle
@@ -935,7 +965,7 @@ function renderAccuracyRows(container, rows, rerender, emptyText) {
     ? selected.accuracyRating
     : "—";
   summary.textContent = `${styleLabel} · ${langText("命中等级", "Accuracy rating")} ${accuracyCopy}`;
-  container.appendChild(summary);
+  body.replaceChildren(summary);
 
   const monsters = Array.isArray(selected.monsters) ? selected.monsters : [];
   const cls = ClassSystem.get(selected.name);
@@ -1000,7 +1030,7 @@ function renderAccuracyRows(container, rows, rerender, emptyText) {
     stats.textContent = `${pct.toFixed(2)}%`;
     content.append(label, stats);
     line.append(bar, content);
-    container.appendChild(line);
+    body.appendChild(line);
   }
   if (!monsters.length) {
     const unavailable = el("div", {
@@ -1012,7 +1042,7 @@ function renderAccuracyRows(container, rows, rerender, emptyText) {
       "该玩家或当前怪物缺少可用的命中／闪避面板属性",
       "This player or monster has no usable accuracy/evasion ratings",
     );
-    container.appendChild(unavailable);
+    body.appendChild(unavailable);
   }
 }
 
@@ -1022,7 +1052,8 @@ function renderDetailsRows(container, rows, rerender) {
     DamageBreakdownTooltip.update(rows)
   )
     return;
-  container.innerHTML = "";
+  const scrollTop = container.scrollTop;
+  container.replaceChildren();
   const max = rows.length ? Math.max(...rows.map((r) => r.value), 1) : 1;
   rows.forEach((r, i) => {
     const synthetic = r.synthetic === "unattributed-damage",
@@ -1127,6 +1158,7 @@ function renderDetailsRows(container, rows, rerender) {
     empty.textContent = langText("暂无战斗数据", "No combat data");
     container.appendChild(empty);
   }
+  container.scrollTop = scrollTop;
 }
 
 export {

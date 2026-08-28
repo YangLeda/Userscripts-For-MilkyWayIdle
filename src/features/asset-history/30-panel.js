@@ -645,7 +645,7 @@ class AssetHistoryPanel {
   build() {
     this.host.innerHTML = `
       <p class="mwi-asset-disclaimer">${t("盈亏按资产估值变化计算，包含市场价格波动，并非已实现交易利润。", "P/L is based on asset valuation changes, including market price movement; it is not realized trading profit.")}</p>
-      <div class="mwi-asset-share"><button type="button" class="mwi-asset-action" id="mwi-asset-open-center">${t("打开资产中心", "Open Asset Center")}</button><button type="button" class="mwi-asset-action" id="mwi-asset-share-chat" disabled>${t("炫耀", "Flex")}</button><span class="mwi-asset-share-status">${t("需要至少两天的资产记录", "At least two asset records are required")}</span></div>
+      <div class="mwi-asset-share"><button type="button" class="mwi-asset-action" id="mwi-asset-open-center">${t("打开资产中心", "Open Asset Center")}</button><span class="mwi-asset-share-status"></span></div>
       <div class="mwi-asset-summary">
         ${createCard(t("当前总资产", "Current total assets"), "mwi-asset-current-total")}
         ${createCard(t("总盈亏", "Total P/L"), "mwi-asset-total-change", "mwi-asset-compare-date")}
@@ -702,9 +702,6 @@ class AssetHistoryPanel {
     this.host
       .querySelector("#mwi-asset-open-center")
       .addEventListener("click", () => this.center?.open());
-    this.host
-      .querySelector("#mwi-asset-share-chat")
-      .addEventListener("click", () => this.shareToChat());
     this.host
       .querySelector("#mwi-asset-breakdown")
       .addEventListener("click", (event) => {
@@ -931,20 +928,8 @@ class AssetHistoryPanel {
             gapDays: comparison.gapDays,
           }
         : null;
-    const shareButton = this.host.querySelector("#mwi-asset-share-chat");
     const shareStatus = this.host.querySelector(".mwi-asset-share-status");
-    shareButton.disabled = !this.shareStats;
-    if (!this.shareStats) {
-      shareStatus.textContent = t(
-        "需要至少两天的资产记录",
-        "At least two asset records are required",
-      );
-    } else if (shareStatus.dataset.pasted !== "true") {
-      shareStatus.textContent = t(
-        "随机生成今日战报并放入聊天框",
-        "Generate a random report and paste it into chat",
-      );
-    }
+    if (shareStatus.dataset.pasted !== "true") shareStatus.textContent = "";
     const compareText = comparison
       ? comparison.gapDays === 1
         ? t(`较昨日（${comparison.date}）`, `vs yesterday (${comparison.date})`)

@@ -118,16 +118,15 @@ function ensureBuffStyles(scope) {
   style.textContent = `
 	.mwi-has-buffbar{height:auto!important;min-height:0;overflow:visible!important}
 	.mwi-buff-shell{width:100%;height:21px;box-sizing:border-box;margin-top:4px}
-	.mwi-buffbar{position:relative;width:100%;height:21px;box-sizing:border-box;overflow:hidden}
+	.mwi-buffbar{position:relative;width:100%;height:21px;box-sizing:border-box;overflow:hidden;cursor:pointer}
 	.mwi-buff-track{width:100%;height:21px;display:flex;align-items:center}
 	.mwi-buff-sequence{width:100%;height:21px;display:flex;flex:none;gap:4px;align-items:center;justify-content:center}
 	.mwi-buffbar[data-scrolling="true"] .mwi-buff-track{width:max-content;animation:mwi-buff-marquee var(--mwi-marquee-duration,8s) linear infinite;will-change:transform}
 	.mwi-buffbar[data-scrolling="true"] .mwi-buff-sequence{width:max-content;justify-content:flex-start}
 	.mwi-chip{font:11px/1.2 "Trebuchet MS", Verdana, Arial, sans-serif;padding:2px 6px;border-radius:10px;white-space:nowrap;display:inline-flex;align-items:center;gap:4px;position:relative}
-.mwi-icon-wrap{position:relative;width:15px;height:15px;display:inline-block}
+.mwi-icon-wrap{position:relative;width:18px;height:18px;display:inline-block;flex:0 0 18px}
 .mwi-icon{width:15px;height:15px;display:block}
-.mwi-progress-ring{position:absolute;inset:-3px;border-radius:14px;pointer-events:none;mask:linear-gradient(#000 0 0);-webkit-mask:linear-gradient(#000 0 0)}
-.mwi-progress-ring::before{content:"";position:absolute;inset:0;border-radius:inherit;padding:3px;background:conic-gradient(var(--mwi-ring-color) 0deg var(--mwi-ring-deg), transparent var(--mwi-ring-deg) 360deg);-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude}
+.mwi-countdown{position:absolute;inset:0;display:grid;place-items:center;pointer-events:none;color:#fff;font:700 8px/1 Arial,sans-serif;letter-spacing:-.35px;text-shadow:0 1px 2px #000,0 0 2px #000;background:rgba(0,0,0,.28);border-radius:3px;font-variant-numeric:tabular-nums}
 	.mwi-buff{background:#e7f4e4;color:#1e4d1a;border:1px solid #7fbf7a}
 	.mwi-debuff{background:#fbe3e3;color:#6b1a1a;border:1px solid #d17b7b}
 	@keyframes mwi-buff-marquee{to{transform:translate3d(calc(-1 * var(--mwi-marquee-distance,0px)),0,0)}}
@@ -173,6 +172,13 @@ function createBuffTracker(scope) {
       shell.className = "mwi-buff-shell";
       bar = document.createElement("div");
       bar.className = "mwi-buffbar";
+      bar.title = runtime.config.isZH
+        ? "点击切换 DPS / HPS"
+        : "Click to switch DPS / HPS";
+      bar.addEventListener("click", () => {
+        if (runtime.api.dps?.enabled !== true) return;
+        runtime.api.dps.togglePrimaryMode?.();
+      });
       shell.append(bar);
       // Nest the fixed single-row viewport inside the unit's status column so
       // it stays in flow and never overlaps neighbouring units.
@@ -507,13 +513,10 @@ function createBuffTracker(scope) {
     } else {
       iconWrap.textContent = "?";
     }
-    const ring = document.createElement("span");
-    ring.className = "mwi-progress-ring";
-    ring.style.setProperty(
-      "--mwi-ring-color",
-      effect.kind === "buff" ? "rgba(60,140,60,0.7)" : "rgba(180,60,60,0.7)",
-    );
-    chip.append(iconWrap, ring);
+    const countdown = document.createElement("span");
+    countdown.className = "mwi-countdown";
+    iconWrap.append(countdown);
+    chip.append(iconWrap);
     return chip;
   }
 
@@ -560,21 +563,28 @@ function createBuffTracker(scope) {
     updateMarqueeMetrics(bar, entries.length);
   }
 
-  function updateCountdownRings(bar, entries, now) {
-    for (const effect of entries) {
-      const total = Math.max(1, effect.durationSec);
-      const elapsed = Math.max(
-        0,
-        Math.min(total, (now - effect.startedAt) / 1000),
-      );
-      const degrees = Math.min(1, Math.max(0, elapsed / total)) * 360;
-      const key = effectKey(effect.kind, effect.abilityHrid);
-      for (const chip of bar.querySelectorAll(".mwi-chip")) {
-        if (chip.dataset.effectKey !== key) continue;
-        chip
-          .querySelector(".mwi-progress-ring")
-          ?.style.setProperty("--mwi-ring-deg", `${degrees}deg`);
-      }
+  function formatRemainingTime(effect, now) {
+    const seconds = Math.max(0, Math.ceil((effect.expiresAt - now) / 1000));
+    return seconds > 60 ? `${Math.ceil(seconds / 60)}m` : String(seconds);
+  }
+
+  function updateCountdownLabels(bar, entries, now) {
+    const effectsByKey = new Map(
+      entries.map((effect) => [
+        effectKey(effect.kind, effect.abilityHrid),
+        effect,
+      ]),
+    );
+    for (const chip of bar.querySelectorAll(".mwi-chip")) {
+      const effect = effectsByKey.get(chip.dataset.effectKey);
+      if (!effect) continue;
+      const label = chip.querySelector(".mwi-countdown");
+      if (!label) continue;
+      const remaining = formatRemainingTime(effect, now);
+      if (label.textContent !== remaining) label.textContent = remaining;
+      label.title = runtime.config.isZH
+        ? `剩余 ${remaining}`
+        : `${remaining} remaining`;
     }
   }
 
@@ -600,7 +610,7 @@ function createBuffTracker(scope) {
     } else {
       updateMarqueeMetrics(bar, entries.length);
     }
-    updateCountdownRings(bar, entries, now);
+    updateCountdownLabels(bar, entries, now);
   }
 
   function updateUnitEffect(

@@ -279,12 +279,13 @@ test("tasks use a flat sorted list with statistics filters", () => {
   );
   assert.match(
     styles,
-    /\.mwi-task-bg\s*\{[^}]*top:6%[^}]*right:8%[^}]*left:0[^}]*display:flex[^}]*height:88%[^}]*flex-direction:row-reverse/,
+    /\.mwi-task-bg\s*\{[^}]*inset:6% 8% 6% 0[^}]*display:flex[^}]*justify-content:flex-end/,
   );
   assert.match(
     styles,
-    /\.mwi-task-bg svg\s*\{[^}]*width:24%[^}]*height:100%[^}]*flex:0 0 24%/,
+    /\.mwi-task-bg svg\s*\{[^}]*width:32%[^}]*height:100%[^}]*flex:0 0 32%/,
   );
+  assert.match(styles, /\.mwi-task-dungeon-badges[^}]*top:5px[^}]*right:6px/);
   assert.match(
     styles,
     /\.mwi-task-merge-toast[^}]*position:fixed[^}]*z-index:2147483200/,
@@ -1353,29 +1354,43 @@ test("dungeon counts overlap and filters keep native combat cards", () => {
     ).length,
     3,
   );
+  const decoratedTask = document.querySelector(TASK_SELECTOR);
+  assert.deepEqual(
+    [...decoratedTask.querySelectorAll(":scope > .mwi-task-bg use")].map(
+      (use) => use.getAttribute("href"),
+    ),
+    ["/static/media/combat_monsters_sprite.test.svg#fly"],
+  );
   assert.deepEqual(
     [
-      ...document
-        .querySelector(TASK_SELECTOR)
-        .querySelectorAll(":scope > .mwi-task-bg use"),
+      ...decoratedTask.querySelectorAll(
+        ":scope > .mwi-task-dungeon-badges use",
+      ),
     ].map((use) => use.getAttribute("href")),
     [
-      "/static/media/combat_monsters_sprite.test.svg#fly",
       "/static/media/actions_sprite.test.svg#chimerical_den",
       "/static/media/actions_sprite.test.svg#sinister_circus",
       "/static/media/actions_sprite.test.svg#pirate_cove",
     ],
   );
+  runtime.settings.settingsMap.taskDungeonIcons.isTrue = false;
+  runtime.api.renderTasks();
+  assert.ok(decoratedTask.querySelector(":scope > .mwi-task-bg"));
+  assert.equal(
+    decoratedTask.querySelector(":scope > .mwi-task-dungeon-badges"),
+    null,
+  );
+  runtime.settings.settingsMap.taskDungeonIcons.isTrue = true;
+  runtime.api.renderTasks();
   const firstTaskCard = document.querySelector(TASK_SELECTOR);
   assert.equal(firstTaskCard.dataset.mwitoolsMapIndex, "1");
   assert.equal(
     firstTaskCard.dataset.mwitoolsTaskIconSignature,
-    [
-      "/static/media/combat_monsters_sprite.test.svg#fly",
+    `/static/media/combat_monsters_sprite.test.svg#fly\u001f${[
       "/static/media/actions_sprite.test.svg#chimerical_den",
       "/static/media/actions_sprite.test.svg#sinister_circus",
       "/static/media/actions_sprite.test.svg#pirate_cove",
-    ].join("\n"),
+    ].join("\n")}`,
   );
 
   toolbar

@@ -642,10 +642,7 @@ test("盈亏 visually suppresses native selection without mutating React tab sta
     assetStyles,
     /--mwi-asset-idle-background,rgba\(255,255,255,\.08\)/,
   );
-  assert.equal(
-    document.querySelector("#mwi-asset-share-chat").textContent,
-    "炫耀",
-  );
+  assert.equal(document.querySelector("#mwi-asset-share-chat"), null);
   assert.match(
     document.querySelector("#mwitools-asset-history-style").textContent,
     /overflow-y:auto/,

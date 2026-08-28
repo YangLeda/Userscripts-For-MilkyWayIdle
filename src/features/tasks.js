@@ -29,7 +29,7 @@ const TASK_FILTER_LOCK_HOLD_MS = 1_000;
 const TASK_FILTER_LOCK_FEEDBACK_DELAY_MS = 500;
 const TASK_FILTER_LOCK_MOVE_TOLERANCE = 10;
 const OWNED_TASK_SELECTOR =
-  '.mwi-task-insight,.mwi-task-toolbar,.mwi-task-profession-group,.mwi-task-combat-location,.mwi-task-combat-mode,.mwi-task-bg,.mwi-task-merged-note,.mwi-task-merge-toast,.mwi-task-train-planner,.mwi-task-new-badge,.mwi-task-reroll-lock,[data-mwitools-task-mirror="true"]';
+  '.mwi-task-insight,.mwi-task-toolbar,.mwi-task-profession-group,.mwi-task-combat-location,.mwi-task-combat-mode,.mwi-task-bg,.mwi-task-dungeon-badges,.mwi-task-merged-note,.mwi-task-merge-toast,.mwi-task-train-planner,.mwi-task-new-badge,.mwi-task-reroll-lock,[data-mwitools-task-mirror="true"]';
 const MERGE_HANDLER = Symbol("mwitoolsTaskMergeHandler");
 const REROLL_LOCK_HANDLER = Symbol("mwitoolsTaskRerollLockHandler");
 const REROLL_CHOICE_HANDLER = Symbol("mwitoolsTaskRerollChoiceHandler");
@@ -289,9 +289,12 @@ function addStyles() {
     ${REROLL_OPTIONS_SELECTOR} button[data-mwitools-task-lock-disabled="true"] { position:relative!important; opacity:.38!important; filter:grayscale(.72) saturate(.25)!important; cursor:not-allowed!important; }
     .mwi-task-reroll-lock { position:absolute; z-index:4; top:3px; right:3px; display:inline-flex; width:16px; height:16px; align-items:center; justify-content:center; border-radius:50%; background:rgba(20,34,48,.94); color:#dff3ff; font:700 10px/1 system-ui,sans-serif; box-shadow:0 1px 4px rgba(0,0,0,.55); pointer-events:none; }
     ${TASK_SELECTOR}[data-mwitools-filtered="true"] { display:none !important; }
-    .mwi-task-bg { position:absolute; z-index:0; top:6%; right:8%; left:0; display:flex; height:88%; flex-direction:row-reverse; align-items:center; justify-content:flex-start; opacity:.3; pointer-events:none; }
-    .mwi-task-bg svg { width:24%; height:100%; flex:0 0 24%; }
-    ${TASK_SELECTOR} > :not(.mwi-task-bg) { position:relative; z-index:1; }
+    .mwi-task-bg { position:absolute; z-index:0; inset:6% 8% 6% 0; display:flex; align-items:center; justify-content:flex-end; opacity:.3; pointer-events:none; }
+    .mwi-task-bg svg { width:32%; height:100%; flex:0 0 32%; }
+    .mwi-task-dungeon-badges { position:absolute; z-index:2; top:5px; right:6px; display:flex; max-width:calc(100% - 12px); gap:3px; pointer-events:none; }
+    .mwi-task-dungeon-badge { display:grid; width:22px; height:22px; flex:0 0 22px; place-items:center; border:1px solid rgba(255,255,255,.18); border-radius:5px; background:rgba(15,20,30,.78); box-shadow:0 1px 4px rgba(0,0,0,.38); }
+    .mwi-task-dungeon-badge svg { width:19px; height:19px; }
+    ${TASK_SELECTOR} > :not(.mwi-task-bg):not(.mwi-task-dungeon-badges) { position:relative; z-index:1; }
     .mwi-task-merge-toast { position:fixed; top:56px; right:14px; z-index:2147483200; max-width:min(360px,calc(100vw - 28px)); box-sizing:border-box; padding:8px 11px; border:1px solid rgba(102,205,135,.5); border-radius:6px; background:rgba(15,24,20,.97); box-shadow:0 8px 22px rgba(0,0,0,.4); color:#a8e5b7; font-size:.75rem; line-height:1.35; animation:mwi-task-toast-in .16s ease-out; }
     @keyframes mwi-task-lock-progress { from { --mwi-task-lock-angle:0deg; } to { --mwi-task-lock-angle:360deg; } }
     @keyframes mwi-task-toast-in { from { opacity:0; transform:translateY(-6px); } to { opacity:1; transform:translateY(0); } }
@@ -661,7 +664,11 @@ function taskArtworksForCard(card, task, context = {}) {
       seen.add(actionHrid);
       return true;
     })
-    .map(({ actionHrid }) => ({ kind: "actions", hrid: actionHrid }));
+    .map(({ actionHrid, label }) => ({
+      kind: "actions",
+      hrid: actionHrid,
+      label,
+    }));
   return [primary, ...dungeons];
 }
 
@@ -707,38 +714,103 @@ function syncArtworkBackground(existing, hrefs) {
   return background;
 }
 
+function syncDungeonBadges(existing, artworks) {
+  const badges = existing ?? document.createElement("div");
+  if (!existing) badges.className = "mwi-task-dungeon-badges";
+  artworks.forEach((artwork, index) => {
+    const href = getGameSpriteHref(artwork.kind, artwork.hrid);
+    let badge = badges.children[index];
+    if (!badge?.classList?.contains("mwi-task-dungeon-badge")) {
+      const replacement = document.createElement("span");
+      replacement.className = "mwi-task-dungeon-badge";
+      if (badge) badge.replaceWith(replacement);
+      else badges.append(replacement);
+      badge = replacement;
+    }
+    badge.title = artwork.label || t("地牢", "Dungeon");
+    badge.setAttribute("aria-label", badge.title);
+    let svg = badge.querySelector(":scope > svg");
+    if (!svg) {
+      svg = createArtworkSvg(href);
+      badge.append(svg);
+    }
+    const use = svg.querySelector(":scope > use");
+    if (use?.getAttribute("href") !== href) use?.setAttribute("href", href);
+  });
+  while (badges.children.length > artworks.length) {
+    badges.lastElementChild?.remove();
+  }
+  badges.dataset.spriteHref = artworks
+    .map((artwork) => getGameSpriteHref(artwork.kind, artwork.hrid))
+    .filter(Boolean)
+    .join("\n");
+  return badges;
+}
+
 function decorateCard(card, task, artworks = null) {
   card.querySelector(".mwi-task-insight")?.remove();
   if (!runtime.settings.get("taskIcons")) {
     card.querySelector(":scope > .mwi-task-bg")?.remove();
+    card.querySelector(":scope > .mwi-task-dungeon-badges")?.remove();
     delete card.dataset.mwitoolsTaskIconSignature;
     return;
   }
-  const hrefs = artworkHrefs(artworks ?? taskArtworksForCard(card, task));
-  const signature = hrefs.join("\n");
+  const resolvedArtworks = artworks ?? taskArtworksForCard(card, task);
+  const primaryHrefs = artworkHrefs(resolvedArtworks.slice(0, 1));
+  const dungeonArtworks = (
+    runtime.settings.get("taskDungeonIcons") ? resolvedArtworks.slice(1) : []
+  ).filter((artwork) => getGameSpriteHref(artwork.kind, artwork.hrid));
+  const dungeonHrefs = artworkHrefs(dungeonArtworks);
+  const signature = [primaryHrefs.join("\n"), dungeonHrefs.join("\n")].join(
+    "\u001f",
+  );
   const existing = card.querySelector(":scope > .mwi-task-bg");
-  if (!hrefs.length) {
+  const existingBadges = card.querySelector(
+    ":scope > .mwi-task-dungeon-badges",
+  );
+  if (!primaryHrefs.length) {
     existing?.remove();
+    existingBadges?.remove();
     card.dataset.mwitoolsTaskIconSignature = "";
     return;
   }
   if (card.dataset.mwitoolsTaskIconSignature !== signature) {
     card.dataset.mwitoolsTaskIconSignature = signature;
   }
-  if (existing?.dataset.spriteHref === signature) return;
-  const background = syncArtworkBackground(existing, hrefs);
+  if (
+    existing?.dataset.spriteHref === primaryHrefs.join("\n") &&
+    (dungeonHrefs.length
+      ? existingBadges?.dataset.spriteHref === dungeonHrefs.join("\n")
+      : !existingBadges)
+  ) {
+    return;
+  }
+  const background = syncArtworkBackground(existing, primaryHrefs);
   card.style.position = "relative";
   if (!existing) card.appendChild(background);
+  if (dungeonArtworks.length) {
+    const badges = syncDungeonBadges(existingBadges, dungeonArtworks);
+    if (!existingBadges) card.appendChild(badges);
+  } else {
+    existingBadges?.remove();
+  }
 }
 
 function taskIconMatches(card) {
   const existing = card.querySelector(":scope > .mwi-task-bg");
-  if (!runtime.settings.get("taskIcons")) return !existing;
+  const badges = card.querySelector(":scope > .mwi-task-dungeon-badges");
+  if (!runtime.settings.get("taskIcons")) return !existing && !badges;
   if (!("mwitoolsTaskIconSignature" in card.dataset)) return false;
-  const signature = card.dataset.mwitoolsTaskIconSignature;
-  return signature
-    ? existing?.dataset.spriteHref === signature
-    : existing === null;
+  const [primarySignature = "", dungeonSignature = ""] =
+    card.dataset.mwitoolsTaskIconSignature.split("\u001f");
+  return (
+    (primarySignature
+      ? existing?.dataset.spriteHref === primarySignature
+      : existing === null) &&
+    (dungeonSignature
+      ? badges?.dataset.spriteHref === dungeonSignature
+      : badges === null)
+  );
 }
 
 function visibleTaskTitle(card) {
@@ -2454,6 +2526,7 @@ function taskRenderSignature(snapshots) {
     runtime.config.isZH,
     runtime.settings.get("taskAutoSort"),
     runtime.settings.get("taskIcons"),
+    runtime.settings.get("taskDungeonIcons"),
     runtime.settings.get("taskStatistics"),
     [...pageNewTaskIds].sort().join(","),
     [...activeProfessionFilters].sort().join(","),
@@ -2633,7 +2706,7 @@ function cleanupTasks() {
   cleanupListDecorations();
   document
     .querySelectorAll(
-      ".mwi-task-insight,.mwi-task-toolbar,.mwi-task-profession-group,.mwi-task-bg,.mwi-task-merged-note,.mwi-task-merge-toast",
+      ".mwi-task-insight,.mwi-task-toolbar,.mwi-task-profession-group,.mwi-task-bg,.mwi-task-dungeon-badges,.mwi-task-merged-note,.mwi-task-merge-toast",
     )
     .forEach((node) => node.remove());
   document.querySelectorAll("[data-mwitools-merge-wired]").forEach((node) => {
@@ -2676,21 +2749,27 @@ runtime.features.register({
   initialize({ scope, characterId }) {
     ensureTaskFilterLockState(characterId);
     addStyles();
-    let settleRetries = 0;
+    let settleDeadline = Date.now() + 2_000;
+    let settleTimer = null;
     let renderScheduler = null;
     const render = () => {
       const settled = renderTasks({
         allowReusedPositional: false,
       });
-      if (!settled && settleRetries < 3) {
-        settleRetries += 1;
-        renderScheduler.schedule();
-      } else {
-        settleRetries = 0;
+      if (!settled && Date.now() < settleDeadline && settleTimer === null) {
+        settleTimer = setTimeout(() => {
+          settleTimer = null;
+          renderScheduler.schedule();
+        }, 120);
+      } else if (settled) {
+        settleDeadline = 0;
       }
     };
     renderScheduler = createFrameScheduler(render);
-    const scheduleRender = () => renderScheduler.schedule();
+    const scheduleRender = ({ settle = false } = {}) => {
+      if (settle) settleDeadline = Date.now() + 2_000;
+      renderScheduler.schedule();
+    };
     const spriteManifest = loadGameSpriteManifest();
     render();
     void spriteManifest.then(() => {
@@ -2700,15 +2779,16 @@ runtime.features.register({
     subscribeTaskSurfaceMutations({ scope }, (records) => {
       syncTaskRerollLocks();
       repairRangedWayIdleRerollButtons();
-      if (shouldRenderTaskMutations(records)) scheduleRender();
+      if (shouldRenderTaskMutations(records)) scheduleRender({ settle: true });
     });
     scope.add(
       runtime.onMessage("quests_updated", () => {
         nativeResetChoiceUntil = 0;
-        scheduleRender();
+        scheduleRender({ settle: true });
       }),
     );
     scope.add(() => {
+      if (settleTimer !== null) clearTimeout(settleTimer);
       renderScheduler.cancel();
       cleanupTasks();
     });
@@ -2720,6 +2800,7 @@ for (const id of [
   "taskQueueProgress",
   "taskAutoSort",
   "taskIcons",
+  "taskDungeonIcons",
   "taskStatistics",
   "taskClaimCollector",
   "taskMergeActions",

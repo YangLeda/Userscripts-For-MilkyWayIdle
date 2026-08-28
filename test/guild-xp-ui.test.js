@@ -290,9 +290,9 @@ test("guild XP columns draw relative bars and sort in both directions", async ()
     [...table.querySelectorAll("thead th")].map((cell) =>
       cell.textContent.replace("↕", ""),
     ),
-    ["成员", "近 6 小时 XP/h", "24 小时 XP/h", "本周平均 XP/h"],
+    ["成员", "24 小时 XP/h"],
   );
-  assert.equal(table.querySelectorAll(".mwi-guild-rate-cell").length, 9);
+  assert.equal(table.querySelectorAll(".mwi-guild-rate-cell").length, 3);
   assert.equal(
     document.querySelectorAll(
       "#application-table .mwi-guild-rate-cell,#application-table .mwi-guild-recent-head,#application-table .mwi-guild-day-head,#application-table .mwi-guild-week-head",
@@ -309,7 +309,7 @@ test("guild XP columns draw relative bars and sort in both directions", async ()
         (fill) => fill.style.width,
       ),
     ),
-    [["50%", "50%", "25%"], ["100%", "100%", "100%"], []],
+    [["50%"], ["100%"], []],
   );
 
   const trialHeader = document.createElement("th");
@@ -329,7 +329,7 @@ test("guild XP columns draw relative bars and sort in both directions", async ()
     [...table.querySelectorAll("thead th")].map((cell) =>
       cell.textContent.replace("↕", ""),
     ),
-    ["成员", "试炼层数", "近 6 小时 XP/h", "24 小时 XP/h", "本周平均 XP/h"],
+    ["成员", "试炼层数", "24 小时 XP/h"],
   );
   assert.ok(
     [...table.tBodies[0].rows].every(
@@ -339,15 +339,15 @@ test("guild XP columns draw relative bars and sort in both directions", async ()
     ),
   );
 
-  const recentHeader = table.querySelector(".mwi-guild-recent-head");
-  recentHeader.click();
+  const dayHeader = table.querySelector(".mwi-guild-day-head");
+  dayHeader.click();
   assert.deepEqual(
     [...table.querySelectorAll("tbody tr")].map(
       (row) => row.cells[0].textContent,
     ),
     ["Bob", "Alice", "Charlie"],
   );
-  recentHeader.click();
+  dayHeader.click();
   assert.deepEqual(
     [...table.querySelectorAll("tbody tr")].map(
       (row) => row.cells[0].textContent,

@@ -622,15 +622,24 @@ function appendRateColumns(table, rows, kind, parentId = "") {
     table.parentElement?.classList.add("mwi-guild-member-table-wrap");
   }
   const header = table.tHead.rows[0];
-  if (!header.querySelector(".mwi-guild-recent-head")) {
+  if (kind === "member") {
+    header
+      .querySelectorAll(".mwi-guild-recent-head,.mwi-guild-week-head")
+      .forEach((cell) => cell.remove());
+  }
+  if (
+    !header.querySelector(
+      kind === "member" ? ".mwi-guild-day-head" : ".mwi-guild-recent-head",
+    )
+  ) {
     const sortable = kind === "member";
-    const columns = [
-      ["mwi-guild-recent-head", t("近 6 小时 XP/h", "6h XP/h")],
-      ["mwi-guild-day-head", t("24 小时 XP/h", "24h XP/h")],
-      ...(kind === "member"
-        ? [["mwi-guild-week-head", t("本周平均 XP/h", "This-week avg XP/h")]]
-        : []),
-    ];
+    const columns =
+      kind === "member"
+        ? [["mwi-guild-day-head", t("24 小时 XP/h", "24h XP/h")]]
+        : [
+            ["mwi-guild-recent-head", t("近 6 小时 XP/h", "6h XP/h")],
+            ["mwi-guild-day-head", t("24 小时 XP/h", "24h XP/h")],
+          ];
     for (const [rateIndex, [className, label]] of columns.entries()) {
       const cell = document.createElement("th");
       cell.className = className;
@@ -699,9 +708,8 @@ function appendRateColumns(table, rows, kind, parentId = "") {
     }
   }
   for (const selector of [
-    ".mwi-guild-recent-head",
+    ...(kind === "member" ? [] : [".mwi-guild-recent-head"]),
     ".mwi-guild-day-head",
-    ...(kind === "member" ? [".mwi-guild-week-head"] : []),
   ]) {
     const rateHeader = header.querySelector(selector);
     if (rateHeader) header.append(rateHeader);
@@ -723,14 +731,10 @@ function appendRateColumns(table, rows, kind, parentId = "") {
       row,
       key,
       rates,
-      values: [
-        rates?.recent,
-        rates?.day,
-        ...(kind === "member" ? [entityWeeklyXpRate(source)] : []),
-      ],
+      values: kind === "member" ? [rates?.day] : [rates?.recent, rates?.day],
     };
   });
-  const maxima = Array.from({ length: kind === "member" ? 3 : 2 }, (_, index) =>
+  const maxima = Array.from({ length: kind === "member" ? 1 : 2 }, (_, index) =>
     Math.max(
       0,
       ...rowEntries.map(({ values }) =>

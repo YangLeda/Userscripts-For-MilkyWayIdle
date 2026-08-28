@@ -503,8 +503,15 @@ test("inventory asset summaries rerender without restoring the removed header UI
 test("inventory values stay frozen until an explicit forced refresh", async () => {
   const originalCharacterId = runtime.state.currentCharacterId;
   const originalRefresh = runtime.api.refreshAssetSnapshot;
+  const originalHistory = runtime.api.assetHistory;
   let refreshCount = 0;
   runtime.state.currentCharacterId = "frozen-inventory-session";
+  runtime.api.assetHistory = {
+    getComparison: () => ({
+      gapDays: 1,
+      record: { values: { total: 1 } },
+    }),
+  };
   runtime.api.refreshAssetSnapshot = async () => {
     refreshCount += 1;
     return originalRefresh();
@@ -535,6 +542,30 @@ test("inventory values stay frozen until an explicit forced refresh", async () =
     document.querySelectorAll("#script_refresh_inventory_btn").length,
     1,
   );
+  const shareButton = document.querySelector("#script_share_inventory_btn");
+  assert.equal(
+    document.querySelector("#script_refresh_inventory_btn").nextElementSibling,
+    shareButton,
+  );
+  assert.equal(shareButton.disabled, false);
+  const chatInput = document.createElement("input");
+  chatInput.className = "Chat_chatInput__test";
+  document.body.append(chatInput);
+  shareButton.click();
+  assert.ok(chatInput.value.length > 0);
+  assert.match(shareButton.textContent, /已放入聊天框/);
+
+  const originalSetTimeout = globalThis.setTimeout;
+  let scheduled = 0;
+  globalThis.setTimeout = () => {
+    scheduled += 1;
+    return scheduled;
+  };
+  for (let index = 0; index < 100; index += 1) {
+    runtime.api.scheduleNetworthRefresh();
+  }
+  globalThis.setTimeout = originalSetTimeout;
+  assert.equal(scheduled, 0, "mounted frozen inventory must not queue timers");
 
   document.querySelector("#toggleNetWorth").click();
   const refreshButton = document.querySelector("#script_refresh_inventory_btn");
@@ -553,7 +584,9 @@ test("inventory values stay frozen until an explicit forced refresh", async () =
   runtime.state.marketItemValues["/items/milk"][0] = 1_000;
   runtime.api.invalidateAssetValueCache();
   runtime.api.refreshAssetSnapshot = originalRefresh;
+  runtime.api.assetHistory = originalHistory;
   runtime.state.currentCharacterId = originalCharacterId;
+  chatInput.remove();
 });
 
 test("inventory summary returns when the game reuses a processed inventory node", async () => {

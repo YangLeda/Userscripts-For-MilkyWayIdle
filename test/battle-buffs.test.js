@@ -234,6 +234,13 @@ test("battle buff catalog stays consistent", () => {
 test("a cast buff renders an icon chip below the caster", async () => {
   battleBuffsEnabled = true;
   battleMarkup(2, 1);
+  let toggles = 0;
+  runtime.api.dps = {
+    enabled: true,
+    togglePrimaryMode() {
+      toggles += 1;
+    },
+  };
   await runtime.features.enable("battleBuffs");
 
   // A single-target self buff comes from pMap[0] carrying the ability hrid.
@@ -255,6 +262,33 @@ test("a cast buff renders an icon chip below the caster", async () => {
   // The icon references the game's ability sprite by hrid tail.
   const use = casterBar.querySelector("use");
   assert.match(use.getAttribute("href"), /#berserk$/);
+  const chip = casterBar.querySelector(".mwi-chip");
+  assert.match(chip.querySelector(".mwi-countdown").textContent, /^\d+$/);
+  assert.equal(casterBar.querySelector(".mwi-progress-ring"), null);
+  casterBar.click();
+  assert.equal(toggles, 1);
+  runtime.api.dps.enabled = false;
+  casterBar.click();
+  assert.equal(toggles, 1, "disabled DPS must ignore buff-bar clicks");
+  runtime.api.dps.enabled = true;
+
+  runtime.dispatchMessage({
+    type: "battle_updated",
+    pMap: {
+      0: {
+        combatBuffMap: {
+          berserk: {
+            sourceAbilityHrid: "/abilities/berserk",
+            duration: 8,
+            startTime: new Date(Date.now() - 1_500).toISOString(),
+          },
+        },
+      },
+    },
+    mMap: {},
+  });
+  assert.equal(casterBar.querySelector(".mwi-chip"), chip);
+  assert.match(chip.querySelector(".mwi-countdown").textContent, /^[1-7]$/);
   // The other player has no buff.
   assert.equal(playerUnits()[1].querySelectorAll(".mwi-chip").length, 0);
 

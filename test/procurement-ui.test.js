@@ -91,6 +91,19 @@ test("procurement owns a standalone three-tab shell outside global settings", as
   });
   host.shadowRoot.querySelector('.tab[data-tab="settings"]').click();
   assert.ok(host.shadowRoot.querySelector(".setting-section"));
+  const safetySelect = host.shadowRoot.querySelector(
+    '[data-procurement-setting="safetyLevel"]',
+  );
+  runtime.api.renderProcurementShell();
+  assert.equal(
+    host.shadowRoot.querySelector('[data-procurement-setting="safetyLevel"]'),
+    safetySelect,
+  );
+  assert.match(safetySelect.querySelector("option").textContent, /Off/);
+  assert.match(
+    host.shadowRoot.querySelector("style").textContent,
+    /select option\{background:#f4f6fa;color:#172033\}/,
+  );
   assert.doesNotMatch(host.shadowRoot.textContent, /[\u3400-\u9fff]/);
   assert.match(host.shadowRoot.textContent, /Expand after adding/);
   host.shadowRoot.querySelector('.tab[data-tab="cart"]').click();
@@ -1460,6 +1473,7 @@ test("upgrade-chain shopping defaults to the direct predecessor and can use sele
   const previousCreatePlans =
     runtime.api.procurement.getSettings().createPlansByDefault;
   const previousCreatePlan = runtime.api.procurement.createPlan;
+  const previousItems = runtime.state.initData_characterItems;
   const plannedMaterials = [];
   const previousPlanIds = new Set(
     runtime.api.procurement.getPlans().map((plan) => plan.id),
@@ -1497,6 +1511,15 @@ test("upgrade-chain shopping defaults to the direct predecessor and can use sele
     },
   });
   runtime.api.resolveProductionAction = () => "/actions/tailoring/shadow_pants";
+  runtime.state.initData_characterItems = [
+    {
+      itemHrid: "/items/beast_pants",
+      itemLocationHrid: "/item_locations/inventory",
+      enhancementLevel: 0,
+      count: 1,
+    },
+  ];
+  runtime.api.procurement.loadCharacterData("ui-character");
   panel.querySelector('input[type="text"],input').value = "2";
 
   runtime.api.renderProductionProcurement();
@@ -1515,6 +1538,22 @@ test("upgrade-chain shopping defaults to the direct predecessor and can use sele
     1,
   );
   assert.doesNotMatch(root.textContent, /Start from previous/);
+  assert.match(
+    root.querySelector(".mwi-procurement-upgrade-item-state").textContent,
+    /Upgrade from Beast PantsNeed 3/,
+  );
+  runtime.state.initData_characterItems[0].count = 5;
+  runtime.api.procurement.loadCharacterData("ui-character");
+  runtime.api.renderProductionProcurement();
+  root = document.querySelector("#mwitools-procurement-production");
+  assert.match(
+    root.querySelector(".mwi-procurement-upgrade-item-state").textContent,
+    /Upgrade from Beast PantsAfter upgrade 1/,
+  );
+  runtime.state.initData_characterItems[0].count = 1;
+  runtime.api.procurement.loadCharacterData("ui-character");
+  runtime.api.renderProductionProcurement();
+  root = document.querySelector("#mwitools-procurement-production");
   assert.deepEqual(checkedState(), [true, true]);
   root.querySelector(".mwi-procurement-inline-button").click();
 
@@ -1534,6 +1573,8 @@ test("upgrade-chain shopping defaults to the direct predecessor and can use sele
     .filter((plan) => !previousPlanIds.has(plan.id))
     .forEach((plan) => runtime.api.procurement.removePlan(plan.id));
   runtime.api.procurement.clearCart({ includeStarred: true });
+  runtime.state.initData_characterItems = previousItems;
+  runtime.api.procurement.loadCharacterData("ui-character");
   runtime.api.renderProductionProcurement();
   root = document.querySelector("#mwitools-procurement-production");
   chainMode = root.querySelector(".mwi-procurement-chain-mode input");
