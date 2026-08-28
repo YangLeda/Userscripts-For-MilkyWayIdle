@@ -289,11 +289,15 @@ test("guild XP columns draw relative bars and sort in both directions", async ()
   assert.ok(guildStyles, "guild XP styles should be mounted");
   assert.match(
     guildStyles.textContent,
-    /\.mwi-guild-members-wide\s*\{[^}]*width:min\(100%,860px\)[^}]*max-width:860px/s,
+    /\.mwi-guild-members-wide\s*\{[^}]*box-sizing:border-box[^}]*width:min\(100%,960px\)[^}]*max-width:960px/s,
   );
   assert.match(
     guildStyles.textContent,
-    /\.mwi-guild-member-table-wrap \.mwi-guild-member-table\s*\{[^}]*width:100%[^}]*min-width:720px[^}]*table-layout:fixed/s,
+    /\.mwi-guild-member-table-wrap\s*\{[^}]*box-sizing:border-box[^}]*width:min\(100%,960px\)[^}]*overflow-x:hidden/s,
+  );
+  assert.match(
+    guildStyles.textContent,
+    /\.mwi-guild-member-table-wrap \.mwi-guild-member-table\s*\{[^}]*width:100%[^}]*min-width:0[^}]*table-layout:fixed/s,
   );
   assert.match(
     guildStyles.textContent,

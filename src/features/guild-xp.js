@@ -281,9 +281,9 @@ function addStyles() {
     .mwi-guild-trend polyline { fill:none; stroke:#ffa500; stroke-width:2; vector-effect:non-scaling-stroke; }
     .mwi-guild-idle { display:flex; flex-wrap:wrap; gap:5px; align-items:center; margin-top:8px; }
     .mwi-guild-idle span { padding:2px 7px; border-radius:999px; background:rgba(255,255,255,.07); font-size:.68rem; }
-    .mwi-guild-members-wide { width:min(100%,860px) !important; max-width:860px !important; min-width:0 !important; margin-inline:0 auto; }
-    .mwi-guild-member-table-wrap { width:min(100%,860px); max-width:860px; margin-inline:0 auto; overflow-x:auto; overscroll-behavior-x:contain; }
-    .mwi-guild-member-table-wrap .mwi-guild-member-table { width:100% !important; min-width:720px !important; table-layout:fixed !important; }
+    .mwi-guild-members-wide { box-sizing:border-box; width:min(100%,960px) !important; max-width:960px !important; min-width:0 !important; margin-inline:0 auto; }
+    .mwi-guild-member-table-wrap { box-sizing:border-box; width:min(100%,960px); max-width:960px; margin-inline:0 auto; overflow-x:hidden; }
+    .mwi-guild-member-table-wrap .mwi-guild-member-table { width:100% !important; min-width:0 !important; table-layout:fixed !important; }
     .mwi-guild-member-table > thead > tr > th,
     .mwi-guild-member-table > tbody > tr > td { box-sizing:border-box; vertical-align:middle; }
     .mwi-guild-member-table > thead > tr > th { white-space:nowrap; word-break:keep-all; }
@@ -309,6 +309,10 @@ function addStyles() {
     .mwi-guild-div-rate-head,.mwi-guild-div-rates { display:grid; grid-template-columns:repeat(2,minmax(92px,1fr)); gap:8px; margin-left:auto; text-align:right; }
     .mwi-guild-div-rate-head { padding:5px 8px; color:var(--color-text-secondary,#aaa); font-size:.68rem; }
     .mwi-guild-div-rates { padding-left:10px; color:#ffa500; font-size:.7rem; }
+    @media(max-width:760px) {
+      .mwi-guild-member-table-wrap { overflow-x:auto; overscroll-behavior-x:contain; }
+      .mwi-guild-member-table-wrap .mwi-guild-member-table { min-width:720px !important; }
+    }
   `;
   (document.head ?? document.documentElement).appendChild(style);
 }
