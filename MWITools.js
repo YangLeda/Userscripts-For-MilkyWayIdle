@@ -28174,6 +28174,7 @@ ${t9("本次需要", "Required")}: ${exactNumber(upgradeMaterial.suggested)}`;
       const currentContext = rerollButtonContexts.get(button);
       if (!currentContext) return;
       currentContext.confirmed = true;
+      nativeResetChoiceUntil = 0;
       removePendingRerollContext(currentContext);
     };
     button[REROLL_CHOICE_HANDLER] = handler;
@@ -29879,7 +29880,7 @@ ${t9("本次需要", "Required")}: ${exactNumber(upgradeMaterial.suggested)}`;
       body: Object.freeze({
         zh: Object.freeze([
           "战斗 Buff/Debuff 改为图标内数字倒计时，每秒原位更新；点击任一角色状态条只会在 DPS 与 HPS 间切换，不会擅自打开面板。命中率玩家标签和主名单刷新会保留滚动位置，不再查看第 4、5 名时回弹。",
-          "任务卡的地牢标识已从怪物背景拆到右上角独立小图标，并新增默认开启的从属设置；任务刷新会在服务端任务 ID、标题与进度稳定后再替换图标，避免第一次仍显示旧图。",
+          "任务卡的地牢标识已从怪物背景拆到右上角独立小图标，并新增默认开启的从属设置；任务刷新会在服务端任务 ID、标题与进度稳定后再替换图标，点击牛铃或金币确认后即使支付选项仍展开也会立即解除过渡保护，避免第一次仍显示旧图。",
           "库存资产继续按角色与环境冻结快照；普通消息在同版本摘要已挂载时不再排队计算、扫描分类或重建 DOM，原生库存重建只挂回缓存。总资产“炫耀”已移到“刷新价值”旁边。",
           "生产升级配方现在会单独显示升级自身物品在本次操作后剩余多少或还差多少。购物车设置只同步现有控件，不再因后台消息重建整个页面；安全余量下拉菜单也提高了文字对比度。",
           "公会成员表只保留可排序的 24 小时 XP/h 与相对速率条，并继续由“成员经验速率”设置独立控制；公会总览趋势和排行榜不受影响。",
@@ -29888,7 +29889,7 @@ ${t9("本次需要", "Required")}: ${exactNumber(upgradeMaterial.suggested)}`;
         ]),
         en: Object.freeze([
           "Battle Buffs and Debuffs now use an in-icon numeric countdown updated in place each second. Clicking any combat-unit status bar only switches between DPS and HPS without opening the panel. Accuracy player tabs and primary lists preserve their scroll positions during live updates.",
-          "Dungeon markers are now separate compact badges in the task card's top-right, with a new default-on child setting. Rerolled artwork waits for the server task ID, title, and progress to settle before replacing the previous icon.",
+          "Dungeon markers are now separate compact badges in the task card's top-right, with a new default-on child setting. Rerolled artwork waits for the server task ID, title, and progress to settle, and confirming either payment option now releases the transition guard immediately even while the choices remain open, preventing the previous icon from surviving the first refresh.",
           "Inventory assets remain frozen per character and environment. Ordinary messages no longer queue calculations, scan categories, or rebuild DOM when the same summary version is already mounted; replaced native inventory nodes only remount cached results. The total-asset Flex button now sits beside Refresh values.",
           "Production upgrade recipes now show how many copies of the upgrade item remain after the action or how many are still needed. Shopping-cart settings synchronize existing controls instead of rebuilding the page on background messages, and safety-margin menu options now have readable contrast.",
           "Guild member tables now keep only the sortable 24-hour XP/h column and relative bar, still controlled independently by Member XP rates. Guild overview trends and leaderboard rates are unchanged.",

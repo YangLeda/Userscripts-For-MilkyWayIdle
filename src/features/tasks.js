@@ -2286,6 +2286,7 @@ function wireRerollChoiceButton(button, context) {
     const currentContext = rerollButtonContexts.get(button);
     if (!currentContext) return;
     currentContext.confirmed = true;
+    nativeResetChoiceUntil = 0;
     removePendingRerollContext(currentContext);
   };
   button[REROLL_CHOICE_HANDLER] = handler;

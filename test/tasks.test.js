@@ -813,6 +813,11 @@ test("opening the native reset payment choice pauses task regrouping", () => {
   );
   runtime.api.renderTasks();
   options.querySelector("button").click();
+  assert.equal(
+    shouldRenderTaskMutations(records),
+    true,
+    "confirming a payment choice must release the native render guard before the options close",
+  );
   options.remove();
   assert.equal(
     shouldRenderTaskMutations([
@@ -945,7 +950,17 @@ test("an open reroll pauses artwork only until a payment choice is confirmed", (
   );
 
   options.querySelector("button").click();
-  assert.equal(runtime.api.renderTasks(), true);
+  const titleNode = taskCard.querySelector(
+    '[class*="RandomTask_name"]',
+  ).firstChild;
+  const titleMutation = {
+    type: "characterData",
+    target: titleNode,
+    addedNodes: [],
+    removedNodes: [],
+  };
+  assert.equal(shouldRenderTaskMutations([titleMutation]), true);
+  assert.equal(runtime.api.renderTasks({ allowReusedPositional: false }), true);
   assert.equal(options.isConnected, true);
   assert.equal(taskCard.querySelector(".mwi-task-bg"), background);
   assert.match(
