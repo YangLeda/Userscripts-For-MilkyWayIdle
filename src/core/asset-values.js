@@ -933,7 +933,12 @@ function getAssetValueInternal(
   if (!itemHrid) return 0;
   if (itemHrid === "/items/coin") return 1;
   const level = Number(enhancementLevel) || 0;
-  const directFairValue = runtime.api.getAssetFairValue(itemHrid, level);
+  const useLiveMarketValues =
+    options.useLiveMarketValues === true ||
+    context.useLiveMarketValues === true;
+  const directFairValue = useLiveMarketValues
+    ? runtime.api.getFairValue(itemHrid, level)
+    : runtime.api.getAssetFairValue(itemHrid, level);
   const backEquipment = isBackEquipment(itemHrid, options.itemLocationHrid);
   const enhancedEquipment = level > 0 && isEquipment(itemHrid);
   const refinedBackEquipment =
@@ -956,7 +961,13 @@ function getAssetValueInternal(
         ? "acquisition"
         : "market";
   const cacheKey = `${itemHrid}:${level}:${cacheMode}`;
-  if (assetValueCache.has(cacheKey)) return assetValueCache.get(cacheKey);
+  const remember = (value) => {
+    if (!useLiveMarketValues) assetValueCache.set(cacheKey, value);
+    return value;
+  };
+  if (!useLiveMarketValues && assetValueCache.has(cacheKey)) {
+    return assetValueCache.get(cacheKey);
+  }
   if (context.has(cacheKey)) return 0;
 
   if (ordinaryBackMirrorValue) {
@@ -968,8 +979,7 @@ function getAssetValueInternal(
     );
     context.delete(cacheKey);
     if (mirrorValue > 0) {
-      assetValueCache.set(cacheKey, mirrorValue);
-      return mirrorValue;
+      return remember(mirrorValue);
     }
   }
 
@@ -990,23 +1000,19 @@ function getAssetValueInternal(
         deviation <= ENHANCED_EQUIPMENT_MAX_MARKET_DEVIATION
           ? directFairValue
           : enhancementCost;
-      assetValueCache.set(cacheKey, value);
-      return value;
+      return remember(value);
     }
     if (directFairValue > 0) {
-      assetValueCache.set(cacheKey, directFairValue);
-      return directFairValue;
+      return remember(directFairValue);
     }
   }
 
   if (!preferAcquisitionValue && directFairValue > 0) {
-    assetValueCache.set(cacheKey, directFairValue);
-    return directFairValue;
+    return remember(directFairValue);
   }
 
   if (directFairValue <= 0 && isPersonalBuffScroll(itemHrid)) {
-    assetValueCache.set(cacheKey, 0);
-    return 0;
+    return remember(0);
   }
 
   context.add(cacheKey);
@@ -1042,8 +1048,7 @@ function getAssetValueInternal(
     Boolean(getItemDetails(itemHrid)?.openKeyItemHrid) &&
     getDropRecords(itemHrid).length > 0;
   if (keyedOpenable && !(value > 0)) {
-    assetValueCache.set(cacheKey, 0);
-    return 0;
+    return remember(0);
   }
   if (!(value > 0)) value = directFairValue;
   if (!(value > 0)) {
@@ -1051,12 +1056,13 @@ function getAssetValueInternal(
   }
 
   const normalizedValue = Number.isFinite(value) && value > 0 ? value : 0;
-  assetValueCache.set(cacheKey, normalizedValue);
-  return normalizedValue;
+  return remember(normalizedValue);
 }
 
 function getAssetValue(itemHrid, enhancementLevel = 0, options = {}) {
-  return getAssetValueInternal(itemHrid, enhancementLevel, new Set(), options);
+  const context = new Set();
+  context.useLiveMarketValues = options.useLiveMarketValues === true;
+  return getAssetValueInternal(itemHrid, enhancementLevel, context, options);
 }
 
 function directLiquidationValue(itemHrid, enhancementLevel, mode) {
