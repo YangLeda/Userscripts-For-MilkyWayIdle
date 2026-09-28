@@ -394,21 +394,23 @@ test("the shared Ctrl tooltip announcement is red, bold, and underlined", () => 
   scope.cleanup();
 });
 
-test("announcement history preserves each release separately through 26.4.17", () => {
-  const release17 = ANNOUNCEMENTS[0];
-  const release16 = ANNOUNCEMENTS[1];
-  const release15 = ANNOUNCEMENTS[2];
-  const latest = ANNOUNCEMENTS[3];
-  const newest = ANNOUNCEMENTS[4];
-  const current = ANNOUNCEMENTS[5];
-  const previous = ANNOUNCEMENTS[6];
-  const prior = ANNOUNCEMENTS[7];
-  const older = ANNOUNCEMENTS[8];
-  const oldest = ANNOUNCEMENTS[9];
-  const earliest = ANNOUNCEMENTS[10];
+test("announcement history preserves each release separately through 26.4.18", () => {
+  const release18 = ANNOUNCEMENTS[0];
+  const release17 = ANNOUNCEMENTS[1];
+  const release16 = ANNOUNCEMENTS[2];
+  const release15 = ANNOUNCEMENTS[3];
+  const latest = ANNOUNCEMENTS[4];
+  const newest = ANNOUNCEMENTS[5];
+  const current = ANNOUNCEMENTS[6];
+  const previous = ANNOUNCEMENTS[7];
+  const prior = ANNOUNCEMENTS[8];
+  const older = ANNOUNCEMENTS[9];
+  const oldest = ANNOUNCEMENTS[10];
+  const earliest = ANNOUNCEMENTS[11];
   assert.deepEqual(
     ANNOUNCEMENTS.map(({ version }) => version),
     [
+      "26.4.18",
       "26.4.17",
       "26.4.16",
       "26.4.15",
@@ -422,10 +424,24 @@ test("announcement history preserves each release separately through 26.4.17", (
       "26.4.6",
     ],
   );
+  assert.equal(release18.version, "26.4.18");
+  assert.equal(release18.publishedAt, "2026-09-28");
+  assert.match(release18.title.zh, /重要更新/);
+  assert.match(release18.title.en, /important update/);
+  assert.equal(release18.body.zh.length, 6);
+  assert.equal(release18.body.en.length, 6);
+  assert.match(
+    release18.body.zh.join("\n"),
+    /4%[\s\S]*任务返回[\s\S]*共享材料[\s\S]*聊天字号[\s\S]*统一备份[\s\S]*重要更新/,
+  );
+  assert.match(
+    release18.body.en.join("\n"),
+    /4%[\s\S]*task return[\s\S]*shared inventory[\s\S]*chat font[\s\S]*unified backups[\s\S]*important update/,
+  );
   assert.equal(release17.version, "26.4.17");
-  assert.equal(release17.publishedAt, "2026-09-28");
+  assert.equal(release17.publishedAt, "2026-08-28");
   assert.equal(release17.body.zh.length, release17.body.en.length);
-  assert.equal(release17.body.zh.length, 15);
+  assert.equal(release17.body.zh.length, 10);
   assert.match(
     release17.body.zh.join("\n"),
     /Buff\/Debuff.*数字倒计时.*Buff 图标.*DPS.*HPS.*主统计面板[\s\S]*地牢标识.*右上角[\s\S]*库存资产.*冻结快照[\s\S]*生产升级配方.*升级自.*缺\/余[\s\S]*24 小时 XP\/h[\s\S]*放弃任务.*二次确认.*卡片顺序[\s\S]*游戏资源注册表.*扫描全页 SVG.*错峰播放.*动画.*自身徽章写入.*卡顿[\s\S]*高热网络梗.*不同梗主题[\s\S]*Buff → DPS → HPS → Buff.*不联动主统计面板.*最多显示两位小数[\s\S]*标记为重要更新/,

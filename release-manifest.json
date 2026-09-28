@@ -1,13 +1,13 @@
 {
   "version": 1,
-  "latestVersion": "26.4.17",
-  "importantVersion": "26.4.17",
+  "latestVersion": "26.4.18",
+  "importantVersion": "26.4.18",
   "title": {
-    "zh": "MWITools 26.4.17 重要更新",
-    "en": "Important MWITools 26.4.17 update"
+    "zh": "MWITools 26.4.18 重要更新",
+    "en": "Important MWITools 26.4.18 update"
   },
   "message": {
-    "zh": "26.4.17 是重要更新：总资产与各分项的中英文“炫耀”文案已全部换成 2024–2026 高热网络梗，上涨、下跌和持平各有不同主题；玩家 Buff 条可在本栏循环显示 Buff、DPS 与 HPS，不会联动主面板或误开交战信息，命中与闪避等级也会以最多两位小数显示。建议前往 Greasy Fork 更新。",
-    "en": "Version 26.4.17 is an important update. Every Chinese and English total-asset and component Flex message now uses distinct high-recognition 2024–2026 meme themes for rises, falls, and flat results. Player Buff bars cycle locally through Buff, DPS, and HPS without changing the main meter or opening combat-unit details, and accuracy and evasion ratings now show at most two decimal places. Update on Greasy Fork."
+    "zh": "26.4.18 是重要更新：适配 9 月 28 日库存标签页、最爱分类、4% 市场税率与强化物品价格步进；修复任务返回、购物车轮转和共享材料计算，新增跨站数据共享与统一备份、公会兑换购物入口、每日盈亏类别及聊天字号设置。建议前往 Greasy Fork 更新。",
+    "en": "Version 26.4.18 is an important update for September 28 inventory tabs, favorites, the 4% market tax and enhanced-item price increments. It fixes task return, cart navigation and shared material calculations, and adds cross-site data sharing, unified backups, guild exchange shopping, daily P/L categories and chat font sizing. Update on Greasy Fork."
   }
 }

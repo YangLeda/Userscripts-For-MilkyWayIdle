@@ -106,21 +106,21 @@ test("latest version alone does not trigger an important update", () => {
   );
 });
 
-test("release 26.4.17 becomes the important-update threshold", () => {
+test("release 26.4.18 becomes the important-update threshold", () => {
   const releaseManifest = JSON.parse(
     readFileSync(new URL("../release-manifest.json", import.meta.url), "utf8"),
   );
-  assert.equal(releaseManifest.latestVersion, "26.4.17");
-  assert.equal(releaseManifest.importantVersion, "26.4.17");
-  assert.match(releaseManifest.title.zh, /26\.4\.17 重要更新/);
-  assert.match(releaseManifest.title.en, /Important MWITools 26\.4\.17 update/);
+  assert.equal(releaseManifest.latestVersion, "26.4.18");
+  assert.equal(releaseManifest.importantVersion, "26.4.18");
+  assert.match(releaseManifest.title.zh, /26\.4\.18 重要更新/);
+  assert.match(releaseManifest.title.en, /Important MWITools 26\.4\.18 update/);
   assert.match(
     releaseManifest.message.zh,
-    /炫耀.*高热网络梗.*不同主题.*Buff 条.*循环显示 Buff、DPS 与 HPS.*主面板.*交战信息.*最多两位小数/,
+    /库存标签页.*4%.*强化物品价格步进.*共享材料.*跨站数据共享.*统一备份/,
   );
   assert.match(
     releaseManifest.message.en,
-    /Flex message.*meme themes.*Player Buff bars.*cycle locally.*main meter.*combat-unit details.*two decimal places/i,
+    /inventory tabs.*4%.*enhanced-item.*shared material.*cross-site data sharing.*unified backups/i,
   );
   for (const version of [
     "26.4.5",
@@ -135,15 +135,16 @@ test("release 26.4.17 becomes the important-update threshold", () => {
     "26.4.14",
     "26.4.15",
     "26.4.16",
+    "26.4.17",
   ]) {
     assert.equal(
       runtime.api.shouldShowImportantUpdate(releaseManifest, version),
       true,
-      `${version} must see the 26.4.17 important-update banner`,
+      `${version} must see the 26.4.18 important-update banner`,
     );
   }
   assert.equal(
-    runtime.api.shouldShowImportantUpdate(releaseManifest, "26.4.17"),
+    runtime.api.shouldShowImportantUpdate(releaseManifest, "26.4.18"),
     false,
   );
 });

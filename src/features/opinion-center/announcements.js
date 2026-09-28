@@ -2,12 +2,12 @@ const STORAGE_KEY = "MWITools_opinion_center_seen_announcements_v1";
 
 export const ANNOUNCEMENTS = Object.freeze([
   Object.freeze({
-    id: "26.4.17",
-    version: "26.4.17",
+    id: "26.4.18",
+    version: "26.4.18",
     publishedAt: "2026-09-28",
     title: Object.freeze({
-      zh: "26.4.17 更新公告",
-      en: "Version 26.4.17 update",
+      zh: "26.4.18 重要更新",
+      en: "Version 26.4.18 important update",
     }),
     body: Object.freeze({
       zh: Object.freeze([
@@ -16,6 +16,28 @@ export const ANNOUNCEMENTS = Object.freeze([
         "生产计划汇总共享材料、扣一次库存并保留手动购物数量；支持单站制作计划、第二步删除房屋目标，修复动作窗口复用的经验估算和护符需求等级。",
         "新增默认关闭的战利品双击全部打开、公会仓库兑换推荐与缺口购物入口、聊天字号、每日盈亏七类勾选，以及铁牛适配选择记忆和更明确的等待原因。",
         "正式站与 cn 站通过同一脚本管理器共享持久化数据，测试服保持独立；自动迁移保留恢复副本，统一备份包含设置、购物计划和历史记录，兼容旧资产备份。",
+        "26.4.18 已标记为重要更新，涵盖本轮游戏更新适配、功能修复与跨站数据共享；重要更新提醒门槛同步提升至 26.4.18。",
+      ]),
+      en: Object.freeze([
+        "Updated inventory tabs, favorite sections and September 28 market rules: standard tax is now 4%, enhanced items use separate price increments, and tab changes restore value badges and sorting.",
+        "Fixed task return and its off switch, original order with auto-sort disabled, reroll artwork and train controls during reset. Cart navigation cycles in cart order; market filters update independently and immediately.",
+        "Production plans pool material demand, deduct shared inventory once and preserve manual purchases. Added single-stop production plans and house-goal removal in step two; corrected reused action-panel XP estimates and charm requirements.",
+        "Added optional double-click opening of all available loot, owned-material guild exchange rankings and shortage shopping, chat font sizing, seven-category daily P/L selection, remembered Iron Cow choices and clearer waiting explanations.",
+        "The live and CN sites share persistent plugin data through the same userscript manager, with the test server kept separate. Migration retains recovery copies; unified backups include settings, shopping plans and history, and legacy asset backups remain supported.",
+        "Version 26.4.18 is marked as an important update for game compatibility, feature fixes and cross-site data sharing. The important-update threshold is now 26.4.18.",
+      ]),
+    }),
+  }),
+  Object.freeze({
+    id: "26.4.17",
+    version: "26.4.17",
+    publishedAt: "2026-08-28",
+    title: Object.freeze({
+      zh: "26.4.17 更新公告",
+      en: "Version 26.4.17 update",
+    }),
+    body: Object.freeze({
+      zh: Object.freeze([
         "战斗 Buff/Debuff 改为图标内数字倒计时，每秒原位更新；点击玩家 Buff 条会在 Buff 图标、该角色 DPS 和该角色 HPS 三种内容间原位循环，不会改变或打开主统计面板。命中率玩家标签和主名单刷新会保留滚动位置，不再查看第 4、5 名时回弹。",
         "任务卡的地牢标识已从怪物背景拆到右上角独立小图标，并新增默认开启的从属设置；任务刷新会在服务端任务 ID、标题与进度稳定后再替换图标，点击牛铃或金币确认后即使支付选项仍展开也会立即解除过渡保护，避免第一次仍显示旧图。",
         "库存资产继续按角色与环境冻结快照；普通消息在同版本摘要已挂载时不再排队计算、扫描分类或重建 DOM，原生库存重建只挂回缓存。总资产“炫耀”已移到“刷新价值”旁边。",
@@ -28,11 +50,6 @@ export const ANNOUNCEMENTS = Object.freeze([
         "26.4.17 已标记为重要更新；旧版本玩家会收到顶部更新提醒，以获取新的资产炫耀文案、战斗状态条点击修复和更易读的命中率数据。",
       ]),
       en: Object.freeze([
-        "Updated inventory tabs, favorite sections and September 28 market rules: standard tax is now 4%, enhanced items use separate price increments, and tab changes restore value badges and sorting.",
-        "Fixed task return and its off switch, original order with auto-sort disabled, reroll artwork and train controls during reset. Cart navigation cycles in cart order; market filters update independently and immediately.",
-        "Production plans pool material demand, deduct shared inventory once and preserve manual purchases. Added single-stop production plans and house-goal removal in step two; corrected reused action-panel XP estimates and charm requirements.",
-        "Added optional double-click opening of all available loot, owned-material guild exchange rankings and shortage shopping, chat font sizing, seven-category daily P/L selection, remembered Iron Cow choices and clearer waiting explanations.",
-        "The live and CN sites share persistent plugin data through the same userscript manager, with the test server kept separate. Migration retains recovery copies; unified backups include settings, shopping plans and history, and legacy asset backups remain supported.",
         "Battle Buffs and Debuffs now use an in-icon numeric countdown updated in place each second. Clicking a player Buff bar cycles locally through Buff icons, that player's DPS, and that player's HPS without changing or opening the main meter. Accuracy player tabs and primary lists preserve their scroll positions during live updates.",
         "Dungeon markers are now separate compact badges in the task card's top-right, with a new default-on child setting. Rerolled artwork waits for the server task ID, title, and progress to settle, and confirming either payment option now releases the transition guard immediately even while the choices remain open, preventing the previous icon from surviving the first refresh.",
         "Inventory assets remain frozen per character and environment. Ordinary messages no longer queue calculations, scan categories, or rebuild DOM when the same summary version is already mounted; replaced native inventory nodes only remount cached results. The total-asset Flex button now sits beside Refresh values.",
