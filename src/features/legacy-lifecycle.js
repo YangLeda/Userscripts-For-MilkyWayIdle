@@ -35,15 +35,8 @@ function observeRelevantDom(scope, selector, callback) {
   return scheduler;
 }
 
-function refreshInventoryIfNeeded(className, outputSelector) {
-  const needsRender = [
-    ...document.querySelectorAll('div[class*="Inventory_items"]'),
-  ].some(
-    (node) =>
-      !node.classList.contains(className) ||
-      (outputSelector && !node.parentElement?.querySelector(outputSelector)),
-  );
-  if (needsRender) runtime.api.scheduleNetworthRefresh?.();
+function refreshInventoryIfNeeded() {
+  runtime.api.scheduleNetworthRefresh?.();
 }
 
 const adapters = {

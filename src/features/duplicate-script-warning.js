@@ -1,3 +1,4 @@
+import { sharedStorage } from "../core/shared-storage.js";
 import { runtime } from "../core/runtime.js";
 
 const WARNING_ID = "mwitools-duplicate-script-warning";
@@ -56,7 +57,7 @@ function duplicateScriptId(name) {
   );
 }
 
-function readMutedDuplicateScriptIds(storage = globalThis.localStorage) {
+function readMutedDuplicateScriptIds(storage = sharedStorage) {
   try {
     const value = JSON.parse(storage?.getItem(MUTED_DUPLICATES_KEY) || "[]");
     return new Set(Array.isArray(value) ? value.map(String) : []);
@@ -65,13 +66,13 @@ function readMutedDuplicateScriptIds(storage = globalThis.localStorage) {
   }
 }
 
-function writeMutedDuplicateScriptIds(ids, storage = globalThis.localStorage) {
+function writeMutedDuplicateScriptIds(ids, storage = sharedStorage) {
   const value = [...new Set(ids ?? [])].map(String).filter(Boolean).sort();
   storage?.setItem(MUTED_DUPLICATES_KEY, JSON.stringify(value));
   return value;
 }
 
-function clearMutedDuplicateScriptIds(storage = globalThis.localStorage) {
+function clearMutedDuplicateScriptIds(storage = sharedStorage) {
   storage?.removeItem(MUTED_DUPLICATES_KEY);
   activeDuplicateWarningMonitor?.schedule();
 }

@@ -90,10 +90,10 @@ const assetHistoryApi = {
     return assetHistoryStore.getGoalTarget(scopeKey);
   },
   getStatistics(options = {}, scopeKey = currentScopeKey()) {
-    return periodStatistics(assetHistoryStore.list(scopeKey), options);
+    return periodStatistics(assetHistoryStore.profitEntries(scopeKey), options);
   },
   getHeatmap(scopeKey = currentScopeKey()) {
-    return buildHeatmap(assetHistoryStore.list(scopeKey));
+    return buildHeatmap(assetHistoryStore.profitEntries(scopeKey));
   },
   getComponentAnalysis(rangeDays = null, scopeKey = currentScopeKey()) {
     return componentAnalysis(assetHistoryStore.list(scopeKey), rangeDays);
@@ -108,6 +108,9 @@ const assetHistoryApi = {
   },
   simulate(options = {}, scopeKey = currentScopeKey()) {
     return simulateNetWorth(assetHistoryStore.list(scopeKey), options);
+  },
+  profitValue(values, scopeKey = currentScopeKey()) {
+    return assetHistoryStore.profitValue(values, scopeKey);
   },
   exportBackup() {
     return assetHistoryStore.exportBackup();

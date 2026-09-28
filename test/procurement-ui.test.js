@@ -665,11 +665,11 @@ test("production refresh reads live inventory and recalculates cart projects", (
   assert.equal(runtime.state.initData_characterItems[0].count, 3);
   assert.equal(procurement.getInventoryCount("/items/nail"), 3);
   assert.deepEqual(procurement.getCartAllocationSummary("/items/nail"), {
-    total: 13,
+    total: 9,
     manual: 4,
     planning: 0,
-    project: 9,
-    projects: { [plan.id]: 9 },
+    project: 5,
+    projects: { [plan.id]: 5 },
   });
   const badge = document.querySelector(".mwi-procurement-badge");
   assert.equal(badge.dataset.state, "missing");
@@ -1000,7 +1000,7 @@ test("house materials use DOM requirements and add only net shortages", async ()
 
   summary.querySelector("button").click();
   await Promise.resolve();
-  assert.equal(runtime.api.procurement.getCartItem("/items/board").quantity, 9);
+  assert.equal(runtime.api.procurement.getCartItem("/items/board").quantity, 7);
   assert.equal(
     runtime.api.procurement.getCartItem("/items/board").source,
     "housing",
@@ -1338,6 +1338,87 @@ test("market highlighting matches exact item sprite fragments", () => {
 
   modal.remove();
   runtime.api.procurement.clearCart({ includeStarred: true });
+});
+
+test("next item follows four rows through two cycles, enhancement levels and reorder", () => {
+  const procurement = runtime.api.procurement;
+  procurement.clearCart({ includeStarred: true });
+  const rows = [
+    ["/items/nail", 0],
+    ["/items/board", 0],
+    ["/items/nail", 5],
+    ["/items/astral_enhancer", 0],
+  ];
+  for (const [itemHrid, enhancementLevel] of rows)
+    procurement.addToCart({ itemHrid, enhancementLevel, quantity: 1 });
+  const host = {
+    state: { navTarget: "milking", showMarketplaceModal: false },
+    handleGoToMarketplace() {},
+    handleCloseMarketplaceModal() {
+      this.state.showMarketplaceModal = false;
+    },
+    setState(update, callback) {
+      Object.assign(this.state, update);
+      callback?.();
+    },
+  };
+  const root = document.createElement("div");
+  root.id = "root";
+  root._reactRootContainer = { current: { stateNode: host } };
+  document.body.append(root);
+  const modal = document.createElement("div");
+  modal.className = "MainPanel_marketplaceModal__rotation";
+  const panel = document.createElement("section");
+  panel.className = "MarketplacePanel_marketplacePanel__rotation";
+  panel.innerHTML =
+    '<div class="MarketplacePanel_currentItem__fixture"><svg><use href="/items_sprite.svg#nail"></use></svg></div>';
+  panel.getClientRects = () => [{}];
+  modal.append(panel);
+  document.body.append(modal);
+  runtime.api.openProcurementMarketplace(...rows[0]);
+  runtime.api.updateProcurementMarketUi();
+  // Reuse the same event handler while React still displays the old item.
+  const next = document.querySelector(".mwi-procurement-nav-next");
+  for (let i = 1; i <= 8; i++) {
+    next.click();
+    const target = host.state.marketViewOverrideData;
+    assert.deepEqual([target.itemHrid, target.enhancementLevel], rows[i % 4]);
+  }
+  runtime.api.openProcurementMarketplace(...rows[2]);
+  runtime.api.updateProcurementMarketUi();
+  procurement.confirmMarketPurchase(rows[2][0], 1, rows[2][1]);
+  runtime.api.updateProcurementMarketUi();
+  document.querySelector(".mwi-procurement-nav-next").click();
+  assert.equal(
+    host.state.marketViewOverrideData.itemHrid,
+    rows[3][0],
+    "fulfilled current row advances to its successor",
+  );
+  procurement.addToCart({
+    itemHrid: rows[2][0],
+    enhancementLevel: rows[2][1],
+    quantity: 1,
+  });
+  runtime.api.openProcurementMarketplace(...rows[0]);
+  procurement.setCartOrder(
+    [rows[0], rows[3], rows[2], rows[1]].map(([item, level]) =>
+      procurement.itemKey(item, level),
+    ),
+  );
+  runtime.api.updateProcurementMarketUi();
+  document.querySelector(".mwi-procurement-nav-next").click();
+  assert.equal(host.state.marketViewOverrideData.itemHrid, rows[3][0]);
+  for (const [item, level] of rows.slice(0, 3))
+    procurement.removeFromCart(item, level);
+  runtime.api.updateProcurementMarketUi();
+  assert.equal(
+    document.querySelector(".mwi-procurement-nav-next").disabled,
+    true,
+  );
+  procurement.clearCart({ includeStarred: true });
+  modal.remove();
+  root.remove();
+  runtime.api.updateProcurementMarketUi();
 });
 
 test("market-session deletion works from both the drawer and product navigation", () => {

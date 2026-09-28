@@ -1,3 +1,4 @@
+import { sharedStorage } from "./shared-storage.js";
 import { runtime } from "./runtime.js";
 
 const DB_NAME = "MWIToolsHistory";
@@ -29,9 +30,7 @@ function openDatabase() {
 
 function readFallback() {
   try {
-    const value = JSON.parse(
-      globalThis.localStorage?.getItem(FALLBACK_KEY) || "[]",
-    );
+    const value = JSON.parse(sharedStorage?.getItem(FALLBACK_KEY) || "[]");
     return Array.isArray(value) ? value : [];
   } catch {
     return [];
@@ -40,7 +39,7 @@ function readFallback() {
 
 function writeFallback(records) {
   try {
-    globalThis.localStorage?.setItem(FALLBACK_KEY, JSON.stringify(records));
+    sharedStorage?.setItem(FALLBACK_KEY, JSON.stringify(records));
   } catch (error) {
     console.warn(
       runtime.config.isZH
@@ -89,8 +88,23 @@ async function replaceIndexed(objectKey, records) {
 }
 
 async function getXpHistory(objectKey) {
-  const indexed = await readIndexed(objectKey);
-  if (indexed !== null) return indexed.sort((a, b) => a.at - b.at);
+  const marker = `MWITools_xp_migrated:${objectKey}`;
+  if (typeof globalThis.GM_listValues !== "function") {
+    const indexed = await readIndexed(objectKey);
+    if (indexed !== null) return indexed.sort((a, b) => a.at - b.at);
+  } else if (!globalThis.localStorage?.getItem(marker)) {
+    const indexed = await readIndexed(objectKey);
+    const existing = readFallback();
+    const merged = new Map(
+      existing.map((record) => [`${record.objectKey}:${record.at}`, record]),
+    );
+    for (const record of indexed ?? []) {
+      const key = `${objectKey}:${record.at}`;
+      if (!merged.has(key)) merged.set(key, { ...record, objectKey });
+    }
+    writeFallback([...merged.values()]);
+    globalThis.localStorage?.setItem(marker, "true");
+  }
   return readFallback()
     .filter((record) => record.objectKey === objectKey)
     .sort((a, b) => a.at - b.at);
@@ -110,7 +124,11 @@ function compactHistory(records, now = Date.now()) {
 }
 
 async function saveHistory(objectKey, records) {
-  if (await replaceIndexed(objectKey, records)) return;
+  if (
+    typeof globalThis.GM_listValues !== "function" &&
+    (await replaceIndexed(objectKey, records))
+  )
+    return;
   const retained = readFallback().filter(
     (record) => record.objectKey !== objectKey,
   );

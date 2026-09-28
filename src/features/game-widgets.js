@@ -262,7 +262,7 @@ function addItemLevels() {
   const itemDetailMap = runtime.state.initData_itemDetailMap;
   if (!itemDetailMap) return;
   const iconDivs = document.querySelectorAll(
-    "div.Item_itemContainer__x7kH1 div.Item_item__2De2O.Item_clickable__3viV6",
+    '[class*="Item_itemContainer"] [class*="Item_item"][class*="Item_clickable"]',
   );
   for (const div of iconDivs) {
     if (div.querySelector("div.Item_name__2C42x")) {
@@ -278,10 +278,16 @@ function addItemLevels() {
     } catch {
       return;
     }
-    const itemLevel = itemDetail?.itemLevel;
+    const requirements = itemDetail?.equipmentDetail?.levelRequirements ?? [];
+    const itemLevel = Math.max(
+      0,
+      ...requirements.map((requirement) => Number(requirement.level) || 0),
+    );
     const itemAbilityLevel =
       itemDetail?.abilityBookDetail?.levelRequirements?.[0]?.level;
 
+    if (!itemLevel && !itemAbilityLevel)
+      div.querySelector(".script_itemLevel")?.remove();
     if (itemDetail?.equipmentDetail && itemLevel && itemLevel > 0) {
       if (!div.querySelector("div.script_itemLevel")) {
         div.style.position = "relative";
@@ -290,13 +296,15 @@ function addItemLevels() {
           `<div class="script_itemLevel" style="z-index: 1; position: absolute; top: 2px; right: 2px; text-align: right; color: ${runtime.config.SCRIPT_COLOR_MAIN};">${itemLevel}</div>`,
         );
       }
-      if (
-        !itemDetail?.equipmentDetail?.type?.includes("_tool") &&
-        div.parentElement.parentElement.parentElement.parentElement.className.includes(
-          "MarketplacePanel_marketItems__D4k7e",
-        )
-      ) {
-        handleMarketItemFilter(div, itemDetail);
+      const badge = div.querySelector(".script_itemLevel");
+      if (badge) {
+        badge.textContent = String(itemLevel);
+        badge.title = requirements
+          .map(
+            (entry) =>
+              `${runtime.api.skillName?.(entry.skillHrid) ?? entry.skillHrid?.split("/").at(-1)}: ${entry.level}`,
+          )
+          .join("\n");
       }
     } else if (itemAbilityLevel && itemAbilityLevel > 0) {
       if (!div.querySelector("div.script_itemLevel")) {
@@ -361,7 +369,7 @@ let onlyShowItemsSkillReq = "all";
 
 function addMarketFilterButtons() {
   const oriFilter = document.querySelector(
-    ".MarketplacePanel_itemFilterContainer__3F3td",
+    '[class*="MarketplacePanel_itemFilterContainer"]',
   );
   let filters = document.querySelector("#script_filters");
   if (oriFilter && !filters) {
@@ -447,33 +455,62 @@ function addMarketFilterButtons() {
     );
 
     const levelFilter = document.querySelector("#script_filter_level_select");
+    levelFilter.value = String(onlyShowItemsAboveLevel);
     levelFilter.addEventListener("change", function () {
       if (levelFilter.value && !isNaN(levelFilter.value)) {
         onlyShowItemsAboveLevel = Number(levelFilter.value);
+        applyMarketFilters();
       }
     });
     const levelToFilter = document.querySelector(
       "#script_filter_level_select_to",
     );
+    levelToFilter.value = String(onlyShowItemsBelowLevel);
     levelToFilter.addEventListener("change", function () {
       if (levelToFilter.value && !isNaN(levelToFilter.value)) {
         onlyShowItemsBelowLevel = Number(levelToFilter.value);
+        applyMarketFilters();
       }
     });
     const skillFilter = document.querySelector("#script_filter_skill_select");
+    skillFilter.value = onlyShowItemsSkillReq;
     skillFilter.addEventListener("change", function () {
       if (skillFilter.value) {
         onlyShowItemsSkillReq = skillFilter.value;
+        applyMarketFilters();
       }
     });
     const locationFilter = document.querySelector(
       "#script_filter_location_select",
     );
+    locationFilter.value = onlyShowItemsType;
     locationFilter.addEventListener("change", function () {
       if (locationFilter.value) {
         onlyShowItemsType = locationFilter.value;
+        applyMarketFilters();
       }
     });
+  }
+}
+
+function restoreMarketCard(card) {
+  if (!Object.hasOwn(card.dataset, "mwitoolsFilterDisplay")) return;
+  card.style.display = card.dataset.mwitoolsFilterDisplay;
+  delete card.dataset.mwitoolsFilterDisplay;
+}
+
+function applyMarketFilters() {
+  for (const grid of document.querySelectorAll(
+    '[class*="MarketplacePanel_marketItems"]',
+  )) {
+    for (const card of grid.children) {
+      const href = card.querySelector("use")?.getAttribute("href");
+      const detail =
+        runtime.state.initData_itemDetailMap?.[
+          `/items/${href?.split("#").at(-1)}`
+        ];
+      if (detail?.equipmentDetail) handleMarketItemFilter(card, detail);
+    }
   }
 }
 
@@ -483,8 +520,9 @@ function handleMarketItemFilter(div, itemDetal) {
   }
 
   const itemLevel = itemDetal.itemLevel;
-  const type = itemDetal.equipmentDetail.type;
-  const levelRequirements = itemDetal.equipmentDetail.levelRequirements;
+  const type =
+    itemDetal.equipmentDetail.typeHrid ?? itemDetal.equipmentDetail.type;
+  const levelRequirements = itemDetal.equipmentDetail.levelRequirements ?? [];
 
   let isType = false;
   isType = type && type.includes(onlyShowItemsType);
@@ -518,8 +556,10 @@ function handleMarketItemFilter(div, itemDetal) {
     isType &&
     isRequired
   ) {
-    div.style.display = "block";
+    restoreMarketCard(div);
   } else {
+    if (!Object.hasOwn(div.dataset, "mwitoolsFilterDisplay"))
+      div.dataset.mwitoolsFilterDisplay = div.style.display;
     div.style.display = "none";
   }
 }
@@ -728,8 +768,16 @@ runtime.features.register({
   id: "marketFilter",
   setting: "marketFilter",
   initialize({ scope }) {
-    scanOnDemand(scope, addMarketFilterButtons);
-    scope.add(() => document.querySelector("#script_filters")?.remove());
+    scanOnDemand(scope, () => {
+      addMarketFilterButtons();
+      applyMarketFilters();
+    });
+    scope.add(() => {
+      document.querySelector("#script_filters")?.remove();
+      document
+        .querySelectorAll("[data-mwitools-filter-display]")
+        .forEach(restoreMarketCard);
+    });
   },
 });
 

@@ -89,7 +89,7 @@ registerGameLocaleResources("zh", {
 
 runtime.api.getOriTextFromElement = (element) => element?.textContent ?? "";
 runtime.settings.settingsMap.taskIcons.isTrue = false;
-runtime.settings.settingsMap.taskAutoSort.isTrue = false;
+runtime.settings.settingsMap.taskAutoSort.isTrue = true;
 runtime.state.currentCharacterId = "tasks-test";
 runtime.state.initData_actionCategoryDetailMap = {
   "/action_categories/combat/smelly_planet": {
@@ -1676,7 +1676,7 @@ test("combat monster grouping stays stable through reset and refreshes on re-ent
   runtime.settings.settingsMap.taskNewBadge.isTrue = true;
 });
 
-test("production-chain tasks stay together when automatic sorting is disabled", () => {
+test("disabled automatic sorting restores original native order", () => {
   document.querySelector('[class*="TasksPanel_taskList"]')?.remove();
   document.body.insertAdjacentHTML(
     "beforeend",
@@ -1763,8 +1763,8 @@ test("production-chain tasks stay together when automatic sorting is disabled", 
     );
   assert.deepEqual(orderedTitles, [
     "奶酪锻造 - 绛红刷子",
-    "奶酪锻造 - 彩虹刷子",
     "奶酪锻造 - 无关工具",
+    "奶酪锻造 - 彩虹刷子",
   ]);
 });
 
@@ -1851,7 +1851,7 @@ test("shuffled quest data still keeps the brush chain together", () => {
     },
   };
   runtime.state.characterQuests = quests;
-  runtime.settings.settingsMap.taskAutoSort.isTrue = false;
+  runtime.settings.settingsMap.taskAutoSort.isTrue = true;
 
   runtime.api.renderTasks();
 

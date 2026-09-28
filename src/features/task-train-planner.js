@@ -122,12 +122,16 @@ export function createTaskTrainPlan(
 }
 
 function findTaskNavigation(card) {
-  return [...card.querySelectorAll("button")].find((button) =>
-    matchesGameTranslations(
-      ["randomTask.go", "questModal.go"],
-      button.textContent,
-      { fallbackPatterns: [/^(?:前往|go)$/i] },
-    ),
+  return [...card.querySelectorAll("button")].find(
+    (button) =>
+      !button.disabled &&
+      !button.hidden &&
+      !button.closest('[hidden],[style*="display: none"]') &&
+      matchesGameTranslations(
+        ["randomTask.go", "questModal.go"],
+        button.textContent,
+        { fallbackPatterns: [/^(?:前往|go)$/i] },
+      ),
   );
 }
 
@@ -198,7 +202,7 @@ export function renderTaskTrainPlanner(
     }
     const navigation = findTaskNavigation(card);
     if (!navigation?.parentElement) {
-      settled = false;
+      existingControls.forEach((node) => node.remove());
       continue;
     }
     if (

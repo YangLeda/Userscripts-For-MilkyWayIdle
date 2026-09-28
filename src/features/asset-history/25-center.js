@@ -1,3 +1,7 @@
+import {
+  exportSharedBackup,
+  restoreSharedBackup,
+} from "../../core/shared-storage.js";
 /*!
  * Asset-center interface adapted from Everyday Profit Pro (MIT License).
  * Copyright (c) 2025 VictoryWinWinWin, PaperCat, SuXingX
@@ -341,11 +345,13 @@ export class AssetCenter {
     const current = this.snapshot?.values ?? entries.at(-1)?.[1]?.values ?? {};
     const previous =
       entries.length > 1 ? (entries.at(-2)?.[1]?.values ?? {}) : {};
+    const currentProfit = this.store.profitValue(current, this.scopeKey);
+    const previousProfit = this.store.profitValue(previous, this.scopeKey);
     const change =
-      Number.isFinite(current.total) && Number.isFinite(previous.total)
-        ? current.total - previous.total
+      Number.isFinite(currentProfit) && Number.isFinite(previousProfit)
+        ? currentProfit - previousProfit
         : null;
-    return { entries, current, previous, change };
+    return { entries, current, previous, change, previousProfit };
   }
 
   metric(label, value, className = "", liveKey = "") {
@@ -353,11 +359,17 @@ export class AssetCenter {
   }
 
   chartSummaryValues() {
-    const { current, previous, change } = this.summaryValues();
+    const { current, previousProfit, change } = this.summaryValues();
     return [
       ["current", current.total, ""],
       ["change", change, change >= 0 ? "pos" : "neg"],
-      ["percent", previous.total ? (change / previous.total) * 100 : null, ""],
+      [
+        "percent",
+        previousProfit && Number.isFinite(change)
+          ? (change / previousProfit) * 100
+          : null,
+        "",
+      ],
       ["average", this.store.sevenDayAverage(undefined, this.scopeKey), "pos"],
     ];
   }
@@ -386,6 +398,34 @@ export class AssetCenter {
       <section class="ep-card ep-section"><div class="ep-toolbar"><button class="ep-btn" data-chart-mode="total">${this.t("净资产", "Net worth")}</button><button class="ep-btn" data-chart-mode="profit">${this.t("盈亏", "P/L")}</button><button class="ep-btn" data-chart-mode="breakdown">${this.t("分项资产", "Components")}</button><span class="ep-spacer"></span>${[7, 15, 30].map((range) => `<button class="ep-btn" data-chart-range="${range}">${range}${this.t("天", "d")}</button>`).join("")}<button class="ep-btn" data-chart-range="all">${this.t("全部", "All")}</button><button class="ep-btn" data-reset-zoom>${this.t("重置缩放", "Reset zoom")}</button></div><div class="ep-chart"><canvas data-center-chart></canvas><div data-chart-fallback></div></div></section>
       <section class="ep-card ep-section"><div class="ep-section-title">🎯 ${this.t("目标追踪与蒙特卡洛", "Goal & Monte Carlo")}</div><div class="ep-section-body"><div class="ep-form"><label>${this.t("目标净资产", "Target net worth")}<input data-goal type="number" min="1" value="${target ?? ""}"></label><button class="ep-btn" data-save-goal>${this.t("保存目标", "Save target")}</button><button class="ep-btn" data-simulate>${this.t("运行 90 日模拟", "Run 90-day simulation")}</button></div><div data-simulation></div></div></section>
       <p class="ep-disclaimer">${this.t("盈亏按资产估值变化计算，包含市场波动，并非已实现交易利润；预测仅供参考和娱乐。", "P/L includes valuation changes and is not realized profit. Forecasts are for reference and entertainment only.")}</p>`;
+    const selection = document.createElement("fieldset");
+    const legend = document.createElement("legend");
+    legend.textContent = this.t(
+      "每日盈亏统计类别（缺少历史分项时不可计算）",
+      "Daily P/L categories (unavailable when historical components are missing)",
+    );
+    selection.append(legend);
+    for (const key of ASSET_COMPONENT_KEYS) {
+      const label = document.createElement("label");
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.checked = this.store
+        .getProfitCategories(this.scopeKey)
+        .includes(key);
+      input.addEventListener("change", () => {
+        const chosen = new Set(this.store.getProfitCategories(this.scopeKey));
+        if (input.checked) chosen.add(key);
+        else chosen.delete(key);
+        this.store.setProfitCategories([...chosen], this.scopeKey);
+        this.changed();
+      });
+      label.append(
+        input,
+        this.t(ASSET_COMPONENT_META[key].zh, ASSET_COMPONENT_META[key].en),
+      );
+      selection.append(label);
+    }
+    page.prepend(selection);
     page.querySelectorAll("[data-chart-mode]").forEach((button) => {
       button.classList.toggle(
         "active",
@@ -448,17 +488,22 @@ export class AssetCenter {
           : Number(button.dataset.chartRange);
       button.classList.toggle("active", range === this.chartRange);
     });
-    this.chart?.renderWithOptions(this.store.list(this.scopeKey), {
-      mode: this.chartMode,
-      range: this.chartRange,
-      maWindow: prefs.chart.maWindow,
-      lineTension: prefs.chart.lineTension,
-      tags: this.store.getRole(this.scopeKey).tagVisibility
-        ? this.store
-            .listTags(this.scopeKey)
-            .map((tag) => ({ ...tag, color: this.tagColor(tag.type) }))
-        : [],
-    });
+    this.chart?.renderWithOptions(
+      this.chartMode === "profit"
+        ? this.store.profitEntries(this.scopeKey)
+        : this.store.list(this.scopeKey),
+      {
+        mode: this.chartMode,
+        range: this.chartRange,
+        maWindow: prefs.chart.maWindow,
+        lineTension: prefs.chart.lineTension,
+        tags: this.store.getRole(this.scopeKey).tagVisibility
+          ? this.store
+              .listTags(this.scopeKey)
+              .map((tag) => ({ ...tag, color: this.tagColor(tag.type) }))
+          : [],
+      },
+    );
   }
 
   renderSimulation(host, result) {
@@ -501,9 +546,12 @@ export class AssetCenter {
       this.reportMode === "week"
         ? weekRange(this.reportDate)
         : monthRange(this.reportDate);
-    const entries = this.store.list(this.scopeKey);
-    const stats = periodStatistics(entries, range);
-    const heatmap = buildHeatmap(entries);
+    const entries = this.store.profitEntries(this.scopeKey);
+    const stats = periodStatistics(
+      this.store.profitEntries(this.scopeKey),
+      range,
+    );
+    const heatmap = buildHeatmap(this.store.profitEntries(this.scopeKey));
     const firstDay = new Date(range.year, range.month, 1).getDay();
     const offset = firstDay === 0 ? 6 : firstDay - 1;
     const count = new Date(range.year, range.month + 1, 0).getDate();
@@ -612,10 +660,15 @@ export class AssetCenter {
       const file = event.target.files?.[0];
       if (!file) return;
       try {
-        this.store.importBackup(JSON.parse(await file.text()), {
-          mode: this.pendingImportMode,
-          scopeKey: this.scopeKey,
-        });
+        const backup = JSON.parse(await file.text());
+        if (backup?.__mwitools_backup__) {
+          restoreSharedBackup(backup);
+          this.store.reloadFromStorage();
+        } else
+          this.store.importBackup(backup, {
+            mode: this.pendingImportMode,
+            scopeKey: this.scopeKey,
+          });
         this.changed();
       } catch (error) {
         globalThis.alert?.(
@@ -900,10 +953,9 @@ export class AssetCenter {
   }
 
   downloadBackup() {
-    const blob = new Blob(
-      [JSON.stringify(this.store.exportBackup(), null, 2)],
-      { type: "application/json" },
-    );
+    const blob = new Blob([JSON.stringify(exportSharedBackup(), null, 2)], {
+      type: "application/json",
+    });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;

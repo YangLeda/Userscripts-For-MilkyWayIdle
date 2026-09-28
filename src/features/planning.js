@@ -778,6 +778,12 @@ function renderSteps(host, result) {
         planning.setNodePolicy(branch.goalId, node.itemHrid, next);
       });
       source.append(sourceCopy, count, branchPolicy);
+      if (goal?.type === "house" || goal?.kind === "house" || goal?.houseHrid) {
+        const remove = document.createElement("button");
+        remove.textContent = t("删除该房屋目标", "Remove house goal");
+        remove.addEventListener("click", () => planning.removeGoal(goal.id));
+        source.append(remove);
+      }
       sources.append(source);
     }
     row.append(summary, sources);

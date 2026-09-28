@@ -188,6 +188,7 @@ test("iron-cow detection automatically enables and persists market adaptation", 
   runtime.api.checkEquipment = () => {};
   runtime.state.currentCharacterGameMode = "standard";
   await runtime.settings.set("adaptIronCowMarketFeatures", false);
+  localStorage.removeItem("MWITools_ironCowChoice");
   runtime.api.handleMessage(
     JSON.stringify({
       type: "init_character_data",
@@ -233,9 +234,9 @@ test("iron-cow detection automatically enables and persists market adaptation", 
   );
   assert.equal(
     runtime.settings.settingsMap.adaptIronCowMarketFeatures.isTrue,
-    true,
+    false,
   );
-  assert.equal(runtime.api.shouldSuppressMarketFeatures(), true);
+  assert.equal(runtime.api.shouldSuppressMarketFeatures(), false);
   runtime.api.handleMessage(
     JSON.stringify({
       type: "init_character_data",

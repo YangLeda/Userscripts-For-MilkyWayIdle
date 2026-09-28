@@ -10,7 +10,7 @@ const TASK_SELECTOR =
   '[class*="RandomTask_randomTask"]:not([data-mwitools-task-mirror="true"])';
 const TASK_LIST_SELECTOR = '[class*="TasksPanel_taskList"]';
 const ACTION_DETAIL_SELECTOR =
-  '[class*="SkillActionDetail_regularComponent"],[class*="SkillActionDetail_skillActionDetail"],[class*="ActionDetail_actionDetail"],[class*="SkillActionDetail_modalContent"],[class*="ActionDetail_modalContent"]';
+  '[class*="SkillActionDetail_regularComponent"],[class*="SkillActionDetail_skillActionDetail"],[class*="ActionDetail_actionDetail"],[class*="SkillActionDetail_modalContent"],[class*="ActionDetail_modalContent"],[class*="BattlePanel_modalContent"]';
 const RETURN_TTL_MS = 30_000;
 
 export function taskIdentity(task) {
@@ -227,8 +227,17 @@ runtime.features.register({
   id: "taskAutoReturn",
   setting: "taskAutoReturn",
   scope: "character",
-  initialize({ scope }) {
+  initialize({ scope, characterId }) {
+    let disposed = false;
+    const enabled = () =>
+      !disposed &&
+      runtime.settings.get("taskAutoReturn") &&
+      (!characterId ||
+        String(runtime.state.currentCharacterId || characterId) ===
+          String(characterId));
     let pending = null;
+    let actionElement = null;
+    let initialActions = new Set();
     let expiryTimer = null;
     let returnTimer = null;
     let restoreTimer = null;
@@ -241,6 +250,7 @@ runtime.features.register({
     const clearPending = ({ cancelTaskReturn = true } = {}) => {
       clearTimers();
       pending = null;
+      actionElement = null;
       if (cancelTaskReturn) runtime.api.cancelTemporaryTaskReturn?.();
     };
     const armExpiry = () => {
@@ -248,7 +258,7 @@ runtime.features.register({
       expiryTimer = setTimeout(clearPending, RETURN_TTL_MS);
     };
     const returnToOrigin = () => {
-      if (!pending || pending.expiresAt <= Date.now()) {
+      if (!enabled() || !pending || pending.expiresAt <= Date.now()) {
         clearPending();
         return;
       }
@@ -264,6 +274,7 @@ runtime.features.register({
       let stableSamples = 0;
       const restore = () => {
         restoreTimer = null;
+        if (!enabled()) return;
         const result = restoreTaskPosition(context);
         if (result.restored) {
           stableSamples =
@@ -281,7 +292,7 @@ runtime.features.register({
       restoreTimer = setTimeout(restore, 0);
     };
     const scheduleReturn = (delay = 0) => {
-      if (!pending) return;
+      if (!enabled() || !pending) return;
       if (returnTimer !== null) clearTimeout(returnTimer);
       returnTimer = setTimeout(() => {
         returnTimer = null;
@@ -289,19 +300,42 @@ runtime.features.register({
       }, delay);
     };
     const observeAction = () => {
-      if (!pending) return;
-      const action = document.querySelector(ACTION_DETAIL_SELECTOR);
-      if (action) pending.sawAction = true;
-      else if (pending.sawAction) scheduleReturn();
+      if (!enabled() || !pending) return;
+      const action = actionElement?.isConnected
+        ? actionElement
+        : [...document.querySelectorAll(ACTION_DETAIL_SELECTOR)].find(
+            (node) => !initialActions.has(node),
+          );
+      if (action) {
+        pending.sawAction = true;
+        actionElement = action;
+      } else if (pending.sawAction) scheduleReturn();
     };
     scope.event(
       document,
       "click",
       (event) => {
+        if (!enabled()) {
+          clearPending();
+          return;
+        }
         const button = event.target?.closest?.("button");
+        if (
+          pending &&
+          event.target?.closest?.(
+            'nav,[class*="NavigationBar_"],[class*="NavigationDrawer_"]',
+          )
+        ) {
+          clearPending();
+          return;
+        }
         if (!button) return;
         const card = button.closest(TASK_SELECTOR);
         if (card && isGoButton(button)) {
+          initialActions = new Set(
+            document.querySelectorAll(ACTION_DETAIL_SELECTOR),
+          );
+          actionElement = null;
           pending = captureTaskReturnContext(
             card,
             runtime.state.characterQuests ?? [],
@@ -317,12 +351,20 @@ runtime.features.register({
           button.closest(ACTION_DETAIL_SELECTOR) &&
           isCommitButton(button)
         ) {
-          scheduleReturn(500);
+          pending.commitRequested = true;
         }
       },
       true,
     );
+    scope.add(
+      runtime.onMessage("actions_updated", () => {
+        if (enabled() && pending?.commitRequested) scheduleReturn(0);
+      }),
+    );
     subscribeTaskSurfaceMutations({ scope }, observeAction);
-    scope.add(clearPending);
+    scope.add(() => {
+      disposed = true;
+      clearPending();
+    });
   },
 });

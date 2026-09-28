@@ -155,6 +155,7 @@ function removeGoal(id) {
   state.goals = next;
   delete state.overrides[id];
   saveState(state, "goal");
+  reconcilePlanningCart(calculate());
   return true;
 }
 
@@ -698,7 +699,12 @@ function calculateFresh({ inventorySnapshot = null } = {}) {
       );
       const addableShortage = Math.max(
         0,
-        Math.ceil(requiredAfterSupply - cart.planning - EPSILON),
+        Math.ceil(
+          requiredAfterSupply +
+            procurement.getLockedDetails(entry.itemHrid, 0).total -
+            cart.total -
+            EPSILON,
+        ),
       );
       const detail = runtime.state.initData_itemDetailMap?.[entry.itemHrid];
       return {
@@ -821,7 +827,10 @@ function reconcilePlanningCart(result = lastResult) {
   const allowed = new Map(
     result.materials.map((material) => [
       procurement.itemKey(material.itemHrid, 0),
-      Math.ceil(material.requiredAfterSupply),
+      Math.ceil(
+        material.requiredAfterSupply +
+          procurement.getLockedDetails(material.itemHrid, 0).total,
+      ),
     ]),
   );
   for (const row of procurement.getCartItems()) {
@@ -833,11 +842,17 @@ function reconcilePlanningCart(result = lastResult) {
     const excess = Math.max(
       0,
       summary.planning -
-        (allowed.get(procurement.itemKey(row.itemHrid, row.enhancementLevel)) ??
-          0),
+        Math.max(
+          0,
+          (allowed.get(
+            procurement.itemKey(row.itemHrid, row.enhancementLevel),
+          ) ?? 0) -
+            summary.manual -
+            summary.project,
+        ),
     );
     if (excess > 0) {
-      procurement.moveCartAllocationToManual(
+      procurement.removeCartAllocation(
         row.itemHrid,
         row.enhancementLevel,
         { kind: "planning" },
@@ -855,7 +870,12 @@ function refreshResultCartState(result) {
     material.cart = cart;
     material.addableShortage = Math.max(
       0,
-      Math.ceil(material.requiredAfterSupply - cart.planning - EPSILON),
+      Math.ceil(
+        material.requiredAfterSupply +
+          procurement.getLockedDetails(material.itemHrid, 0).total -
+          cart.total -
+          EPSILON,
+      ),
     );
     material.remainingShortage = Math.max(
       0,
@@ -899,7 +919,12 @@ function addShortagesToCart(materials = lastResult?.materials ?? []) {
           ...material,
           currentShortage: Math.max(
             0,
-            Math.ceil(material.requiredAfterSupply - cart.planning - EPSILON),
+            Math.ceil(
+              material.requiredAfterSupply +
+                procurement.getLockedDetails(material.itemHrid, 0).total -
+                cart.total -
+                EPSILON,
+            ),
           ),
         };
       })

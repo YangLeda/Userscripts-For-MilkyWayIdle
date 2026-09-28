@@ -1,3 +1,4 @@
+import { sharedStorage } from "../core/shared-storage.js";
 import { runtime } from "../core/runtime.js";
 
 const MANIFEST_URL =
@@ -51,7 +52,7 @@ function shouldShowImportantUpdate(
     manifest?.latestVersion &&
     manifest?.importantVersion &&
     compareVersions(installedVersion, manifest.importantVersion) < 0 &&
-    localStorage.getItem(
+    sharedStorage.getItem(
       `MWITools_update_banner_seen_${manifest.latestVersion}`,
     ) !== "true",
   );
@@ -230,7 +231,7 @@ function renderImportantUpdateBanner(manifest) {
   const action = banner.querySelector(".mwi-update-banner-action");
   action.textContent = runtime.config.isZH ? "前往更新" : "Update";
   action.href = updateDownloadUrl();
-  localStorage.setItem(
+  sharedStorage.setItem(
     `MWITools_update_banner_seen_${manifest.latestVersion}`,
     "true",
   );

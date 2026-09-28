@@ -1,3 +1,4 @@
+import { sharedStorage } from "../core/shared-storage.js";
 import { runtime } from "../core/runtime.js";
 import { parseCompactNumber } from "../core/market.js";
 import "../core/train-planning.js";
@@ -130,7 +131,7 @@ function normalizedTaskFilterLock(value) {
 
 export function readTaskFilterLocks(storageKey) {
   try {
-    const value = JSON.parse(localStorage.getItem(storageKey) || "null");
+    const value = JSON.parse(sharedStorage.getItem(storageKey) || "null");
     return new Set(
       (Array.isArray(value?.locked) ? value.locked : [])
         .map(normalizedTaskFilterLock)
@@ -144,7 +145,7 @@ export function readTaskFilterLocks(storageKey) {
 export function writeTaskFilterLocks(storageKey, locks) {
   if (!storageKey) return;
   try {
-    localStorage.setItem(
+    sharedStorage.setItem(
       storageKey,
       JSON.stringify({ locked: [...locks].sort() }),
     );
@@ -1912,7 +1913,12 @@ function renderFlatTaskList(rows, { sort = false } = {}) {
   if (!taskListParent) return;
   cleanupListDecorations({ restoreOrder: false });
   if (sort) applyExplicitSort(rows);
-  else restoreStableOrders(rows);
+  else if (runtime.settings.get("taskAutoSort")) restoreStableOrders(rows);
+  else {
+    pageOrderBySlot.clear();
+    for (const { card } of rows)
+      card.style.order = card.dataset.mwitoolsOriginalOrder ?? "";
+  }
   ensureTaskToolbar(rows);
   applyTaskFilters(rows);
   return rows;
@@ -2591,7 +2597,8 @@ function renderTasks({ forceSort = false, allowReusedPositional = true } = {}) {
     (observedParent && observedParent !== taskListParent);
   const resumedTaskPage = enteredNewTaskPage && consumeTemporaryTaskReturn();
   const resumedResetPage = enteredNewTaskPage && pendingResetSlots.size > 0;
-  const sortOnEntry = enteredNewTaskPage && !resumedResetPage;
+  const autoSort = runtime.settings.get("taskAutoSort");
+  const sortOnEntry = autoSort && enteredNewTaskPage && !resumedResetPage;
   if (enteredNewTaskPage) {
     cleanupListDecorations({ restoreOrder: false });
     document
@@ -2683,7 +2690,7 @@ function renderTasks({ forceSort = false, allowReusedPositional = true } = {}) {
   wireMergeButtons(cards);
   wireResetButtons(cards);
   renderFlatTaskList(rows, {
-    sort: forceSort || sortOnEntry || newTaskSetChanged,
+    sort: forceSort || sortOnEntry || (autoSort && newTaskSetChanged),
   });
   applyPendingMerge();
   lastRenderedCards = [...cards];
@@ -2785,6 +2792,8 @@ runtime.features.register({
     scope.add(
       runtime.onMessage("quests_updated", () => {
         nativeResetChoiceUntil = 0;
+        lastTaskRenderSignature = "";
+        clearAllRerollContexts({ cancelled: false });
         scheduleRender({ settle: true });
       }),
     );

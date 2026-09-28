@@ -164,6 +164,7 @@ function applyCharacterData(payload) {
   runtime.state.labyrinthActive = Boolean(payload.labyrinth?.isActive);
   runtime.state.initData_characterSkills = payload.characterSkills;
   runtime.state.initData_characterItems = payload.characterItems ?? [];
+  runtime.state.characterItemMarks = payload.characterItemMarks ?? [];
   runtime.state.initData_characterHouseRoomMap = payload.characterHouseRoomMap;
   runtime.state.initData_actionTypeDrinkSlotsMap =
     payload.actionTypeDrinkSlotsMap;
@@ -453,6 +454,9 @@ function applyGameMessage(payload) {
       applySkillsUpdated(payload);
       applyQuestsUpdated(payload);
       applyCharacterAbilitiesUpdated(payload);
+      break;
+    case "item_marks_updated":
+      runtime.state.characterItemMarks = payload.characterItemMarks ?? [];
       break;
     case "items_updated":
       applyItemsUpdated(payload);

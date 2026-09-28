@@ -1,3 +1,4 @@
+import { sharedStorage } from "../../core/shared-storage.js";
 import closeIcon from "./assets/close.png";
 import copyIcon from "./assets/copy.png";
 import debugIcon from "./assets/debug.png";
@@ -109,13 +110,13 @@ const Settings = (() => {
   let state = { ...defaults };
   try {
     const s = JSON.parse(
-      localStorage.getItem(KEY) || localStorage.getItem(LEGACY_KEY) || "{}",
+      sharedStorage.getItem(KEY) || sharedStorage.getItem(LEGACY_KEY) || "{}",
     );
     if (s && typeof s === "object") state = { ...defaults, ...s };
   } catch (e) {}
   function save() {
     try {
-      localStorage.setItem(KEY, JSON.stringify(state));
+      sharedStorage.setItem(KEY, JSON.stringify(state));
     } catch (e) {}
   }
   return {

@@ -1,3 +1,4 @@
+import { sharedStorage } from "./shared-storage.js";
 import { runtime } from "./runtime.js";
 
 function getGameLanguage() {
@@ -48,6 +49,13 @@ let SCRIPT_COLOR_TOOLTIP = "darkgreen";
 // 物品悬浮窗的字体颜色
 
 let settingsMap = {
+  inventoryLootDoubleClick: {
+    id: "inventoryLootDoubleClick",
+    desc: isZH
+      ? "双击打开当前战利品全部可开启数量"
+      : "Double-click to open all available loot",
+    isTrue: false,
+  },
   useOrangeAsMainColor: {
     id: "useOrangeAsMainColor",
     desc: isZH
@@ -1179,6 +1187,15 @@ const catalogRows = [
   ],
 ];
 
+catalogRows.push([
+  "inventoryLootDoubleClick",
+  "inventory",
+  "战利品双击全部打开",
+  "Double-click all loot",
+  "按最新库存和钥匙数量打开当前战利品。",
+  "Open the selected loot using current inventory and keys.",
+]);
+
 const settingsCatalog = Object.fromEntries(
   catalogRows.map(([id, group, zhTitle, enTitle, zhSummary, enSummary]) => [
     id,
@@ -1192,6 +1209,27 @@ const settingsCatalog = Object.fromEntries(
   ]),
 );
 
+settingsCatalog.chatFontScale = {
+  id: "chatFontScale",
+  group: "general",
+  title: { zh: "聊天字号", en: "Chat font size" },
+  details: {
+    zh: "仅调整聊天区域，保存后立即生效。",
+    en: "Change only chat text; saved changes apply immediately.",
+  },
+  summary: {
+    zh: "调整消息、时间戳和输入框字号。",
+    en: "Resize chat messages, timestamps and input.",
+  },
+  control: {
+    type: "select",
+    preference: "chatFontScale",
+    options: [80, 90, 100, 110, 120, 130, 140, 150, 160].map((value) => [
+      String(value),
+      { zh: `${value}%`, en: `${value}%` },
+    ]),
+  },
+};
 settingsCatalog.productionSummary.control = {
   type: "select",
   preference: "productionSummaryMode",
@@ -1288,6 +1326,20 @@ const preferenceDefinitions = Object.freeze({
     defaultValue: "collapsed",
     values: Object.freeze(["collapsed", "expanded", "off"]),
   }),
+  chatFontScale: Object.freeze({
+    defaultValue: "100",
+    values: Object.freeze([
+      "80",
+      "90",
+      "100",
+      "110",
+      "120",
+      "130",
+      "140",
+      "150",
+      "160",
+    ]),
+  }),
   uiFontScale: Object.freeze({
     defaultValue: "standard",
     values: Object.freeze(["standard", "large", "largest"]),
@@ -1376,6 +1428,8 @@ function shouldSuppressMarketFeatures() {
 
 async function setSetting(id, value, options = {}) {
   if (!settingsMap[id]) return false;
+  if (id === "adaptIronCowMarketFeatures" && !options.automatic)
+    sharedStorage.setItem("MWITools_ironCowChoice", value ? "on" : "off");
   const normalized = Boolean(value);
   const previous = settingsMap[id].isTrue;
   settingsMap[id].isTrue = normalized;

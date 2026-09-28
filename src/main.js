@@ -35,6 +35,7 @@ import "./features/task-train-planner.js";
 import "./features/task-new-badge.js";
 import "./features/task-auto-return.js";
 import "./features/ability-book-calculator.js";
+import "./features/inventory-loot-double-click.js";
 import "./features/inventory-market-double-click.js";
 import "./features/opinion-center/index.js";
 import "./features/guild-xp.js";

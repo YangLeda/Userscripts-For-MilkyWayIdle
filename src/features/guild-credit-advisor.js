@@ -779,10 +779,7 @@ export async function renderGuildCreditAdvisor({ marketReady = false } = {}) {
     removeGuildCreditAdvisor();
     return null;
   }
-  if (!marketReady && !(await runtime.api.ensureMarketValueSource?.())) {
-    removeGuildCreditAdvisor();
-    return null;
-  }
+  if (!marketReady) await runtime.api.ensureMarketValueSource?.();
 
   const conversions = collectGuildCreditConversions(context.creditItemHrid);
   const selectedConversion = conversions.find(
@@ -825,6 +822,59 @@ export async function renderGuildCreditAdvisor({ marketReady = false } = {}) {
     replacement,
     recommendationCount: runtime.api.getGuildCreditRecommendationCount?.() ?? 3,
   });
+  const procurement = runtime.api.procurement;
+  const count = runtime.api.getGuildCreditRecommendationCount?.() ?? 3;
+  const owned = ranked
+    .map((option) => ({
+      ...option,
+      owned: procurement?.getInventoryCount?.(option.itemHrid, 0) ?? 0,
+    }))
+    .filter((option) => option.owned >= option.itemCount)
+    .slice(0, count);
+  if (owned.length) {
+    const section = document.createElement("section");
+    const ownedMarkup =
+      `<div class="current-heading">${escapeHtml(t("仓库可兑换前 N 名", "Top owned exchange materials"))}</div>` +
+      owned
+        .map(
+          (option, index) =>
+            rankRowMarkup(option, index) +
+            `<div class="ratio">${escapeHtml(t("持有", "Owned"))} ${formatExact(option.owned)} · ${escapeHtml(t("可兑换批次", "Available batches"))} ${formatExact(Math.floor(option.owned / option.itemCount))}</div>`,
+        )
+        .join("");
+    section.innerHTML = ownedMarkup;
+    advisor.append(section);
+  }
+  if (selectedConversion && procurement) {
+    const button = document.createElement("button");
+    const shortage = () =>
+      Math.max(
+        0,
+        selectedConversion.itemCount * context.batchCount +
+          procurement.getLockedDetails(selectedConversion.itemHrid, 0).total -
+          procurement.getInventoryCount(selectedConversion.itemHrid, 0) -
+          procurement.getCartAllocationSummary(selectedConversion.itemHrid, 0)
+            .total,
+      );
+    button.textContent = shortage()
+      ? t("加入购物车", "Add to cart")
+      : t("库存或购物车已足够", "Covered by inventory or cart");
+    button.disabled = shortage() <= 0;
+    button.addEventListener("click", () => {
+      const quantity = shortage();
+      if (quantity > 0)
+        procurement.addToCart([
+          {
+            itemHrid: selectedConversion.itemHrid,
+            enhancementLevel: 0,
+            quantity,
+            source: "guild",
+          },
+        ]);
+      void renderGuildCreditAdvisor({ marketReady: true });
+    });
+    advisor.append(button);
+  }
   mountGuildCreditAdvisor(host, modal);
   return host;
 }
@@ -834,10 +884,7 @@ export async function renderGuildCreditRecommendations() {
     cleanup();
     return null;
   }
-  if (!(await runtime.api.ensureMarketValueSource?.())) {
-    cleanup();
-    return null;
-  }
+  await runtime.api.ensureMarketValueSource?.();
   const advisor = await renderGuildCreditAdvisor({ marketReady: true });
   return { summaries: [], advisor };
 }

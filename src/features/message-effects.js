@@ -1,3 +1,4 @@
+import { sharedStorage } from "../core/shared-storage.js";
 import { runtime } from "../core/runtime.js";
 
 function refreshAssets() {
@@ -12,13 +13,14 @@ function refreshAssets() {
 
 function enableIronCowAdaptation() {
   if (
+    sharedStorage.getItem("MWITools_ironCowChoice") !== null ||
     !runtime.api.isIronCowCharacter?.() ||
     runtime.settings.settingsMap.adaptIronCowMarketFeatures?.isTrue
   ) {
     return;
   }
   void runtime.settings
-    .set("adaptIronCowMarketFeatures", true)
+    .set("adaptIronCowMarketFeatures", true, { automatic: true })
     .catch((error) => {
       console.error(
         runtime.config.isZH

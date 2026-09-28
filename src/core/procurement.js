@@ -1,3 +1,4 @@
+import { sharedStorage } from "./shared-storage.js";
 import { runtime } from "./runtime.js";
 import { actionName, itemName } from "./localization.js";
 
@@ -202,7 +203,7 @@ function getCharacterStorageKey(characterId = activeCharacterId) {
 
 function loadSettings() {
   try {
-    const stored = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "null");
+    const stored = JSON.parse(sharedStorage.getItem(SETTINGS_KEY) || "null");
     return { ...DEFAULT_SETTINGS, ...(stored?.values ?? {}) };
   } catch {
     return { ...DEFAULT_SETTINGS };
@@ -210,7 +211,7 @@ function loadSettings() {
 }
 
 function saveSettings() {
-  localStorage.setItem(
+  sharedStorage.setItem(
     SETTINGS_KEY,
     JSON.stringify({ version: DATA_VERSION, values: settings }),
   );
@@ -265,7 +266,7 @@ function serializeData() {
 
 function persistData() {
   if (!activeStorageKey) return;
-  localStorage.setItem(activeStorageKey, JSON.stringify(serializeData()));
+  sharedStorage.setItem(activeStorageKey, JSON.stringify(serializeData()));
 }
 
 function normalizePlanningData(next) {
@@ -320,7 +321,7 @@ function loadCharacterData(
   if (activeStorageKey) {
     try {
       const stored = JSON.parse(
-        localStorage.getItem(activeStorageKey) || "null",
+        sharedStorage.getItem(activeStorageKey) || "null",
       );
       storedVersion = Math.max(0, Number(stored?.version) || 0);
       for (const row of stored?.cart ?? []) {
@@ -500,7 +501,13 @@ function getLockedDetails(
     ) {
       continue;
     }
-    const quantity = Math.max(0, Number(plan.materials?.[key]) || 0);
+    const quantity = Math.max(
+      0,
+      Math.ceil(
+        (Number(plan.materials?.[key]) || 0) *
+          Math.max(0, 1 - (plan.progress || 0) / plan.targetCount),
+      ),
+    );
     if (!quantity) continue;
     total += quantity;
     byPlan.push({
@@ -512,36 +519,19 @@ function getLockedDetails(
   return { total, byPlan };
 }
 
-function getEffectiveInventory(
-  itemHrid,
-  enhancementLevel = 0,
-  excludePlanId = null,
-) {
-  const owned = getInventoryCount(itemHrid, enhancementLevel);
-  return Math.max(
-    0,
-    owned - getLockedDetails(itemHrid, enhancementLevel, excludePlanId).total,
-  );
+function getEffectiveInventory(itemHrid, enhancementLevel = 0) {
+  return getInventoryCount(itemHrid, enhancementLevel);
 }
-
-function getProjectReservedInventory(itemHrid, enhancementLevel = 0) {
-  const owned = getInventoryCount(itemHrid, enhancementLevel);
-  return Math.min(owned, getLockedDetails(itemHrid, enhancementLevel).total);
+function getProjectReservedInventory() {
+  return 0;
 }
-
 function getInventoryAllocationSnapshot() {
-  const snapshot = new Map();
-  for (const [key, owned] of inventoryCounts()) {
-    const { itemHrid, enhancementLevel } = parseItemKey(key);
-    snapshot.set(key, {
-      owned,
-      projectInventory: Math.min(
-        owned,
-        getLockedDetails(itemHrid, enhancementLevel).total,
-      ),
-    });
-  }
-  return snapshot;
+  return new Map(
+    [...inventoryCounts()].map(([key, owned]) => [
+      key,
+      { owned, projectInventory: 0 },
+    ]),
+  );
 }
 
 function isCoin(itemHrid) {
@@ -685,19 +675,16 @@ function materialRequirement(input, actionHrid, actionCount, options = {}) {
     options.excludePlanId,
     options.excludeActionHrids,
   );
-  const effectiveOwned = Math.max(0, owned - locked.total);
+  const effectiveOwned = owned;
   const cartRow = cart.get(itemKey(itemHrid, enhancementLevel));
-  const cartQuantity = getAllocationQuantity(
-    cartRow,
-    options.cartOwner ?? { kind: "manual" },
-  );
+  const cartQuantity = cartRow?.quantity ?? 0;
   return {
     itemHrid,
     enhancementLevel,
     name: resolveItemName(itemHrid),
     ...calculated,
     owned,
-    locked: locked.total,
+    locked: 0,
     lockedByPlans: locked.byPlan,
     effectiveOwned,
     cartQuantity,
@@ -1073,11 +1060,23 @@ function releaseCartAllocation(owner, itemHrid = null, enhancementLevel = 0) {
     const quantity = getAllocationQuantity(row, owner);
     if (!quantity) continue;
     changeAllocation(row, owner, -quantity);
-    changeAllocation(row, { kind: "manual" }, quantity);
+    if (row.quantity <= 0 && !row.starred)
+      cart.delete(itemKey(row.itemHrid, row.enhancementLevel));
     changed = true;
   }
   if (changed) saveCartAndEmit({ reason: "allocation" });
   return changed;
+}
+
+function removeCartAllocation(itemHrid, enhancementLevel, owner, quantity) {
+  const key = itemKey(itemHrid, enhancementLevel);
+  const row = cart.get(key);
+  if (!row) return 0;
+  const removed = Math.min(getAllocationQuantity(row, owner), quantity);
+  changeAllocation(row, owner, -removed);
+  if (row.quantity <= 0 && !row.starred) cart.delete(key);
+  if (removed) saveCartAndEmit({ reason: "allocation" });
+  return removed;
 }
 
 function moveCartAllocationToManual(
@@ -1235,6 +1234,8 @@ function applyAcquisition(itemHrid, enhancementLevel, quantity, options = {}) {
   const acquired = Math.max(0, Math.floor(Number(quantity) || 0));
   if (!row || !acquired || !settings.inventorySyncEnabled) return false;
   const before = row.quantity;
+  const orderedBefore = [...cart.values()].filter((item) => item.quantity > 0);
+  const fulfilledIndex = orderedBefore.indexOf(row);
   const affectedProjects = projectIdsFromCartRow(row);
   consumeCartAllocations(row, acquired);
   row.baselineStock = getInventoryCount(row.itemHrid, row.enhancementLevel);
@@ -1248,7 +1249,19 @@ function applyAcquisition(itemHrid, enhancementLevel, quantity, options = {}) {
   saveCartAndEmit();
   deleteProjectsWithoutCartAllocations(affectedProjects);
   if (fulfilled) {
-    emit("item:fulfilled", { item: clone(row), source: options.source });
+    const next = [
+      ...orderedBefore.slice(fulfilledIndex + 1),
+      ...orderedBefore.slice(0, fulfilledIndex),
+    ].find(
+      (item) =>
+        item.quantity > 0 &&
+        cart.has(itemKey(item.itemHrid, item.enhancementLevel)),
+    );
+    emit("item:fulfilled", {
+      item: clone(row),
+      source: options.source,
+      nextItemKey: next ? itemKey(next.itemHrid, next.enhancementLevel) : "",
+    });
     if (![...cart.values()].some((candidate) => candidate.quantity > 0)) {
       emit("all:fulfilled", {});
     }
@@ -1287,7 +1300,14 @@ function consumePurchaseSuppression(key, delta) {
 function reconcileProjectCartAllocations() {
   const desiredByKey = new Map();
   const activePlans = [...plans.values()]
-    .filter((plan) => plan.status !== "completed")
+    .filter(
+      (plan) =>
+        plan.status !== "completed" &&
+        (plan.cartManaged ||
+          [...cart.values()].some(
+            (row) => row.allocations?.projects?.[plan.id] > 0,
+          )),
+    )
     .sort(
       (left, right) =>
         String(left.createdAt ?? "").localeCompare(
@@ -1297,7 +1317,13 @@ function reconcileProjectCartAllocations() {
   const demandsByKey = new Map();
   for (const plan of activePlans) {
     for (const [key, quantity] of Object.entries(plan.materials ?? {})) {
-      const demand = Math.max(0, Math.ceil(Number(quantity) || 0));
+      const demand = Math.max(
+        0,
+        Math.ceil(
+          (Number(quantity) || 0) *
+            Math.max(0, 1 - (plan.progress || 0) / plan.targetCount),
+        ),
+      );
       if (!demand || isCoin(parseItemKey(key).itemHrid)) continue;
       if (!demandsByKey.has(key)) demandsByKey.set(key, []);
       demandsByKey.get(key).push({ planId: String(plan.id), demand });
@@ -1305,14 +1331,28 @@ function reconcileProjectCartAllocations() {
   }
   for (const [key, demands] of demandsByKey) {
     const parsed = parseItemKey(key);
-    let available = getInventoryCount(parsed.itemHrid, parsed.enhancementLevel);
-    const desired = {};
-    for (const { planId, demand } of demands) {
-      const covered = Math.min(available, demand);
-      available -= covered;
-      const shortage = demand - covered;
-      if (shortage > 0) desired[planId] = shortage;
-    }
+    const available = getInventoryCount(
+      parsed.itemHrid,
+      parsed.enhancementLevel,
+    );
+    const row = cart.get(key);
+    const allocations = normalizeAllocations(row?.allocations, row?.quantity);
+    const planningDemand =
+      runtime.api.planning
+        ?.getResult?.()
+        ?.materials?.find(
+          (material) =>
+            itemKey(material.itemHrid, material.enhancementLevel ?? 0) === key,
+        )?.required ?? 0;
+    const shortage = Math.max(
+      0,
+      planningDemand +
+        demands.reduce((sum, entry) => sum + entry.demand, 0) -
+        available -
+        allocations.manual -
+        allocations.planning,
+    );
+    const desired = shortage ? { [demands[0].planId]: shortage } : {};
     desiredByKey.set(key, desired);
   }
 
@@ -1481,6 +1521,7 @@ function getPlans() {
 }
 
 function savePlansAndEmit() {
+  reconcileProjectCartAllocations();
   persistData();
   emit("plan:change", { plans: getPlans() });
 }
@@ -1538,14 +1579,25 @@ function addProjectRequirementsToCart(planId) {
   if (!plan || plan.status === "completed") {
     return { ok: false, added: 0, skipped: 0 };
   }
+  plan.cartManaged = true;
   const demandByKey = new Map();
   for (const candidate of plans.values()) {
     if (candidate.status === "completed") continue;
+    candidate.cartManaged = true;
     for (const [key, quantity] of Object.entries(candidate.materials ?? {})) {
       demandByKey.set(
         key,
         (demandByKey.get(key) ?? 0) +
-          Math.max(0, Math.ceil(Number(quantity) || 0)),
+          Math.max(
+            0,
+            Math.ceil(
+              (Number(quantity) || 0) *
+                Math.max(
+                  0,
+                  1 - (candidate.progress || 0) / candidate.targetCount,
+                ),
+            ),
+          ),
       );
     }
   }
@@ -1560,7 +1612,7 @@ function addProjectRequirementsToCart(planId) {
       parsed.itemHrid,
       parsed.enhancementLevel,
     );
-    const addable = Math.max(0, desired - summary.project);
+    const addable = Math.max(0, desired - summary.total);
     if (!addable || isCoin(parsed.itemHrid)) continue;
     rows.push({
       itemHrid: parsed.itemHrid,
@@ -1589,7 +1641,6 @@ function releaseExcessProjectAllocations(plan) {
     const excess = Math.max(0, allocated - allowed);
     if (!excess) continue;
     changeAllocation(row, owner, -excess);
-    changeAllocation(row, { kind: "manual" }, excess);
     changed = true;
   }
   if (changed) saveCartAndEmit({ reason: "allocation" });
@@ -1599,7 +1650,13 @@ function refreshPlanProgress() {
   for (const plan of plans.values()) {
     if (plan.status === "completed") continue;
     const inventoryProgress =
-      plan.outputItemHrid && plan.outputPerAction > 0
+      plan.outputItemHrid &&
+      plan.outputPerAction > 0 &&
+      [...plans.values()].filter(
+        (entry) =>
+          entry.status !== "completed" &&
+          entry.outputItemHrid === plan.outputItemHrid,
+      ).length === 1
         ? Math.floor(
             Math.max(
               0,
@@ -1626,7 +1683,12 @@ function recordActionCompletion(payload) {
   if (!actionHrid) return;
   let changed = false;
   for (const plan of plans.values()) {
-    if (plan.status === "completed" || plan.actionHrid !== actionHrid) continue;
+    if (
+      plan.status === "completed" ||
+      plan.actionHrid !== actionHrid ||
+      plan.progress >= plan.targetCount
+    )
+      continue;
     plan.onlineProgress = Math.min(
       plan.targetCount,
       (plan.onlineProgress ?? 0) + 1,
@@ -1634,6 +1696,7 @@ function recordActionCompletion(payload) {
     plan.progress = Math.max(plan.progress ?? 0, plan.onlineProgress);
     plan.updatedAt = new Date().toISOString();
     changed = true;
+    break;
   }
   if (changed) savePlansAndEmit();
 }
@@ -1793,6 +1856,7 @@ Object.assign(runtime.api, {
     addRequirementsToCart,
     releaseCartAllocation,
     moveCartAllocationToManual,
+    removeCartAllocation,
     setCartItemQuantity,
     updateCartItem,
     removeFromCart,
@@ -1812,4 +1876,9 @@ Object.assign(runtime.api, {
     parsePurchaseConfirmation,
     publicApi,
   },
+});
+
+globalThis.addEventListener?.("mwitools-shared-storage", (event) => {
+  if (event.detail?.key === activeStorageKey.replace(":china:", ":production:"))
+    loadCharacterData(activeCharacterId);
 });

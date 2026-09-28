@@ -137,7 +137,7 @@ test("projects aggregate inventory and cart coverage by source", () => {
     project: 250,
     projects: { [one.id]: 50, [two.id]: 200 },
   });
-  assert.equal(procurement.getProjectReservedInventory("/items/log"), 50);
+  assert.equal(procurement.getProjectReservedInventory("/items/log"), 0);
 });
 
 test("planning keeps project and manual cart quantities separate", () => {
@@ -152,7 +152,7 @@ test("planning keeps project and manual cart quantities separate", () => {
   );
   assert.equal(log.required, 1000);
   assert.equal(log.owned, 50);
-  assert.equal(log.projectInventory, 50);
+  assert.equal(log.projectInventory, 0);
   assert.equal(log.cart.project, 250);
   assert.equal(log.addableShortage, 1000);
 
@@ -235,7 +235,7 @@ test("planning goals and policies remain isolated by character", () => {
   assert.equal(planning.getPolicy("/items/board"), "acquire");
 });
 
-test("released project and planning allocations become manual", () => {
+test("released allocations are removed without increasing manual demand", () => {
   runtime.state.initData_characterItems = [
     {
       id: "release-logs",
@@ -265,17 +265,17 @@ test("released project and planning allocations become manual", () => {
 
   procurement.updatePlan(project.id, { status: "completed" });
   assert.deepEqual(procurement.getCartAllocationSummary("/items/log"), {
-    total: 1050,
-    manual: 50,
-    planning: 1000,
+    total: 950,
+    manual: 0,
+    planning: 950,
     project: 0,
     projects: {},
   });
 
   planning.recalculate();
   assert.deepEqual(procurement.getCartAllocationSummary("/items/log"), {
-    total: 1050,
-    manual: 100,
+    total: 950,
+    manual: 0,
     planning: 950,
     project: 0,
     projects: {},

@@ -173,6 +173,20 @@ function handleActionQueueMenue(added) {
 }
 
 function handleActionQueueMenueCalculateTime(added) {
+  added.classList.add("mwi-adaptive-queue");
+  added.style.setProperty(
+    "--mwi-queue-left",
+    `${Math.max(0, added.getBoundingClientRect?.().left || 0)}px`,
+  );
+  if (!document.getElementById("mwi-adaptive-queue-style")) {
+    const style = document.createElement("style");
+    style.id = "mwi-adaptive-queue-style";
+    style.textContent = `.mwi-adaptive-queue{width:max-content!important;max-width:min(calc(100vw - 24px),calc(100vw - var(--mwi-queue-left,12px) - 12px))!important;box-sizing:border-box}.mwi-adaptive-queue [class*="QueuedActions_action"]{min-width:0;max-width:100%;flex-wrap:wrap}.mwi-adaptive-queue .script_actionTime,.mwi-adaptive-queue [class*="count"],.mwi-adaptive-queue [class*="Count"]{white-space:nowrap;flex-shrink:0}.mwi-adaptive-queue [class*="name"],.mwi-adaptive-queue [class*="Name"]{max-width:min(35vw,300px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}`;
+    document.head.append(style);
+  }
+  added.querySelectorAll('[class*="name"],[class*="Name"]').forEach((node) => {
+    node.title = node.textContent;
+  });
   const actionDivList = added.querySelectorAll(
     "div.QueuedActions_action__r3HlD",
   );

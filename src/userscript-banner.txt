@@ -20,6 +20,8 @@
 // @grant        GM_xmlhttpRequest
 // @grant        GM_notification
 // @grant        GM_getValue
+// @grant        GM_listValues
+// @grant        GM_addValueChangeListener
 // @grant        GM_setValue
 // @grant        GM_info
 // @grant        unsafeWindow

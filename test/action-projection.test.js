@@ -90,7 +90,7 @@ runtime.api.getFairValue = (itemHrid) => {
   const ask = runtime.api.getAskPrice(itemHrid);
   if (ask > 0) return ask;
   const netSell = runtime.api.getNetSellPrice(itemHrid);
-  return netSell > 0 ? netSell / 0.95 : 0;
+  return netSell > 0 ? netSell / 0.96 : 0;
 };
 runtime.api.getAssetAskPrice = (...args) => runtime.api.getAskPrice(...args);
 runtime.api.getAssetBidPrice = (...args) => runtime.api.getBidPrice(...args);
@@ -267,9 +267,9 @@ test("projection exposes market, high-buy-low-sell, and low-buy-high-sell valuat
     itemHrid === "/items/input" ? 9 : itemHrid === "/items/output" ? 110 : 0;
 
   const result = runtime.api.projectAction("/actions/crafting/test", 1);
-  assert.equal(result.netProfitPerAction, 86.5);
+  assert.equal(result.netProfitPerAction, 87.6);
   assert.equal(result.valuations.conservative.netProfitPerAction, 80);
-  assert.equal(result.valuations.fair.netProfitPerAction, 86.5);
+  assert.equal(result.valuations.fair.netProfitPerAction, 87.6);
   assert.equal(result.valuations.aggressive.netProfitPerAction, 98);
   assert.equal(runtime.settings.settingsMap.profitValuationMode, undefined);
 
@@ -717,7 +717,7 @@ test("gathering processing tea splits raw drops into recipe outputs", () => {
   assert.equal(result.outputs[0].effectiveCount, 1.5);
   assert.equal(result.outputs[1].itemHrid, "/items/cotton_fabric");
   assert.equal(result.outputs[1].effectiveCount, 0.25);
-  assert.equal(result.primaryRevenuePerAction, 38);
+  assert.equal(result.primaryRevenuePerAction, 38.4);
 
   runtime.state.initData_actionDetailMap = previous.actions;
   runtime.state.initData_itemDetailMap = previous.items;
@@ -795,7 +795,7 @@ test("rare openables use three derived values and report missing inner drops", (
         : 0;
   runtime.api.getFairValue = (itemHrid) =>
     itemHrid === "/items/output"
-      ? 100 / 0.95
+      ? 100 / 0.96
       : itemHrid === "/items/rare_leaf"
         ? 110
         : 0;
@@ -805,7 +805,7 @@ test("rare openables use three derived values and report missing inner drops", (
       : itemHrid === "/items/rare_leaf"
         ? 135
         : 0;
-  runtime.api.getMarketTaxRate = () => 0.05;
+  runtime.api.getMarketTaxRate = () => 0.04;
   runtime.api.invalidateAssetValueCache();
 
   const result = runtime.api.projectAction("/actions/foraging/rare-crate", 1);
@@ -814,7 +814,7 @@ test("rare openables use three derived values and report missing inner drops", (
   assert.equal(result.byproductOutputs[0].valueSource, "derived");
   assert.equal(result.valuations.conservative.byproductRevenuePerAction, 18);
   assert.ok(
-    Math.abs(result.valuations.fair.byproductRevenuePerAction - 20.9) < 1e-10,
+    Math.abs(result.valuations.fair.byproductRevenuePerAction - 21.12) < 1e-10,
   );
   assert.equal(result.valuations.aggressive.byproductRevenuePerAction, 27);
   assert.deepEqual(result.derivedMissingPrices, ["/items/missing_leaf"]);

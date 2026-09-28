@@ -788,3 +788,19 @@ test("Monte Carlo is deterministic with an injected random source", () => {
   assert.ok(result.series.p50[30] <= result.series.p90[30]);
   assert.ok(result.probabilities[30] >= 0 && result.probabilities[30] <= 100);
 });
+
+test("daily profit categories persist per character without rewriting snapshots", () => {
+  const store = new AssetHistoryStore(localStorage);
+  const scope = "production:profit-categories";
+  store.setProfitCategories(["inventory", "houses"], scope);
+  assert.equal(store.profitValue(completeValues(), scope), 600);
+  assert.equal(store.profitValue({ inventory: 4 }, scope), null);
+  assert.deepEqual(
+    new AssetHistoryStore(localStorage).getProfitCategories(scope),
+    ["inventory", "houses"],
+  );
+  assert.equal(
+    store.getProfitCategories("production:other-character").length,
+    7,
+  );
+});

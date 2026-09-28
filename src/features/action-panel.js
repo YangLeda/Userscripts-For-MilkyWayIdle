@@ -29,13 +29,6 @@ function addActionPanelStyles() {
 
 async function handleActionPanel(panel) {
   if (!runtime.settings.settingsMap.actionPanel_totalTime.isTrue) return false;
-  if (
-    panel.dataset.mwitoolsActionPanel === "true" &&
-    panel.querySelector("#mwi-level-progress") &&
-    panel.querySelectorAll(".mwi-native-level-stat").length === 4
-  )
-    return true;
-
   const expElement = panel.querySelector(
     'div[class*="SkillActionDetail_expGain"]',
   );
@@ -91,6 +84,22 @@ async function handleActionPanel(panel) {
     return false;
   }
 
+  const signature = JSON.stringify([
+    actionHrid,
+    duration,
+    exp,
+    effBuff,
+    currentExp,
+    currentLevel,
+    runtime.config.NUMBER_LOCALE,
+  ]);
+  if (
+    panel.dataset.mwitoolsActionSignature === signature &&
+    panel.querySelector("#mwi-level-progress") &&
+    panel.querySelectorAll(".mwi-native-level-stat").length === 4
+  )
+    return true;
+  panel.dataset.mwitoolsActionSignature = signature;
   panel.querySelector("#mwi-level-progress")?.remove();
   panel
     .querySelectorAll(".mwi-native-level-stat")

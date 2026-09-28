@@ -321,10 +321,15 @@ function inventoryTodayProfitHtml(values) {
   const comparison = runtime.api.assetHistory?.getComparison?.();
   const previous = comparison?.record?.values;
   if (comparison?.gapDays !== 1) return "";
-  if (!Number.isFinite(values?.total) || !Number.isFinite(previous?.total)) {
+  const currentTotal = runtime.api.assetHistory?.profitValue
+    ? runtime.api.assetHistory.profitValue(values)
+    : values?.total;
+  const previousTotal = runtime.api.assetHistory?.profitValue
+    ? runtime.api.assetHistory.profitValue(previous)
+    : previous?.total;
+  if (!Number.isFinite(currentTotal) || !Number.isFinite(previousTotal))
     return "";
-  }
-  const change = values.total - previous.total;
+  const change = currentTotal - previousTotal;
   const sign = change > 0 ? "+" : change < 0 ? "−" : "";
   const className =
     change > 0 ? "is-positive" : change < 0 ? "is-negative" : "is-neutral";
@@ -341,6 +346,31 @@ function currentInventoryRenderVersion() {
     : "";
 }
 
+export function hasInventoryMark(itemHrid, level, kind) {
+  return (runtime.state.characterItemMarks ?? []).some(
+    (mark) =>
+      mark.itemHrid === itemHrid &&
+      mark.kind === kind &&
+      level >= Number(mark.minEnhancementLevel ?? 0) &&
+      level <= Number(mark.maxEnhancementLevel ?? 0),
+  );
+}
+
+function inventoryGrids(root) {
+  const grids = [...root.querySelectorAll('[class*="Inventory_itemGrid"]')];
+  return grids.length ? grids : [...root.children];
+}
+
+function inventoryGridSignature(root) {
+  return inventoryGrids(root).every(
+    (grid) =>
+      grid.dataset.mwitoolsGridMounted === "true" &&
+      [...grid.querySelectorAll('[class*="Item_itemContainer"]')].every(
+        (item) => item.dataset.mwitoolsInventoryMounted === "true",
+      ),
+  );
+}
+
 function inventoryDisplayIsMounted() {
   const nodes = [...document.querySelectorAll('div[class*="Inventory_items"]')];
   if (!nodes.length) return false;
@@ -350,6 +380,7 @@ function inventoryDisplayIsMounted() {
   if (showWorth && !renderVersion) return false;
   return nodes.every((node) => {
     const parent = node.parentElement;
+    if (!inventoryGridSignature(node)) return false;
     if (showWorth) {
       if (node.dataset.mwitoolsInventoryDisplayVersion !== renderVersion) {
         return false;
@@ -414,7 +445,7 @@ function resolveInventoryCategoryHrid(grid, heading) {
 
   const labels = [
     runtime.api.getOriTextFromElement?.(heading),
-    heading.textContent,
+    heading?.textContent,
   ].map(normalizeCategoryLabel);
   return Object.entries(INVENTORY_CATEGORY_ALIASES).find(([, aliases]) =>
     labels.some((label) => aliases.includes(label)),
@@ -459,18 +490,42 @@ function addInventoryCategoryValues(
   invElem,
   categoryValues = calculateInventoryCategoryValues(),
 ) {
-  for (const category of invElem.children) {
-    const grid = category.matches?.('[class*="Inventory_itemGrid"]')
-      ? category
-      : (category.querySelector(':scope > [class*="Inventory_itemGrid"]') ??
-        category);
+  for (const grid of inventoryGrids(invElem)) {
     const heading = grid.querySelector(
       ':scope > [class*="Inventory_label"],:scope > button[class*="Inventory_categoryButton"]',
     );
     if (!heading) continue;
     const categoryHrid = resolveInventoryCategoryHrid(grid, heading);
     if (!categoryHrid) continue;
-    const total = categoryValues.get(categoryHrid) ?? 0;
+    const visibleItems = [
+      ...grid.querySelectorAll('[class*="Item_itemContainer"]'),
+    ];
+    const total = visibleItems.length
+      ? visibleItems.reduce((sum, item) => {
+          const itemHrid = resolveEntityFromElement("item", item);
+          const enhancementLevel = getInventoryItemEnhancementLevel(item);
+          const frozen = frozenInventoryDisplays.get(
+            inventoryDisplayKey(),
+          )?.itemValues;
+          if (frozen)
+            return sum + (frozen.get(`${itemHrid}:${enhancementLevel}`) ?? 0);
+          const owned = (runtime.state.initData_characterItems ?? []).find(
+            (entry) =>
+              entry.itemHrid === itemHrid &&
+              Number(entry.enhancementLevel || 0) === enhancementLevel &&
+              entry.itemLocationHrid === "/item_locations/inventory",
+          );
+          return (
+            sum +
+            (owned
+              ? Number(owned.count) *
+                runtime.api.getAssetValue(itemHrid, enhancementLevel, {
+                  itemLocationHrid: "/item_locations/inventory",
+                })
+              : 0)
+          );
+        }, 0)
+      : (categoryValues.get(categoryHrid) ?? 0);
     grid.dataset.mwitoolsInventoryCategory = "true";
     heading.classList.add("mwi-inventory-category-heading");
     heading.querySelector(":scope > .mwi-inventory-category-value")?.remove();
@@ -499,6 +554,21 @@ async function getFrozenInventoryDisplay(force = false) {
       const display = {
         snapshot,
         categoryValues: calculateInventoryCategoryValues(),
+        itemValues: new Map(
+          (runtime.state.initData_characterItems ?? [])
+            .filter(
+              (item) => item.itemLocationHrid === "/item_locations/inventory",
+            )
+            .map((item) => [
+              `${item.itemHrid}:${item.enhancementLevel ?? 0}`,
+              Number(item.count) *
+                runtime.api.getAssetValue(
+                  item.itemHrid,
+                  item.enhancementLevel ?? 0,
+                  { itemLocationHrid: "/item_locations/inventory" },
+                ),
+            ]),
+        ),
         version: ++inventoryDisplayVersion,
       };
       frozenInventoryDisplays.set(key, display);
@@ -698,11 +768,25 @@ async function calculateNetworth(options = {}) {
           !summary
         ) {
           addInventorySummary(node);
-          addInventoryCategoryValues(node, display.categoryValues);
+
           node.dataset.mwitoolsInventoryDisplayVersion = renderVersion;
         }
       }
+      if (showWorth) addInventoryCategoryValues(node, display.categoryValues);
       if (showSort || showWorth) {
+        const existing = node.parentElement?.querySelector(
+          "#script_inv_sort_controls",
+        );
+        if (existing?.mwitoolsSortItemsBy)
+          existing.mwitoolsSortItemsBy(existing.dataset.sortOrder || "none");
+        for (const grid of inventoryGrids(node)) {
+          grid.dataset.mwitoolsGridMounted = "true";
+          grid
+            .querySelectorAll('[class*="Item_itemContainer"]')
+            .forEach((item) => {
+              item.dataset.mwitoolsInventoryMounted = "true";
+            });
+        }
         if (!node.classList.contains("script_invSort_added")) {
           node.classList.add("script_invSort_added");
           addInvSortButton(node);
@@ -769,11 +853,16 @@ function currentAssetShareStats() {
   const current = display?.snapshot?.values;
   const comparison = runtime.api.assetHistory?.getComparison?.();
   const previous = comparison?.record?.values;
-  if (!Number.isFinite(current?.total) || !Number.isFinite(previous?.total)) {
+  const currentValue = runtime.api.assetHistory?.profitValue
+    ? runtime.api.assetHistory.profitValue(current)
+    : current?.total;
+  const previousValue = runtime.api.assetHistory?.profitValue
+    ? runtime.api.assetHistory.profitValue(previous)
+    : previous?.total;
+  if (!Number.isFinite(currentValue) || !Number.isFinite(previousValue))
     return null;
-  }
-  const change = current.total - previous.total;
-  const percent = previous.total ? (change / previous.total) * 100 : null;
+  const change = currentValue - previousValue;
+  const percent = previousValue ? (change / previousValue) * 100 : null;
   return Number.isFinite(percent)
     ? { change, percent, gapDays: comparison.gapDays }
     : null;
@@ -810,6 +899,18 @@ async function addInvSortButton(invElem) {
     }
   }
 
+  const mounted = invElem.parentElement?.querySelector(
+    "#script_inv_sort_controls",
+  );
+  const previousOrder = mounted?.dataset.sortOrder ?? "none";
+  if (
+    mounted?.mwitoolsInventoryRoot === invElem &&
+    mounted.mwitoolsSortItemsBy
+  ) {
+    mounted.mwitoolsSortItemsBy(previousOrder);
+    return;
+  }
+  mounted?.remove();
   const fairButton = `<button
         id="script_sortByFair_btn">
         ${runtime.config.isZH ? "市场价值" : "Market Value"}
@@ -852,7 +953,7 @@ async function addInvSortButton(invElem) {
       "#script_inv_sort_controls",
     );
     if (controls) controls.dataset.sortOrder = order;
-    for (const typeDiv of invElem.children) {
+    for (const typeDiv of inventoryGrids(invElem)) {
       const categoryButton = typeDiv.querySelector(
         '[class*="Inventory_categoryButton"]',
       );
@@ -881,9 +982,13 @@ async function addInvSortButton(invElem) {
           itemElem.querySelector('[class*="Item_count"]')?.textContent ?? "1";
         const parsedCount =
           runtime.api.parseCompactNumber?.(countText) ?? Number(countText);
-        const itemCount = Number.isFinite(Number(parsedCount))
-          ? Number(parsedCount)
-          : 1;
+        const owned = (runtime.state.initData_characterItems ?? []).find(
+          (item) =>
+            item.itemHrid === itemHrid &&
+            Number(item.enhancementLevel || 0) === enhancementLevel &&
+            item.itemLocationHrid === "/item_locations/inventory",
+        );
+        const itemCount = owned ? Number(owned.count) : Number(parsedCount);
         const values = {
           ask:
             getInventorySortUnitValue(itemHrid, enhancementLevel, "ask") *
@@ -910,7 +1015,16 @@ async function addInvSortButton(invElem) {
           priceHost.insertAdjacentHTML("beforeend", priceElemHTML);
         }
         const priceElem = itemElem.querySelector("#script_stack_price");
-        return { itemElem, originalIndex, priceElem, values };
+        itemElem.dataset.mwitoolsLocked = String(
+          hasInventoryMark(itemHrid, enhancementLevel, "lock"),
+        );
+        return {
+          itemElem,
+          originalIndex,
+          priceElem,
+          values,
+          favorite: hasInventoryMark(itemHrid, enhancementLevel, "favorite"),
+        };
       });
 
       if (order === "none") {
@@ -923,6 +1037,7 @@ async function addInvSortButton(invElem) {
 
       sortableItems.sort(
         (left, right) =>
+          Number(right.favorite) - Number(left.favorite) ||
           right.values[order] - left.values[order] ||
           left.originalIndex - right.originalIndex,
       );
@@ -933,7 +1048,9 @@ async function addInvSortButton(invElem) {
         // CSS order only accepts integers. Assigning -stackValue broke sorting
         // whenever a market value contained decimals or exceeded CSS limits.
         itemElem.style.order = rank;
-        priceElem.textContent = runtime.api.numberFormatter(values[order]);
+        priceElem.textContent = Number.isFinite(values[order])
+          ? runtime.api.numberFormatter(values[order])
+          : "—";
       }
     }
   };
@@ -941,7 +1058,11 @@ async function addInvSortButton(invElem) {
   const controls = invElem.parentElement?.querySelector(
     "#script_inv_sort_controls",
   );
-  if (controls) controls.mwitoolsSortItemsBy = sortItemsBy;
+  if (controls) {
+    controls.mwitoolsSortItemsBy = sortItemsBy;
+    controls.mwitoolsInventoryRoot = invElem;
+  }
+  if (previousOrder !== "none") sortItemsBy(previousOrder);
 
   if (showSort) {
     invElem.parentElement
@@ -1296,3 +1417,10 @@ Object.assign(runtime.api, {
 });
 
 runtime.api.assetHistory?.subscribe?.(() => scheduleNetworthRefresh());
+
+// Mark updates can reorder existing React nodes without recreating the grid.
+runtime.onMessage("item_marks_updated", () => {
+  for (const grid of document.querySelectorAll('[class*="Inventory_itemGrid"]'))
+    delete grid.dataset.mwitoolsGridMounted;
+  scheduleNetworthRefresh();
+});
