@@ -16,6 +16,7 @@ export const ANNOUNCEMENTS = Object.freeze([
         "生产计划汇总共享材料、扣一次库存并保留手动购物数量；支持单站制作计划、第二步删除房屋目标，修复动作窗口复用的经验估算和护符需求等级。",
         "新增默认关闭的战利品双击全部打开、公会仓库兑换推荐与缺口购物入口、聊天字号、每日盈亏七类勾选，以及铁牛适配选择记忆和更明确的等待原因。",
         "正式站与 cn 站通过同一脚本管理器共享持久化数据，测试服保持独立；自动迁移保留恢复副本，统一备份包含设置、购物计划和历史记录，兼容旧资产备份。",
+        "修复共享存储与公会经验历史导致的页面严重卡顿：按成员独立保存经验样本，批量读写并复用未变化的数据，不再反复重建整份历史；语言缓存与迁移标记保持本站独立。",
         "26.4.18 已标记为重要更新，涵盖本轮游戏更新适配、功能修复与跨站数据共享；重要更新提醒门槛同步提升至 26.4.18。",
       ]),
       en: Object.freeze([
@@ -24,6 +25,7 @@ export const ANNOUNCEMENTS = Object.freeze([
         "Production plans pool material demand, deduct shared inventory once and preserve manual purchases. Added single-stop production plans and house-goal removal in step two; corrected reused action-panel XP estimates and charm requirements.",
         "Added optional double-click opening of all available loot, owned-material guild exchange rankings and shortage shopping, chat font sizing, seven-category daily P/L selection, remembered Iron Cow choices and clearer waiting explanations.",
         "The live and CN sites share persistent plugin data through the same userscript manager, with the test server kept separate. Migration retains recovery copies; unified backups include settings, shopping plans and history, and legacy asset backups remain supported.",
+        "Fixed severe page stalls from shared storage and guild XP history. XP samples are saved per member, reads and writes are batched, and unchanged data is reused instead of rebuilding the full history. Language caches and migration markers remain local to each site.",
         "Version 26.4.18 is marked as an important update for game compatibility, feature fixes and cross-site data sharing. The important-update threshold is now 26.4.18.",
       ]),
     }),

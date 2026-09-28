@@ -428,8 +428,8 @@ test("announcement history preserves each release separately through 26.4.18", (
   assert.equal(release18.publishedAt, "2026-09-28");
   assert.match(release18.title.zh, /重要更新/);
   assert.match(release18.title.en, /important update/);
-  assert.equal(release18.body.zh.length, 6);
-  assert.equal(release18.body.en.length, 6);
+  assert.equal(release18.body.zh.length, 7);
+  assert.equal(release18.body.en.length, 7);
   assert.match(
     release18.body.zh.join("\n"),
     /4%[\s\S]*任务返回[\s\S]*共享材料[\s\S]*聊天字号[\s\S]*统一备份[\s\S]*重要更新/,

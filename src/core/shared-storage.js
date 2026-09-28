@@ -3,6 +3,10 @@
 const PREFIX = "MWITools_shared_v1:";
 const bases = new Map();
 const observed = new Set();
+// Cache immutable read snapshots; revisions invalidate only the changed store.
+const snapshots = new Map();
+let indexedNames = null;
+let indexedNameSet = new Set();
 const forbidden = new Set(["__proto__", "prototype", "constructor"]);
 const equal = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const canonical = (key) => String(key).replace(/(^|:)china:/g, "$1production:");
@@ -14,7 +18,10 @@ const root = () => `${PREFIX}${environment()}:`;
 const shared = (key) =>
   /^(MWITools_|script_settingsMap$|kikimeter:(settings|history):|kbd_|ep_)/.test(
     key,
-  ) && !/cache|marketAPI|market_data|popover_scroll|active:/i.test(key);
+  ) &&
+  !/cache|marketAPI|market_data|game_locale|important_update_manifest|xp_(?:object_)?migrated|popover_scroll|active:/i.test(
+    key,
+  );
 const available = () =>
   typeof globalThis.GM_getValue === "function" &&
   typeof globalThis.GM_setValue === "function" &&
@@ -40,6 +47,15 @@ const identity = (value) => {
 function flatten(value, path = [], output = new Map()) {
   const key = JSON.stringify(path);
   if (
+    value &&
+    typeof value === "object" &&
+    value.objectKey &&
+    value.at != null &&
+    Object.hasOwn(value, "xp")
+  ) {
+    // A timestamped XP sample is one immutable record, not separate GM keys per field.
+    output.set(key, { type: "value", value });
+  } else if (
     Array.isArray(value) &&
     value.length &&
     value.every(identity) &&
@@ -87,22 +103,67 @@ function inflate(entries, path = [], children = null) {
 function recordPrefix(key) {
   return `${root()}record:${encodeURIComponent(canonical(key))}:`;
 }
+function revisionKey(key) {
+  return `${root()}revision:${encodeURIComponent(canonical(key))}`;
+}
+function listNames() {
+  if (!indexedNames) {
+    indexedNames = globalThis.GM_listValues();
+    indexedNameSet = new Set(indexedNames);
+  }
+  return indexedNames;
+}
+function setValues(values) {
+  const entries = Object.entries(values);
+  if (!entries.length) return;
+  if (typeof globalThis.GM_setValues === "function") {
+    globalThis.GM_setValues(values);
+  } else {
+    for (const [key, value] of entries) globalThis.GM_setValue(key, value);
+  }
+  if (indexedNames) {
+    for (const [key] of entries) {
+      if (indexedNameSet.has(key)) continue;
+      indexedNameSet.add(key);
+      indexedNames.push(key);
+    }
+  }
+}
 function entriesFor(key) {
   const prefix = recordPrefix(key);
-  return new Map(
-    globalThis
-      .GM_listValues()
-      .filter((name) => name.startsWith(prefix))
-      .map((name) => [
-        decodeURIComponent(name.slice(prefix.length)),
-        globalThis.GM_getValue(name),
-      ]),
+  const revision = globalThis.GM_getValue(revisionKey(key), null);
+  const cached = snapshots.get(prefix);
+  if (cached && cached.revision === revision) return cached.entries;
+  // A revision can arrive before the cross-tab change event.
+  if (
+    cached ||
+    (revision !== null &&
+      typeof globalThis.GM_addValueChangeListener !== "function")
+  )
+    indexedNames = null;
+  const names = listNames().filter((name) => name.startsWith(prefix));
+  const values =
+    typeof globalThis.GM_getValues === "function"
+      ? globalThis.GM_getValues(names)
+      : Object.fromEntries(
+          names.map((name) => [name, globalThis.GM_getValue(name)]),
+        );
+  const entries = new Map(
+    names.map((name) => [
+      decodeURIComponent(name.slice(prefix.length)),
+      values[name],
+    ]),
   );
+  snapshots.set(prefix, { revision, entries });
+  return entries;
 }
+
 function write(key, raw, { migration = false } = {}) {
-  const before = bases.get(canonical(key)) ?? entriesFor(key);
+  const before = bases.get(recordPrefix(key)) ?? entriesFor(key);
   const next = raw === null ? new Map() : flatten(parse(raw));
   const current = entriesFor(key);
+  const updates = {};
+  const merged = new Map(current);
   for (const path of new Set([...before.keys(), ...next.keys()])) {
     const previous = before.get(path);
     const value = next.get(path) ?? { deleted: true };
@@ -142,13 +203,20 @@ function write(key, raw, { migration = false } = {}) {
         sourceUpdatedAt <= stored.sourceUpdatedAt)
     )
       continue;
-    globalThis.GM_setValue(recordPrefix(key) + encodeURIComponent(path), {
+    const entry = {
       ...value,
       updatedAt: Date.now(),
       sourceUpdatedAt: migration ? sourceUpdatedAt : Date.now(),
-    });
+    };
+    updates[recordPrefix(key) + encodeURIComponent(path)] = entry;
+    merged.set(path, entry);
   }
-  bases.set(canonical(key), entriesFor(key));
+  if (!Object.keys(updates).length) return;
+  const revision = `${Date.now()}:${Math.random()}`;
+  updates[revisionKey(key)] = revision;
+  setValues(updates);
+  bases.set(recordPrefix(key), merged);
+  snapshots.set(recordPrefix(key), { revision, entries: merged });
   globalThis.GM_setValue(`${root()}changed`, {
     key: canonical(key),
     at: Date.now(),
@@ -176,13 +244,18 @@ export const sharedStorage = {
     migrate(key);
     observed.add(canonical(key));
     const entries = entriesFor(key);
-    bases.set(canonical(key), entries);
-    const value = inflate(entries);
-    return value === undefined
-      ? null
-      : typeof value === "string"
-        ? value
-        : JSON.stringify(value);
+    bases.set(recordPrefix(key), entries);
+    const snapshot = snapshots.get(recordPrefix(key));
+    if (!Object.hasOwn(snapshot, "raw")) {
+      const value = inflate(entries);
+      snapshot.raw =
+        value === undefined
+          ? null
+          : typeof value === "string"
+            ? value
+            : JSON.stringify(value);
+    }
+    return snapshot.raw;
   },
   setItem(key, value) {
     if (!available() || !shared(key)) return native()?.setItem(key, value);
@@ -198,9 +271,23 @@ export const sharedStorage = {
 export function exportSharedBackup() {
   const data = {};
   if (available()) {
-    for (const key of globalThis.GM_listValues()) {
-      if (key.startsWith(root()) && /:(record|recovery):/.test(key))
-        data[key.slice(root().length)] = globalThis.GM_getValue(key);
+    const names = globalThis
+      .GM_listValues()
+      .filter(
+        (key) => key.startsWith(root()) && /:(record|recovery):/.test(key),
+      );
+    const values =
+      typeof globalThis.GM_getValues === "function"
+        ? globalThis.GM_getValues(names)
+        : Object.fromEntries(
+            names.map((key) => [key, globalThis.GM_getValue(key)]),
+          );
+    for (const key of names) {
+      const relative = key.slice(root().length);
+      const logical = relative.startsWith("record:")
+        ? decodeURIComponent(relative.slice(7, relative.indexOf(":", 7)))
+        : values[key]?.key;
+      if (shared(logical)) data[relative] = values[key];
     }
   } else {
     for (let index = 0; index < (native()?.length ?? 0); index++) {
@@ -267,25 +354,29 @@ export function restoreSharedBackup(backup) {
       : globalThis.GM_getValue(root() + key, null),
   ]);
   try {
+    const updates = {};
     for (const [key, value] of entries) {
       if (key.startsWith("local:")) sharedStorage.setItem(key.slice(6), value);
-      else
-        globalThis.GM_setValue(root() + key, {
-          ...value,
-          updatedAt: Date.now(),
-        });
+      else updates[root() + key] = { ...value, updatedAt: Date.now() };
     }
+    setValues(updates);
   } catch (error) {
+    const rollback = {};
     for (const [key, value] of previous) {
       if (key.startsWith("local:"))
         value === null
           ? sharedStorage.removeItem(key.slice(6))
           : sharedStorage.setItem(key.slice(6), value);
-      else globalThis.GM_setValue(root() + key, value ?? { deleted: true });
+      else rollback[root() + key] = value ?? { deleted: true };
     }
+    setValues(rollback);
+    snapshots.clear();
+    indexedNames = null;
     throw error;
   }
   bases.clear();
+  snapshots.clear();
+  indexedNames = null;
   const changedKeys = new Set(
     entries
       .map(([key]) =>
@@ -299,7 +390,13 @@ export function restoreSharedBackup(backup) {
   );
   for (const key of changedKeys) {
     const detail = { key, at: Date.now(), nonce: Math.random() };
-    if (available()) globalThis.GM_setValue(`${root()}changed`, detail);
+    if (available()) {
+      globalThis.GM_setValue(
+        revisionKey(key),
+        `${Date.now()}:${Math.random()}`,
+      );
+      globalThis.GM_setValue(`${root()}changed`, detail);
+    }
     if (typeof globalThis.CustomEvent === "function")
       globalThis.dispatchEvent?.(
         new CustomEvent("mwitools-shared-storage", { detail }),
@@ -310,7 +407,11 @@ if (typeof globalThis.GM_addValueChangeListener === "function") {
   globalThis.GM_addValueChangeListener(
     `${root()}changed`,
     (_name, _old, value, remote) => {
-      if (!remote || !observed.has(value?.key)) return;
+      if (!remote) return;
+      indexedNames = null;
+      // Also handle events from an older release that has no revision key.
+      snapshots.delete(recordPrefix(value?.key));
+      if (!observed.has(value?.key)) return;
       globalThis.dispatchEvent?.(
         new CustomEvent("mwitools-shared-storage", { detail: value }),
       );

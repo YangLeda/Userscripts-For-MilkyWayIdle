@@ -50,6 +50,8 @@ test("generated userscript has a single valid metadata block", () => {
     "// @grant        GM_xmlhttpRequest",
     "// @grant        GM_notification",
     "// @grant        GM_getValue",
+    "// @grant        GM_getValues",
+    "// @grant        GM_setValues",
     "// @grant        GM_setValue",
     "// @connect      www.milkywayidle.com",
     "// @connect      test.milkywayidle.com",

@@ -20,9 +20,11 @@
 // @grant        GM_xmlhttpRequest
 // @grant        GM_notification
 // @grant        GM_getValue
+// @grant        GM_getValues
 // @grant        GM_listValues
 // @grant        GM_addValueChangeListener
 // @grant        GM_setValue
+// @grant        GM_setValues
 // @grant        GM_info
 // @grant        unsafeWindow
 // @connect      www.milkywayidle.com
@@ -719,9 +721,11 @@
   });
 
   // src/core/shared-storage.js
-  var PREFIX = "MWITools_shared_v1:", bases = /* @__PURE__ */ new Map(), observed = /* @__PURE__ */ new Set(), forbidden = /* @__PURE__ */ new Set(["__proto__", "prototype", "constructor"]), equal = (a, b) => JSON.stringify(a) === JSON.stringify(b), canonical = (key) => String(key).replace(/(^|:)china:/g, "$1production:"), environment = () => String(globalThis.location?.hostname ?? "").startsWith("test.") ? "test" : "live", root = () => `${PREFIX}${environment()}:`, shared = (key) => /^(MWITools_|script_settingsMap$|kikimeter:(settings|history):|kbd_|ep_)/.test(
+  var PREFIX = "MWITools_shared_v1:", bases = /* @__PURE__ */ new Map(), observed = /* @__PURE__ */ new Set(), snapshots = /* @__PURE__ */ new Map(), indexedNames = null, indexedNameSet = /* @__PURE__ */ new Set(), forbidden = /* @__PURE__ */ new Set(["__proto__", "prototype", "constructor"]), equal = (a, b) => JSON.stringify(a) === JSON.stringify(b), canonical = (key) => String(key).replace(/(^|:)china:/g, "$1production:"), environment = () => String(globalThis.location?.hostname ?? "").startsWith("test.") ? "test" : "live", root = () => `${PREFIX}${environment()}:`, shared = (key) => /^(MWITools_|script_settingsMap$|kikimeter:(settings|history):|kbd_|ep_)/.test(
     key
-  ) && !/cache|marketAPI|market_data|popover_scroll|active:/i.test(key), available = () => typeof globalThis.GM_getValue == "function" && typeof globalThis.GM_setValue == "function" && typeof globalThis.GM_listValues == "function", native = () => globalThis.localStorage, parse = (raw) => {
+  ) && !/cache|marketAPI|market_data|game_locale|important_update_manifest|xp_(?:object_)?migrated|popover_scroll|active:/i.test(
+    key
+  ), available = () => typeof globalThis.GM_getValue == "function" && typeof globalThis.GM_setValue == "function" && typeof globalThis.GM_listValues == "function", native = () => globalThis.localStorage, parse = (raw) => {
     try {
       return JSON.parse(raw);
     } catch {
@@ -730,7 +734,9 @@
   }, identity = (value) => !value || typeof value != "object" ? null : value.id != null ? `id:${value.id}` : value.itemHrid ? `item:${value.itemHrid}:${value.enhancementLevel ?? 0}` : value.objectKey && value.at != null ? `xp:${value.objectKey}:${value.at}` : value.day || value.date ? `day:${value.day ?? value.date}` : null;
   function flatten(value, path = [], output = /* @__PURE__ */ new Map()) {
     let key = JSON.stringify(path);
-    if (Array.isArray(value) && value.length && value.every(identity) && new Set(value.map(identity)).size === value.length)
+    if (value && typeof value == "object" && value.objectKey && value.at != null && Object.hasOwn(value, "xp"))
+      output.set(key, { type: "value", value });
+    else if (Array.isArray(value) && value.length && value.every(identity) && new Set(value.map(identity)).size === value.length)
       output.set(key, { type: "records", order: value.map(identity) }), value.forEach(
         (record) => flatten(record, [...path, identity(record)], output)
       );
@@ -768,21 +774,44 @@
   function recordPrefix(key) {
     return `${root()}record:${encodeURIComponent(canonical(key))}:`;
   }
+  function revisionKey(key) {
+    return `${root()}revision:${encodeURIComponent(canonical(key))}`;
+  }
+  function listNames() {
+    return indexedNames || (indexedNames = globalThis.GM_listValues(), indexedNameSet = new Set(indexedNames)), indexedNames;
+  }
+  function setValues(values) {
+    let entries = Object.entries(values);
+    if (entries.length) {
+      if (typeof globalThis.GM_setValues == "function")
+        globalThis.GM_setValues(values);
+      else
+        for (let [key, value] of entries) globalThis.GM_setValue(key, value);
+      if (indexedNames)
+        for (let [key] of entries)
+          indexedNameSet.has(key) || (indexedNameSet.add(key), indexedNames.push(key));
+    }
+  }
   function entriesFor(key) {
-    let prefix = recordPrefix(key);
-    return new Map(
-      globalThis.GM_listValues().filter((name) => name.startsWith(prefix)).map((name) => [
+    let prefix = recordPrefix(key), revision = globalThis.GM_getValue(revisionKey(key), null), cached = snapshots.get(prefix);
+    if (cached && cached.revision === revision) return cached.entries;
+    (cached || revision !== null && typeof globalThis.GM_addValueChangeListener != "function") && (indexedNames = null);
+    let names = listNames().filter((name) => name.startsWith(prefix)), values = typeof globalThis.GM_getValues == "function" ? globalThis.GM_getValues(names) : Object.fromEntries(
+      names.map((name) => [name, globalThis.GM_getValue(name)])
+    ), entries = new Map(
+      names.map((name) => [
         decodeURIComponent(name.slice(prefix.length)),
-        globalThis.GM_getValue(name)
+        values[name]
       ])
     );
+    return snapshots.set(prefix, { revision, entries }), entries;
   }
   function write(key, raw, { migration = !1 } = {}) {
-    let before = bases.get(canonical(key)) ?? entriesFor(key), next = raw === null ? /* @__PURE__ */ new Map() : flatten(parse(raw)), current = entriesFor(key);
+    let before = bases.get(recordPrefix(key)) ?? entriesFor(key), next = raw === null ? /* @__PURE__ */ new Map() : flatten(parse(raw)), current = entriesFor(key), updates = {}, merged = new Map(current);
     for (let path of /* @__PURE__ */ new Set([...before.keys(), ...next.keys()])) {
       let previous = before.get(path), value = next.get(path) ?? { deleted: !0 };
-      if (equal(((entry) => entry && Object.fromEntries(
-        Object.entries(entry).filter(
+      if (equal(((entry2) => entry2 && Object.fromEntries(
+        Object.entries(entry2).filter(
           ([name]) => name !== "updatedAt" && name !== "sourceUpdatedAt"
         )
       ))(previous), value)) continue;
@@ -798,13 +827,18 @@
           }
         }
       let stored = current.get(path);
-      migration && stored && (stored.deleted || !Number.isFinite(sourceUpdatedAt) || !Number.isFinite(stored.sourceUpdatedAt) || sourceUpdatedAt <= stored.sourceUpdatedAt) || globalThis.GM_setValue(recordPrefix(key) + encodeURIComponent(path), {
+      if (migration && stored && (stored.deleted || !Number.isFinite(sourceUpdatedAt) || !Number.isFinite(stored.sourceUpdatedAt) || sourceUpdatedAt <= stored.sourceUpdatedAt))
+        continue;
+      let entry = {
         ...value,
         updatedAt: Date.now(),
         sourceUpdatedAt: migration ? sourceUpdatedAt : Date.now()
-      });
+      };
+      updates[recordPrefix(key) + encodeURIComponent(path)] = entry, merged.set(path, entry);
     }
-    bases.set(canonical(key), entriesFor(key)), globalThis.GM_setValue(`${root()}changed`, {
+    if (!Object.keys(updates).length) return;
+    let revision = `${Date.now()}:${Math.random()}`;
+    updates[revisionKey(key)] = revision, setValues(updates), bases.set(recordPrefix(key), merged), snapshots.set(recordPrefix(key), { revision, entries: merged }), globalThis.GM_setValue(`${root()}changed`, {
       key: canonical(key),
       at: Date.now(),
       nonce: Math.random()
@@ -825,9 +859,13 @@
       if (!available() || !shared(key)) return native()?.getItem(key) ?? null;
       migrate(key), observed.add(canonical(key));
       let entries = entriesFor(key);
-      bases.set(canonical(key), entries);
-      let value = inflate(entries);
-      return value === void 0 ? null : typeof value == "string" ? value : JSON.stringify(value);
+      bases.set(recordPrefix(key), entries);
+      let snapshot = snapshots.get(recordPrefix(key));
+      if (!Object.hasOwn(snapshot, "raw")) {
+        let value = inflate(entries);
+        snapshot.raw = value === void 0 ? null : typeof value == "string" ? value : JSON.stringify(value);
+      }
+      return snapshot.raw;
     },
     setItem(key, value) {
       if (!available() || !shared(key)) return native()?.setItem(key, value);
@@ -840,10 +878,17 @@
   };
   function exportSharedBackup() {
     let data = {};
-    if (available())
-      for (let key of globalThis.GM_listValues())
-        key.startsWith(root()) && /:(record|recovery):/.test(key) && (data[key.slice(root().length)] = globalThis.GM_getValue(key));
-    else
+    if (available()) {
+      let names = globalThis.GM_listValues().filter(
+        (key) => key.startsWith(root()) && /:(record|recovery):/.test(key)
+      ), values = typeof globalThis.GM_getValues == "function" ? globalThis.GM_getValues(names) : Object.fromEntries(
+        names.map((key) => [key, globalThis.GM_getValue(key)])
+      );
+      for (let key of names) {
+        let relative = key.slice(root().length), logical = relative.startsWith("record:") ? decodeURIComponent(relative.slice(7, relative.indexOf(":", 7))) : values[key]?.key;
+        shared(logical) && (data[relative] = values[key]);
+      }
+    } else
       for (let index = 0; index < (native()?.length ?? 0); index++) {
         let key = native().key(index);
         shared(key) && (data[`local:${key}`] = native().getItem(key));
@@ -886,17 +931,17 @@
       key.startsWith("local:") ? sharedStorage.getItem(key.slice(6)) : globalThis.GM_getValue(root() + key, null)
     ]);
     try {
+      let updates = {};
       for (let [key, value] of entries)
-        key.startsWith("local:") ? sharedStorage.setItem(key.slice(6), value) : globalThis.GM_setValue(root() + key, {
-          ...value,
-          updatedAt: Date.now()
-        });
+        key.startsWith("local:") ? sharedStorage.setItem(key.slice(6), value) : updates[root() + key] = { ...value, updatedAt: Date.now() };
+      setValues(updates);
     } catch (error) {
+      let rollback = {};
       for (let [key, value] of previous)
-        key.startsWith("local:") ? value === null ? sharedStorage.removeItem(key.slice(6)) : sharedStorage.setItem(key.slice(6), value) : globalThis.GM_setValue(root() + key, value ?? { deleted: !0 });
-      throw error;
+        key.startsWith("local:") ? value === null ? sharedStorage.removeItem(key.slice(6)) : sharedStorage.setItem(key.slice(6), value) : rollback[root() + key] = value ?? { deleted: !0 };
+      throw setValues(rollback), snapshots.clear(), indexedNames = null, error;
     }
-    bases.clear();
+    bases.clear(), snapshots.clear(), indexedNames = null;
     let changedKeys = new Set(
       entries.map(
         ([key]) => key.startsWith("local:") ? canonical(key.slice(6)) : key.startsWith("record:") ? decodeURIComponent(key.slice(7, key.indexOf(":", 7))) : null
@@ -904,7 +949,10 @@
     );
     for (let key of changedKeys) {
       let detail = { key, at: Date.now(), nonce: Math.random() };
-      available() && globalThis.GM_setValue(`${root()}changed`, detail), typeof globalThis.CustomEvent == "function" && globalThis.dispatchEvent?.(
+      available() && (globalThis.GM_setValue(
+        revisionKey(key),
+        `${Date.now()}:${Math.random()}`
+      ), globalThis.GM_setValue(`${root()}changed`, detail)), typeof globalThis.CustomEvent == "function" && globalThis.dispatchEvent?.(
         new CustomEvent("mwitools-shared-storage", { detail })
       );
     }
@@ -912,9 +960,9 @@
   if (typeof globalThis.GM_addValueChangeListener == "function" && globalThis.GM_addValueChangeListener(
     `${root()}changed`,
     (_name, _old, value, remote) => {
-      !remote || !observed.has(value?.key) || globalThis.dispatchEvent?.(
+      remote && (indexedNames = null, snapshots.delete(recordPrefix(value?.key)), observed.has(value?.key) && globalThis.dispatchEvent?.(
         new CustomEvent("mwitools-shared-storage", { detail: value })
-      );
+      ));
     }
   ), available()) {
     let keys = Array.from(
@@ -6644,7 +6692,45 @@
   runtime.api.trainPlanning = trainPlanning;
 
   // src/core/xp-history.js
-  var DB_NAME = "MWIToolsHistory", STORE_NAME = "xpSnapshots", FALLBACK_KEY = "MWITools_xp_history_v1", RETENTION_MS = 720 * 60 * 60 * 1e3, HOUR_MS = 3600 * 1e3, RECENT_WINDOW_MS = 6 * HOUR_MS, RECENT_MINIMUM_COVERAGE_MS = HOUR_MS;
+  var DB_NAME = "MWIToolsHistory", STORE_NAME = "xpSnapshots", FALLBACK_KEY = "MWITools_xp_history_v1", OBJECT_KEY_PREFIX = "MWITools_xp_history_v2:", migrations = /* @__PURE__ */ new Map(), migrationQueue = Promise.resolve(), legacyRaw = null, legacyByObject = /* @__PURE__ */ new Map(), sharedAvailable = () => typeof globalThis.GM_getValue == "function" && typeof globalThis.GM_setValue == "function" && typeof globalThis.GM_listValues == "function";
+  function legacyHistory(objectKey2) {
+    let raw = sharedStorage.getItem(FALLBACK_KEY);
+    if (raw !== legacyRaw) {
+      legacyRaw = raw, legacyByObject = /* @__PURE__ */ new Map();
+      let records;
+      try {
+        records = JSON.parse(raw || "[]");
+      } catch {
+        records = [];
+      }
+      for (let record of Array.isArray(records) ? records : [])
+        legacyByObject.has(record.objectKey) || legacyByObject.set(record.objectKey, []), legacyByObject.get(record.objectKey).push(record);
+    }
+    return legacyByObject.get(objectKey2) ?? [];
+  }
+  function readObjectHistory(objectKey2) {
+    let value = JSON.parse(
+      sharedStorage.getItem(OBJECT_KEY_PREFIX + objectKey2) || "[]"
+    );
+    return Array.isArray(value) ? value : [];
+  }
+  function writeObjectHistory(objectKey2, records) {
+    sharedStorage.setItem(
+      OBJECT_KEY_PREFIX + objectKey2,
+      JSON.stringify(records.map(({ at, xp }) => ({ objectKey: objectKey2, at, xp })))
+    );
+  }
+  async function migrateObjectHistory(objectKey2) {
+    let marker = `MWITools_xp_object_migrated_v2:${objectKey2}`;
+    if (globalThis.localStorage?.getItem(marker)) return;
+    let legacy = legacyHistory(objectKey2), indexed = await readIndexed(objectKey2), current = readObjectHistory(objectKey2), records = [...new Map(
+      [...legacy, ...indexed ?? [], ...current].filter(
+        (record) => Number.isFinite(record.at) && Number.isFinite(record.xp)
+      ).map((record) => [record.at, record])
+    ).values()].sort((a, b) => a.at - b.at);
+    records.length && writeObjectHistory(objectKey2, records), globalThis.localStorage?.setItem(marker, "true");
+  }
+  var RETENTION_MS = 720 * 60 * 60 * 1e3, HOUR_MS = 3600 * 1e3, RECENT_WINDOW_MS = 6 * HOUR_MS, RECENT_MINIMUM_COVERAGE_MS = HOUR_MS;
   function openDatabase() {
     return globalThis.indexedDB ? new Promise((resolve) => {
       let request2 = globalThis.indexedDB.open(DB_NAME, 1);
@@ -6697,21 +6783,19 @@
     }) : !1;
   }
   async function getXpHistory(objectKey2) {
-    let marker = `MWITools_xp_migrated:${objectKey2}`;
-    if (typeof globalThis.GM_listValues != "function") {
-      let indexed = await readIndexed(objectKey2);
-      if (indexed !== null) return indexed.sort((a, b) => a.at - b.at);
-    } else if (!globalThis.localStorage?.getItem(marker)) {
-      let indexed = await readIndexed(objectKey2), existing = readFallback(), merged = new Map(
-        existing.map((record) => [`${record.objectKey}:${record.at}`, record])
-      );
-      for (let record of indexed ?? []) {
-        let key = `${objectKey2}:${record.at}`;
-        merged.has(key) || merged.set(key, { ...record, objectKey: objectKey2 });
+    if (sharedAvailable()) {
+      let migrationKey = `${globalThis.location?.origin ?? "local"}:${objectKey2}`;
+      if (!migrations.has(migrationKey)) {
+        let marker = `MWITools_xp_object_migrated_v2:${objectKey2}`, work = globalThis.localStorage?.getItem(marker) ? Promise.resolve() : migrationQueue.then(() => new Promise((resolve) => setTimeout(resolve, 0))).then(() => migrateObjectHistory(objectKey2));
+        globalThis.localStorage?.getItem(marker) || (migrationQueue = work.catch(() => {
+        }));
+        let pending = work.finally(() => migrations.delete(migrationKey));
+        migrations.set(migrationKey, pending);
       }
-      writeFallback([...merged.values()]), globalThis.localStorage?.setItem(marker, "true");
+      return await migrations.get(migrationKey), readObjectHistory(objectKey2).sort((a, b) => a.at - b.at);
     }
-    return readFallback().filter((record) => record.objectKey === objectKey2).sort((a, b) => a.at - b.at);
+    let indexed = await readIndexed(objectKey2);
+    return indexed !== null ? indexed.sort((a, b) => a.at - b.at) : readFallback().filter((record) => record.objectKey === objectKey2).sort((a, b) => a.at - b.at);
   }
   function compactHistory(records, now = Date.now()) {
     let cutoff = now - RETENTION_MS, recentCutoff = now - 24 * HOUR_MS, hourly = /* @__PURE__ */ new Map(), recent = [];
@@ -6720,8 +6804,11 @@
     return [...hourly.values(), ...recent].sort((a, b) => a.at - b.at);
   }
   async function saveHistory(objectKey2, records) {
-    if (typeof globalThis.GM_listValues != "function" && await replaceIndexed(objectKey2, records))
+    if (sharedAvailable()) {
+      writeObjectHistory(objectKey2, records);
       return;
+    }
+    if (await replaceIndexed(objectKey2, records)) return;
     let retained = readFallback().filter(
       (record) => record.objectKey !== objectKey2
     );
@@ -21147,9 +21234,9 @@ ${locks}` : ""}`, upgradeMount?.mode === "append" ? upgradeMount.host.append(bad
       title
     };
   }
-  function orderedRows(cards, tasks, snapshots = null) {
+  function orderedRows(cards, tasks, snapshots2 = null) {
     let chains = productionChains(tasks), rows2 = cards.map((card, index) => {
-      let task = tasks[index], snapshot = snapshots?.[index] ?? taskCardSnapshot(card, task), slot = Number(card.dataset.mwitoolsOriginalIndex ?? index), completed = snapshot.completed, state = pageNewTaskIds.has(taskId(task)) ? "new" : completed ? "completed" : "normal", profession = professionForCard(card, task, snapshot.title), monsterHrid = profession.key === "combat" ? monsterHridForCard(card, task, snapshot.title) : "", combatDetail = profession.key === "combat" ? combatDetailForCard(card, task, {
+      let task = tasks[index], snapshot = snapshots2?.[index] ?? taskCardSnapshot(card, task), slot = Number(card.dataset.mwitoolsOriginalIndex ?? index), completed = snapshot.completed, state = pageNewTaskIds.has(taskId(task)) ? "new" : completed ? "completed" : "normal", profession = professionForCard(card, task, snapshot.title), monsterHrid = profession.key === "combat" ? monsterHridForCard(card, task, snapshot.title) : "", combatDetail = profession.key === "combat" ? combatDetailForCard(card, task, {
         title: snapshot.title,
         monsterHrid
       }) : null, location2 = profession.key === "combat" ? combatLocationForCard(card, task, {
@@ -21871,7 +21958,7 @@ ${locks}` : ""}`, upgradeMount?.mode === "append" ? upgradeMount.host.append(bad
     }
     return repaired;
   }
-  function taskRenderSignature(snapshots) {
+  function taskRenderSignature(snapshots2) {
     let settings2 = [
       runtime.config.isZH,
       runtime.settings.get("taskAutoSort"),
@@ -21884,7 +21971,7 @@ ${locks}` : ""}`, upgradeMount?.mode === "append" ? upgradeMount.host.append(bad
       [...activeDungeonFilters].sort().join(","),
       [...lockedTaskFilters].sort().join(","),
       [...stickyVisibleSlots].sort((left, right) => left - right).join(",")
-    ], rows2 = snapshots.map((snapshot) => [
+    ], rows2 = snapshots2.map((snapshot) => [
       snapshot.actionHrid,
       snapshot.title,
       snapshot.progress,
@@ -21917,9 +22004,9 @@ ${locks}` : ""}`, upgradeMount?.mode === "append" ? upgradeMount.host.append(bad
       cards,
       cardTasks,
       enteredNewTaskPage && !resumedTaskPage && !resumedResetPage
-    ), snapshots = cards.map(
+    ), snapshots2 = cards.map(
       (card, index) => taskCardSnapshot(card, cardTasks[index])
-    ), signature = taskRenderSignature(snapshots), sameCards = cards.length === lastRenderedCards.length && cards.every((card, index) => card === lastRenderedCards[index]), actionDetails = runtime.state.initData_actionDetailMap, actionCategories = runtime.state.initData_actionCategoryDetailMap;
+    ), signature = taskRenderSignature(snapshots2), sameCards = cards.length === lastRenderedCards.length && cards.every((card, index) => card === lastRenderedCards[index]), actionDetails = runtime.state.initData_actionDetailMap, actionCategories = runtime.state.initData_actionCategoryDetailMap;
     if (!enteredNewTaskPage && !forceSort && sameCards && actionDetails === lastActionDetails && actionCategories === lastActionCategories && signature === lastTaskRenderSignature && cardEntries.every(({ card }) => taskIconMatches(card)))
       return applyPendingMerge(), !0;
     originalCards = [...cards], originalCards.forEach((card, index) => {
@@ -21927,7 +22014,7 @@ ${locks}` : ""}`, upgradeMount?.mode === "append" ? upgradeMount.host.append(bad
       let taskIndex = String(cardEntries[index]?.taskIndex ?? -1);
       card.dataset.mwitoolsTaskIndex !== taskIndex && (card.dataset.mwitoolsTaskIndex = taskIndex), "mwitoolsLocation" in card.dataset && delete card.dataset.mwitoolsLocation;
     });
-    let rows2 = orderedRows(cards, cardTasks, snapshots);
+    let rows2 = orderedRows(cards, cardTasks, snapshots2);
     return rows2.forEach((row) => decorateCard(row.card, row.task, row.artworks)), wireMergeButtons(cards), wireResetButtons(cards), renderFlatTaskList(rows2, {
       sort: forceSort || sortOnEntry || autoSort && newTaskSetChanged
     }), applyPendingMerge(), lastRenderedCards = [...cards], lastActionDetails = actionDetails, lastActionCategories = actionCategories, lastTaskRenderSignature = signature, !0;
@@ -23040,6 +23127,7 @@ ${locks}` : ""}`, upgradeMount?.mode === "append" ? upgradeMount.host.append(bad
           "生产计划汇总共享材料、扣一次库存并保留手动购物数量；支持单站制作计划、第二步删除房屋目标，修复动作窗口复用的经验估算和护符需求等级。",
           "新增默认关闭的战利品双击全部打开、公会仓库兑换推荐与缺口购物入口、聊天字号、每日盈亏七类勾选，以及铁牛适配选择记忆和更明确的等待原因。",
           "正式站与 cn 站通过同一脚本管理器共享持久化数据，测试服保持独立；自动迁移保留恢复副本，统一备份包含设置、购物计划和历史记录，兼容旧资产备份。",
+          "修复共享存储与公会经验历史导致的页面严重卡顿：按成员独立保存经验样本，批量读写并复用未变化的数据，不再反复重建整份历史；语言缓存与迁移标记保持本站独立。",
           "26.4.18 已标记为重要更新，涵盖本轮游戏更新适配、功能修复与跨站数据共享；重要更新提醒门槛同步提升至 26.4.18。"
         ]),
         en: Object.freeze([
@@ -23048,6 +23136,7 @@ ${locks}` : ""}`, upgradeMount?.mode === "append" ? upgradeMount.host.append(bad
           "Production plans pool material demand, deduct shared inventory once and preserve manual purchases. Added single-stop production plans and house-goal removal in step two; corrected reused action-panel XP estimates and charm requirements.",
           "Added optional double-click opening of all available loot, owned-material guild exchange rankings and shortage shopping, chat font sizing, seven-category daily P/L selection, remembered Iron Cow choices and clearer waiting explanations.",
           "The live and CN sites share persistent plugin data through the same userscript manager, with the test server kept separate. Migration retains recovery copies; unified backups include settings, shopping plans and history, and legacy asset backups remain supported.",
+          "Fixed severe page stalls from shared storage and guild XP history. XP samples are saved per member, reads and writes are batched, and unchanged data is reused instead of rebuilding the full history. Language caches and migration markers remain local to each site.",
           "Version 26.4.18 is marked as an important update for game compatibility, feature fixes and cross-site data sharing. The important-update threshold is now 26.4.18."
         ])
       })

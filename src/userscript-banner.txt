@@ -20,9 +20,11 @@
 // @grant        GM_xmlhttpRequest
 // @grant        GM_notification
 // @grant        GM_getValue
+// @grant        GM_getValues
 // @grant        GM_listValues
 // @grant        GM_addValueChangeListener
 // @grant        GM_setValue
+// @grant        GM_setValues
 // @grant        GM_info
 // @grant        unsafeWindow
 // @connect      www.milkywayidle.com

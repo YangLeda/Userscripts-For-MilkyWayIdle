@@ -4,6 +4,65 @@ import { runtime } from "./runtime.js";
 const DB_NAME = "MWIToolsHistory";
 const STORE_NAME = "xpSnapshots";
 const FALLBACK_KEY = "MWITools_xp_history_v1";
+const OBJECT_KEY_PREFIX = "MWITools_xp_history_v2:";
+const migrations = new Map();
+let migrationQueue = Promise.resolve();
+let legacyRaw = null;
+let legacyByObject = new Map();
+const sharedAvailable = () =>
+  typeof globalThis.GM_getValue === "function" &&
+  typeof globalThis.GM_setValue === "function" &&
+  typeof globalThis.GM_listValues === "function";
+
+function legacyHistory(objectKey) {
+  const raw = sharedStorage.getItem(FALLBACK_KEY);
+  if (raw !== legacyRaw) {
+    legacyRaw = raw;
+    legacyByObject = new Map();
+    let records;
+    try {
+      records = JSON.parse(raw || "[]");
+    } catch {
+      records = [];
+    }
+    for (const record of Array.isArray(records) ? records : []) {
+      if (!legacyByObject.has(record.objectKey))
+        legacyByObject.set(record.objectKey, []);
+      legacyByObject.get(record.objectKey).push(record);
+    }
+  }
+  return legacyByObject.get(objectKey) ?? [];
+}
+function readObjectHistory(objectKey) {
+  const value = JSON.parse(
+    sharedStorage.getItem(OBJECT_KEY_PREFIX + objectKey) || "[]",
+  );
+  return Array.isArray(value) ? value : [];
+}
+function writeObjectHistory(objectKey, records) {
+  sharedStorage.setItem(
+    OBJECT_KEY_PREFIX + objectKey,
+    JSON.stringify(records.map(({ at, xp }) => ({ objectKey, at, xp }))),
+  );
+}
+async function migrateObjectHistory(objectKey) {
+  const marker = `MWITools_xp_object_migrated_v2:${objectKey}`;
+  if (globalThis.localStorage?.getItem(marker)) return;
+  // Import each origin once, retaining both shared legacy samples and its IndexedDB.
+  const legacy = legacyHistory(objectKey);
+  const indexed = await readIndexed(objectKey);
+  const current = readObjectHistory(objectKey);
+  const merged = new Map(
+    [...legacy, ...(indexed ?? []), ...current]
+      .filter(
+        (record) => Number.isFinite(record.at) && Number.isFinite(record.xp),
+      )
+      .map((record) => [record.at, record]),
+  );
+  const records = [...merged.values()].sort((a, b) => a.at - b.at);
+  if (records.length) writeObjectHistory(objectKey, records);
+  globalThis.localStorage?.setItem(marker, "true");
+}
 const RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
 const RECENT_WINDOW_MS = 6 * HOUR_MS;
@@ -88,23 +147,26 @@ async function replaceIndexed(objectKey, records) {
 }
 
 async function getXpHistory(objectKey) {
-  const marker = `MWITools_xp_migrated:${objectKey}`;
-  if (typeof globalThis.GM_listValues !== "function") {
-    const indexed = await readIndexed(objectKey);
-    if (indexed !== null) return indexed.sort((a, b) => a.at - b.at);
-  } else if (!globalThis.localStorage?.getItem(marker)) {
-    const indexed = await readIndexed(objectKey);
-    const existing = readFallback();
-    const merged = new Map(
-      existing.map((record) => [`${record.objectKey}:${record.at}`, record]),
-    );
-    for (const record of indexed ?? []) {
-      const key = `${objectKey}:${record.at}`;
-      if (!merged.has(key)) merged.set(key, { ...record, objectKey });
+  if (sharedAvailable()) {
+    const migrationKey = `${globalThis.location?.origin ?? "local"}:${objectKey}`;
+    if (!migrations.has(migrationKey)) {
+      const marker = `MWITools_xp_object_migrated_v2:${objectKey}`;
+      const work = globalThis.localStorage?.getItem(marker)
+        ? Promise.resolve()
+        : migrationQueue
+            .then(() => new Promise((resolve) => setTimeout(resolve, 0)))
+            .then(() => migrateObjectHistory(objectKey));
+      // Large guild imports yield between members instead of blocking one frame.
+      if (!globalThis.localStorage?.getItem(marker))
+        migrationQueue = work.catch(() => {});
+      const pending = work.finally(() => migrations.delete(migrationKey));
+      migrations.set(migrationKey, pending);
     }
-    writeFallback([...merged.values()]);
-    globalThis.localStorage?.setItem(marker, "true");
+    await migrations.get(migrationKey);
+    return readObjectHistory(objectKey).sort((a, b) => a.at - b.at);
   }
+  const indexed = await readIndexed(objectKey);
+  if (indexed !== null) return indexed.sort((a, b) => a.at - b.at);
   return readFallback()
     .filter((record) => record.objectKey === objectKey)
     .sort((a, b) => a.at - b.at);
@@ -124,11 +186,11 @@ function compactHistory(records, now = Date.now()) {
 }
 
 async function saveHistory(objectKey, records) {
-  if (
-    typeof globalThis.GM_listValues !== "function" &&
-    (await replaceIndexed(objectKey, records))
-  )
+  if (sharedAvailable()) {
+    writeObjectHistory(objectKey, records);
     return;
+  }
+  if (await replaceIndexed(objectKey, records)) return;
   const retained = readFallback().filter(
     (record) => record.objectKey !== objectKey,
   );
