@@ -10424,6 +10424,11 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     #${ROOT_ID} .ep-heatmap{display:grid;grid-template-columns:repeat(7,1fr);gap:5px}#${ROOT_ID} .ep-day{position:relative;min-height:58px;padding:5px;border:1px solid hsl(var(--ep-border));border-radius:6px;background:hsl(var(--ep-card2));font-size:10px}#${ROOT_ID} .ep-day.in-period{outline:1px solid hsl(var(--ep-accent)/.55);outline-offset:-2px}#${ROOT_ID} .ep-day.empty{visibility:hidden}#${ROOT_ID} .ep-day strong{display:block;margin-top:9px;font:700 10px ui-monospace,monospace}
     #${ROOT_ID} .ep-tags,#${ROOT_ID} .ep-achievements{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}#${ROOT_ID} .ep-tag-row,#${ROOT_ID} .ep-achievement{display:flex;min-width:0;align-items:center;gap:10px;padding:10px;border:1px solid hsl(var(--ep-border));border-radius:8px;background:hsl(var(--ep-card))}#${ROOT_ID} .ep-achievement.locked{filter:grayscale(1);opacity:.45}#${ROOT_ID} .ep-achievement-icon{font-size:23px}#${ROOT_ID} .ep-grow{min-width:0;flex:1}#${ROOT_ID} .ep-grow small{display:block;color:hsl(var(--ep-muted))}
     #${ROOT_ID} .ep-form{display:flex;align-items:end;flex-wrap:wrap;gap:8px}#${ROOT_ID} label{display:grid;gap:4px;color:hsl(var(--ep-muted));font-size:10px}#${ROOT_ID} input,#${ROOT_ID} select{min-height:33px;border:1px solid hsl(var(--ep-border));border-radius:6px;background:hsl(var(--ep-card2));padding:5px 8px;color:hsl(var(--ep-fg))}#${ROOT_ID} .ep-setting{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid hsl(var(--ep-border))}#${ROOT_ID} .ep-setting>div{flex:1}#${ROOT_ID} .ep-setting small{display:block;color:hsl(var(--ep-muted))}
+    #${ROOT_ID} .ep-profit-categories{margin:0 0 12px;padding:0;min-inline-size:0}#${ROOT_ID} .ep-profit-categories legend{float:left;width:100%;margin:0}#${ROOT_ID} .ep-profit-categories .ep-section-body{clear:both}
+    #${ROOT_ID} .ep-profit-category-options{display:flex;flex-wrap:wrap;gap:8px}#${ROOT_ID} .ep-profit-category{display:inline-flex;align-items:center;gap:7px;min-height:33px;margin:0;font-size:13px;line-height:1.5;color:hsl(var(--ep-fg));white-space:nowrap}
+    #${ROOT_ID} .ep-profit-category:has(:checked){border-color:hsl(var(--ep-accent)/.65);background:hsl(var(--ep-accent)/.15)}#${ROOT_ID} .ep-profit-category:has(:focus-visible){outline:2px solid hsl(var(--ep-accent));outline-offset:2px}
+    #${ROOT_ID} .ep-profit-category input{appearance:none;display:grid;place-content:center;flex:0 0 14px;width:14px;height:14px;min-height:0;margin:0;padding:0;border:1px solid hsl(var(--ep-muted));border-radius:3px;background:hsl(var(--ep-panel));cursor:pointer}#${ROOT_ID} .ep-profit-category input:checked{border-color:hsl(var(--ep-accent));background:hsl(var(--ep-accent))}#${ROOT_ID} .ep-profit-category input:checked::after{content:"";width:4px;height:7px;border:solid hsl(var(--ep-bg));border-width:0 2px 2px 0;transform:translateY(-1px) rotate(45deg)}
+    #${ROOT_ID} .ep-profit-category-note{margin:9px 0 0;color:hsl(var(--ep-muted));font-size:11px}
     #${ROOT_ID} .ep-sim-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}#${ROOT_ID} .ep-prob{padding:10px;border-radius:8px;background:hsl(var(--ep-card2));text-align:center}#${ROOT_ID} .ep-sim-band{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-top:8px}#${ROOT_ID} .ep-sim-band div{padding:7px;border:1px solid hsl(var(--ep-border));border-radius:6px;text-align:center}#${ROOT_ID} .ep-sim-band small{display:block;color:hsl(var(--ep-muted))}#${ROOT_ID} .ep-disclaimer{margin-top:10px;color:hsl(var(--ep-muted));font-size:10px}
     #${ROOT_ID} dialog{width:min(620px,90vw);border:1px solid hsl(var(--ep-border));border-radius:10px;background:hsl(var(--ep-panel));color:hsl(var(--ep-fg))}#${ROOT_ID} dialog::backdrop{background:rgba(0,0,0,.55)}#${ROOT_ID} .ep-edit-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
     @media(max-width:820px){#${ROOT_ID}{align-items:stretch}#${ROOT_ID} .ep-shell{grid-template-columns:64px 1fr!important;width:100vw!important;height:100dvh!important;min-width:0;min-height:0;border:0;border-radius:0;resize:none}#${ROOT_ID} .ep-sidebar{padding:10px 6px}#${ROOT_ID} .ep-brand strong,#${ROOT_ID} .ep-brand small,#${ROOT_ID} .ep-nav-label,#${ROOT_ID} .ep-nav-text{display:none}#${ROOT_ID} .ep-nav-item{justify-content:center;padding:10px 4px}#${ROOT_ID} .ep-grid{grid-template-columns:repeat(2,minmax(0,1fr))}#${ROOT_ID} .ep-page{padding:12px}#${ROOT_ID} .ep-analysis-row{grid-template-columns:80px 1fr 90px}#${ROOT_ID} .ep-analysis-row>:last-child{display:none}#${ROOT_ID} .ep-tags,#${ROOT_ID} .ep-achievements{grid-template-columns:1fr}#${ROOT_ID} .ep-sim-band{grid-template-columns:repeat(2,1fr)}}
@@ -10588,22 +10593,32 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
       <section class="ep-card ep-section"><div class="ep-toolbar"><button class="ep-btn" data-chart-mode="total">${this.t("净资产", "Net worth")}</button><button class="ep-btn" data-chart-mode="profit">${this.t("盈亏", "P/L")}</button><button class="ep-btn" data-chart-mode="breakdown">${this.t("分项资产", "Components")}</button><span class="ep-spacer"></span>${[7, 15, 30].map((range) => `<button class="ep-btn" data-chart-range="${range}">${range}${this.t("天", "d")}</button>`).join("")}<button class="ep-btn" data-chart-range="all">${this.t("全部", "All")}</button><button class="ep-btn" data-reset-zoom>${this.t("重置缩放", "Reset zoom")}</button></div><div class="ep-chart"><canvas data-center-chart></canvas><div data-chart-fallback></div></div></section>
       <section class="ep-card ep-section"><div class="ep-section-title">🎯 ${this.t("目标追踪与蒙特卡洛", "Goal & Monte Carlo")}</div><div class="ep-section-body"><div class="ep-form"><label>${this.t("目标净资产", "Target net worth")}<input data-goal type="number" min="1" value="${target ?? ""}"></label><button class="ep-btn" data-save-goal>${this.t("保存目标", "Save target")}</button><button class="ep-btn" data-simulate>${this.t("运行 90 日模拟", "Run 90-day simulation")}</button></div><div data-simulation></div></div></section>
       <p class="ep-disclaimer">${this.t("盈亏按资产估值变化计算，包含市场波动，并非已实现交易利润；预测仅供参考和娱乐。", "P/L includes valuation changes and is not realized profit. Forecasts are for reference and entertainment only.")}</p>`;
-      let selection = document.createElement("fieldset"), legend = document.createElement("legend");
-      legend.textContent = this.t(
-        "每日盈亏统计类别（缺少历史分项时不可计算）",
-        "Daily P/L categories (unavailable when historical components are missing)"
+      let selection = document.createElement("fieldset");
+      selection.className = "ep-card ep-profit-categories";
+      let legend = document.createElement("legend");
+      legend.className = "ep-section-title", legend.textContent = this.t("每日盈亏统计类别", "Daily P/L categories");
+      let body = document.createElement("div");
+      body.className = "ep-section-body";
+      let options = document.createElement("div");
+      options.className = "ep-profit-category-options";
+      let note = document.createElement("p");
+      note.className = "ep-profit-category-note", note.textContent = this.t(
+        "选择计入每日盈亏的资产类别，自动保存；缺少历史分项时不可计算。",
+        "Choose assets included in daily P/L. Saved automatically; unavailable when historical components are missing."
       ), selection.append(legend);
       for (let key of ASSET_COMPONENT_KEYS) {
-        let label = document.createElement("label"), input = document.createElement("input");
+        let label = document.createElement("label");
+        label.className = "ep-btn ep-profit-category";
+        let input = document.createElement("input");
         input.type = "checkbox", input.checked = this.store.getProfitCategories(this.scopeKey).includes(key), input.addEventListener("change", () => {
           let chosen = new Set(this.store.getProfitCategories(this.scopeKey));
           input.checked ? chosen.add(key) : chosen.delete(key), this.store.setProfitCategories([...chosen], this.scopeKey), this.changed();
         }), label.append(
           input,
           this.t(ASSET_COMPONENT_META[key].zh, ASSET_COMPONENT_META[key].en)
-        ), selection.append(label);
+        ), options.append(label);
       }
-      page.prepend(selection), page.querySelectorAll("[data-chart-mode]").forEach((button) => {
+      body.append(options, note), selection.append(body), page.prepend(selection), page.querySelectorAll("[data-chart-mode]").forEach((button) => {
         button.classList.toggle(
           "active",
           button.dataset.chartMode === this.chartMode
@@ -23148,7 +23163,7 @@ ${locks}` : ""}`, upgradeMount?.mode === "append" ? upgradeMount.host.append(bad
           "战利品：全部打开改为右键库存中的当前战利品，使用原生开箱入口，按库存和钥匙限制数量；等待回执后继续，失败停止，阻止原生右键重复开一个。独立开关默认关闭，沿用已保存的选择。",
           "公会信用点：增加仓库可兑换前 N 名，与全材料榜共用数量设置；兑换窗口可按当前批次数将材料缺口加入购物车。",
           "跨站与备份：正式站和 cn 站共享持久化数据，测试服独立；按记录合并，保留冲突副本和删除记录。统一备份包含设置、购物计划和历史，兼容旧资产备份。",
-          "显示与偏好：行动队列自适应宽度；聊天字号 80%–160% 同步调整消息、人物名字、时间戳、频道和输入框，仅影响聊天区域。每日盈亏可勾选七类资产，记住铁牛选择，并显示具体等待原因。",
+          "显示与偏好：行动队列自适应宽度；聊天字号 80%–160% 同步调整消息、人物名字、时间戳、频道和输入框，仅影响聊天区域。每日盈亏的七类勾选项统一为资产中心风格的紧凑控件，适配深浅主题和窄屏；记住铁牛选择，并显示具体等待原因。",
           "版本与公告：26.4.18 为重要更新，更新提醒门槛同步提升；中英文公告按功能分类列出变化，便于逐项查看。"
         ]),
         en: Object.freeze([
@@ -23162,7 +23177,7 @@ ${locks}` : ""}`, upgradeMount?.mode === "append" ? upgradeMount.host.append(bad
           "Loot: Open all now uses right-click on the selected inventory loot and the native opening handler, limited by stock and keys. Further batches wait for receipts; failures stop the operation, and the native single-open action is suppressed. The separate setting is off by default and preserves saved choices.",
           "Guild credits: Added the top N exchangeable materials already in storage, sharing the all-material ranking limit. Exchange dialogs can add material shortages to the cart for the currently selected batch count.",
           "Cross-site data and backups: Live and CN share persistent data; test remains separate. Records merge with recoverable conflicts and deletion markers. Unified backups contain settings, shopping plans and history, with legacy asset backup support.",
-          "Display and preferences: The action queue adapts its width. Chat font sizing from 80% to 160% now includes messages, player names, timestamps, channels and input within chat only. Daily P/L supports seven asset categories, Iron Cow choices are remembered, and waiting states explain missing dependencies.",
+          "Display and preferences: The action queue adapts its width. Chat font sizing from 80% to 160% now includes messages, player names, timestamps, channels and input within chat only. Daily P/L uses compact seven-category controls matching the Asset Center, including dark/light themes and narrow screens. Iron Cow choices are remembered, and waiting states explain missing dependencies.",
           "Version and announcements: 26.4.18 is an important update with a matching notification threshold. Chinese and English announcements now list changes by feature for easier review."
         ])
       })

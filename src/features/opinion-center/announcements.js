@@ -21,7 +21,7 @@ export const ANNOUNCEMENTS = Object.freeze([
         "战利品：全部打开改为右键库存中的当前战利品，使用原生开箱入口，按库存和钥匙限制数量；等待回执后继续，失败停止，阻止原生右键重复开一个。独立开关默认关闭，沿用已保存的选择。",
         "公会信用点：增加仓库可兑换前 N 名，与全材料榜共用数量设置；兑换窗口可按当前批次数将材料缺口加入购物车。",
         "跨站与备份：正式站和 cn 站共享持久化数据，测试服独立；按记录合并，保留冲突副本和删除记录。统一备份包含设置、购物计划和历史，兼容旧资产备份。",
-        "显示与偏好：行动队列自适应宽度；聊天字号 80%–160% 同步调整消息、人物名字、时间戳、频道和输入框，仅影响聊天区域。每日盈亏可勾选七类资产，记住铁牛选择，并显示具体等待原因。",
+        "显示与偏好：行动队列自适应宽度；聊天字号 80%–160% 同步调整消息、人物名字、时间戳、频道和输入框，仅影响聊天区域。每日盈亏的七类勾选项统一为资产中心风格的紧凑控件，适配深浅主题和窄屏；记住铁牛选择，并显示具体等待原因。",
         "版本与公告：26.4.18 为重要更新，更新提醒门槛同步提升；中英文公告按功能分类列出变化，便于逐项查看。",
       ]),
       en: Object.freeze([
@@ -35,7 +35,7 @@ export const ANNOUNCEMENTS = Object.freeze([
         "Loot: Open all now uses right-click on the selected inventory loot and the native opening handler, limited by stock and keys. Further batches wait for receipts; failures stop the operation, and the native single-open action is suppressed. The separate setting is off by default and preserves saved choices.",
         "Guild credits: Added the top N exchangeable materials already in storage, sharing the all-material ranking limit. Exchange dialogs can add material shortages to the cart for the currently selected batch count.",
         "Cross-site data and backups: Live and CN share persistent data; test remains separate. Records merge with recoverable conflicts and deletion markers. Unified backups contain settings, shopping plans and history, with legacy asset backup support.",
-        "Display and preferences: The action queue adapts its width. Chat font sizing from 80% to 160% now includes messages, player names, timestamps, channels and input within chat only. Daily P/L supports seven asset categories, Iron Cow choices are remembered, and waiting states explain missing dependencies.",
+        "Display and preferences: The action queue adapts its width. Chat font sizing from 80% to 160% now includes messages, player names, timestamps, channels and input within chat only. Daily P/L uses compact seven-category controls matching the Asset Center, including dark/light themes and narrow screens. Iron Cow choices are remembered, and waiting states explain missing dependencies.",
         "Version and announcements: 26.4.18 is an important update with a matching notification threshold. Chinese and English announcements now list changes by feature for easier review.",
       ]),
     }),
