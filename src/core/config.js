@@ -52,8 +52,8 @@ let settingsMap = {
   inventoryLootDoubleClick: {
     id: "inventoryLootDoubleClick",
     desc: isZH
-      ? "双击打开当前战利品全部可开启数量"
-      : "Double-click to open all available loot",
+      ? "右键打开当前战利品全部可开启数量"
+      : "Right-click to open all available loot",
     isTrue: false,
   },
   useOrangeAsMainColor: {
@@ -1190,10 +1190,10 @@ const catalogRows = [
 catalogRows.push([
   "inventoryLootDoubleClick",
   "inventory",
-  "战利品双击全部打开",
-  "Double-click all loot",
-  "按最新库存和钥匙数量打开当前战利品。",
-  "Open the selected loot using current inventory and keys.",
+  "战利品右键全部打开",
+  "Right-click all loot",
+  "右键库存中的战利品，按最新库存和钥匙数量全部打开；默认关闭。",
+  "Right-click inventory loot to open all available using current stock and keys; off by default.",
 ]);
 
 const settingsCatalog = Object.fromEntries(
@@ -1218,8 +1218,8 @@ settingsCatalog.chatFontScale = {
     en: "Change only chat text; saved changes apply immediately.",
   },
   summary: {
-    zh: "调整消息、时间戳和输入框字号。",
-    en: "Resize chat messages, timestamps and input.",
+    zh: "同步调整聊天区域内的消息、人物名字、时间戳、频道和输入框字号。",
+    en: "Resize messages, player names, timestamps, channels and input within chat only.",
   },
   control: {
     type: "select",

@@ -428,15 +428,15 @@ test("announcement history preserves each release separately through 26.4.18", (
   assert.equal(release18.publishedAt, "2026-09-28");
   assert.match(release18.title.zh, /重要更新/);
   assert.match(release18.title.en, /important update/);
-  assert.equal(release18.body.zh.length, 7);
-  assert.equal(release18.body.en.length, 7);
+  assert.equal(release18.body.zh.length, 12);
+  assert.equal(release18.body.en.length, 12);
   assert.match(
     release18.body.zh.join("\n"),
-    /4%[\s\S]*任务返回[\s\S]*共享材料[\s\S]*聊天字号[\s\S]*统一备份[\s\S]*重要更新/,
+    /4%[\s\S]*任务返回[\s\S]*共享材料[\s\S]*右键[\s\S]*统一备份[\s\S]*聊天字号[\s\S]*重要更新/,
   );
   assert.match(
     release18.body.en.join("\n"),
-    /4%[\s\S]*task return[\s\S]*shared inventory[\s\S]*chat font[\s\S]*unified backups[\s\S]*important update/,
+    /4%[\s\S]*task return[\s\S]*shared inventory[\s\S]*right-click[\s\S]*Unified backups[\s\S]*Chat font[\s\S]*important update/,
   );
   assert.equal(release17.version, "26.4.17");
   assert.equal(release17.publishedAt, "2026-08-28");

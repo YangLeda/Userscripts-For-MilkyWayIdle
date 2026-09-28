@@ -11,7 +11,8 @@ export function nativeLootItem(element, itemHrid) {
       const instance = fiber.stateNode;
       const props = instance?.props ?? fiber.memoizedProps;
       if (
-        props?.itemHrid === itemHrid &&
+        props?.itemHrid &&
+        (!itemHrid || props.itemHrid === itemHrid) &&
         typeof props.openLootHandler === "function"
       )
         return { props, instance };
@@ -41,27 +42,43 @@ export function lootOpenCount(props, detail, items) {
   return Number.isFinite(count) ? Math.max(0, Math.floor(count)) : 0;
 }
 runtime.features.register({
+  // Keep the persisted setting ID so existing users retain their choice.
   id: "inventoryLootDoubleClick",
   setting: "inventoryLootDoubleClick",
   scope: "character",
-  initialize({ scope }) {
+  initialize({ scope, characterId }) {
     let pending = null;
     let timeout = null;
     const stop = () => {
       pending = null;
       clearTimeout(timeout);
     };
-    const currentStock = (itemHrid) =>
+    const currentStock = (itemHrid, enhancementLevel = 0) =>
       (runtime.state.initData_characterItems ?? [])
         .filter(
           (entry) =>
             entry.itemHrid === itemHrid &&
-            entry.itemLocationHrid === "/item_locations/inventory",
+            entry.itemLocationHrid === "/item_locations/inventory" &&
+            Number(entry.enhancementLevel || 0) === enhancementLevel,
         )
         .reduce((sum, entry) => sum + Number(entry.count || 0), 0);
     const submit = () => {
-      if (!pending || !runtime.settings.get("inventoryLootDoubleClick"))
+      if (
+        !pending ||
+        !runtime.settings.get("inventoryLootDoubleClick") ||
+        String(runtime.state.currentCharacterId) !== String(characterId)
+      )
         return stop();
+      if (!pending.element.isConnected) {
+        pending.element = [
+          ...document.querySelectorAll(
+            '[class*="Inventory_items"] [class*="Item_itemContainer"]',
+          ),
+        ].find((element) => {
+          const candidate = nativeLootItem(element, pending.itemHrid);
+          return candidate?.props.hash === pending.hash;
+        });
+      }
       const native = nativeLootItem(pending.element, pending.itemHrid);
       if (!native || native.instance?.canOpen?.() === false) return stop();
       const count = Math.min(
@@ -74,7 +91,10 @@ runtime.features.register({
       );
       if (!count) return stop();
       pending.count = count;
-      pending.beforeStock = currentStock(pending.itemHrid);
+      pending.beforeStock = currentStock(
+        pending.itemHrid,
+        pending.enhancementLevel,
+      );
       pending.acknowledged = false;
       clearTimeout(timeout);
       timeout = setTimeout(stop, 15000);
@@ -87,7 +107,8 @@ runtime.features.register({
     const continueAfterReceipt = () => {
       if (
         !pending?.acknowledged ||
-        currentStock(pending.itemHrid) > pending.beforeStock - pending.count
+        currentStock(pending.itemHrid, pending.enhancementLevel) >
+          pending.beforeStock - pending.count
       )
         return;
       pending.remaining -= pending.count;
@@ -108,22 +129,24 @@ runtime.features.register({
     scope.add(runtime.onMessage("error", stop));
     scope.event(
       document,
-      "dblclick",
+      "contextmenu",
       (event) => {
         if (
           !runtime.settings.get("inventoryLootDoubleClick") ||
-          event.button > 0
+          event.button !== 2
         )
           return;
         const item = event.target?.closest?.('[class*="Item_itemContainer"]');
         if (!item?.closest('[class*="Inventory_items"]')) return;
-        const itemHrid = resolveEntityFromElement("item", item);
+        if (event.target.closest('[class*="Item_actionMenu"]')) return;
+        const native = nativeLootItem(item);
+        const itemHrid =
+          native?.props.itemHrid || resolveEntityFromElement("item", item);
         const detail = runtime.state.initData_itemDetailMap?.[itemHrid];
         if (detail?.categoryHrid !== "/item_categories/loot") return;
         event.preventDefault();
         event.stopImmediatePropagation();
         if (pending) return;
-        const native = nativeLootItem(item, itemHrid);
         if (!native || native.instance?.canOpen?.() === false) return;
         const count = lootOpenCount(
           native.props,
@@ -133,14 +156,24 @@ runtime.features.register({
         if (!count) return;
         const availableProps = {
           ...native.props,
-          count: currentStock(itemHrid),
+          count: currentStock(
+            itemHrid,
+            Number(native.props.enhancementLevel || 0),
+          ),
         };
         const remaining = lootOpenCount(
           availableProps,
           detail,
           runtime.state.initData_characterItems ?? [],
         );
-        pending = { itemHrid, detail, element: item, remaining };
+        pending = {
+          itemHrid,
+          detail,
+          element: item,
+          remaining,
+          hash: native.props.hash,
+          enhancementLevel: Number(native.props.enhancementLevel || 0),
+        };
         submit();
       },
       true,

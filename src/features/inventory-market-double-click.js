@@ -39,12 +39,6 @@ runtime.features.register({
         if (event.button && event.button !== 0) return;
         const target = inventoryItemTarget(event.target);
         if (!target) return;
-        if (
-          runtime.settings.get("inventoryLootDoubleClick") &&
-          runtime.state.initData_itemDetailMap?.[target.itemHrid]
-            ?.categoryHrid === "/item_categories/loot"
-        )
-          return;
         const open = runtime.api.openProcurementMarketplace;
         if (typeof open !== "function") return;
         event.preventDefault();

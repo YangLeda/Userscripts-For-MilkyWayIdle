@@ -1000,7 +1000,7 @@
   var isZH = isGameLanguageZH(), SCRIPT_COLOR_MAIN = "green", SCRIPT_COLOR_TOOLTIP = "darkgreen", settingsMap = {
     inventoryLootDoubleClick: {
       id: "inventoryLootDoubleClick",
-      desc: isZH ? "双击打开当前战利品全部可开启数量" : "Double-click to open all available loot",
+      desc: isZH ? "右键打开当前战利品全部可开启数量" : "Right-click to open all available loot",
       isTrue: !1
     },
     useOrangeAsMainColor: {
@@ -2018,10 +2018,10 @@
   catalogRows.push([
     "inventoryLootDoubleClick",
     "inventory",
-    "战利品双击全部打开",
-    "Double-click all loot",
-    "按最新库存和钥匙数量打开当前战利品。",
-    "Open the selected loot using current inventory and keys."
+    "战利品右键全部打开",
+    "Right-click all loot",
+    "右键库存中的战利品，按最新库存和钥匙数量全部打开；默认关闭。",
+    "Right-click inventory loot to open all available using current stock and keys; off by default."
   ]);
   var settingsCatalog = Object.fromEntries(
     catalogRows.map(([id, group, zhTitle, enTitle, zhSummary, enSummary]) => [
@@ -2044,8 +2044,8 @@
       en: "Change only chat text; saved changes apply immediately."
     },
     summary: {
-      zh: "调整消息、时间戳和输入框字号。",
-      en: "Resize chat messages, timestamps and input."
+      zh: "同步调整聊天区域内的消息、人物名字、时间戳、频道和输入框字号。",
+      en: "Resize messages, player names, timestamps, channels and input within chat only."
     },
     control: {
       type: "select",
@@ -22982,7 +22982,7 @@ ${locks}` : ""}`, upgradeMount?.mode === "append" ? upgradeMount.host.append(bad
       ), fiber = key && node[key];
       for (let depth = 0; fiber && depth < 30; depth++, fiber = fiber.return) {
         let instance = fiber.stateNode, props = instance?.props ?? fiber.memoizedProps;
-        if (props?.itemHrid === itemHrid && typeof props.openLootHandler == "function")
+        if (props?.itemHrid && (!itemHrid || props.itemHrid === itemHrid) && typeof props.openLootHandler == "function")
           return { props, instance };
       }
     }
@@ -23001,17 +23001,23 @@ ${locks}` : ""}`, upgradeMount?.mode === "append" ? upgradeMount.host.append(bad
     return Number.isFinite(count) ? Math.max(0, Math.floor(count)) : 0;
   }
   runtime.features.register({
+    // Keep the persisted setting ID so existing users retain their choice.
     id: "inventoryLootDoubleClick",
     setting: "inventoryLootDoubleClick",
     scope: "character",
-    initialize({ scope }) {
+    initialize({ scope, characterId }) {
       let pending = null, timeout = null, stop = () => {
         pending = null, clearTimeout(timeout);
-      }, currentStock = (itemHrid) => (runtime.state.initData_characterItems ?? []).filter(
-        (entry) => entry.itemHrid === itemHrid && entry.itemLocationHrid === "/item_locations/inventory"
+      }, currentStock = (itemHrid, enhancementLevel = 0) => (runtime.state.initData_characterItems ?? []).filter(
+        (entry) => entry.itemHrid === itemHrid && entry.itemLocationHrid === "/item_locations/inventory" && Number(entry.enhancementLevel || 0) === enhancementLevel
       ).reduce((sum, entry) => sum + Number(entry.count || 0), 0), submit = () => {
-        if (!pending || !runtime.settings.get("inventoryLootDoubleClick"))
+        if (!pending || !runtime.settings.get("inventoryLootDoubleClick") || String(runtime.state.currentCharacterId) !== String(characterId))
           return stop();
+        pending.element.isConnected || (pending.element = [
+          ...document.querySelectorAll(
+            '[class*="Inventory_items"] [class*="Item_itemContainer"]'
+          )
+        ].find((element) => nativeLootItem(element, pending.itemHrid)?.props.hash === pending.hash));
         let native2 = nativeLootItem(pending.element, pending.itemHrid);
         if (!native2 || native2.instance?.canOpen?.() === !1) return stop();
         let count = Math.min(
@@ -23023,14 +23029,17 @@ ${locks}` : ""}`, upgradeMount?.mode === "append" ? upgradeMount.host.append(bad
           )
         );
         if (!count) return stop();
-        pending.count = count, pending.beforeStock = currentStock(pending.itemHrid), pending.acknowledged = !1, clearTimeout(timeout), timeout = setTimeout(stop, 15e3);
+        pending.count = count, pending.beforeStock = currentStock(
+          pending.itemHrid,
+          pending.enhancementLevel
+        ), pending.acknowledged = !1, clearTimeout(timeout), timeout = setTimeout(stop, 15e3);
         try {
           native2.props.openLootHandler(native2.props.hash, count);
         } catch {
           stop();
         }
       }, continueAfterReceipt = () => {
-        if (!(!pending?.acknowledged || currentStock(pending.itemHrid) > pending.beforeStock - pending.count)) {
+        if (!(!pending?.acknowledged || currentStock(pending.itemHrid, pending.enhancementLevel) > pending.beforeStock - pending.count)) {
           if (pending.remaining -= pending.count, pending.remaining <= 0) return stop();
           submit();
         }
@@ -23044,29 +23053,37 @@ ${locks}` : ""}`, upgradeMount?.mode === "append" ? upgradeMount.host.append(bad
         })
       ), scope.add(runtime.onMessage("items_updated", continueAfterReceipt)), scope.add(runtime.onMessage("error", stop)), scope.event(
         document,
-        "dblclick",
+        "contextmenu",
         (event) => {
-          if (!runtime.settings.get("inventoryLootDoubleClick") || event.button > 0)
+          if (!runtime.settings.get("inventoryLootDoubleClick") || event.button !== 2)
             return;
           let item = event.target?.closest?.('[class*="Item_itemContainer"]');
-          if (!item?.closest('[class*="Inventory_items"]')) return;
-          let itemHrid = resolveEntityFromElement("item", item), detail = runtime.state.initData_itemDetailMap?.[itemHrid];
-          if (detail?.categoryHrid !== "/item_categories/loot" || (event.preventDefault(), event.stopImmediatePropagation(), pending)) return;
-          let native2 = nativeLootItem(item, itemHrid);
-          if (!native2 || native2.instance?.canOpen?.() === !1 || !lootOpenCount(
+          if (!item?.closest('[class*="Inventory_items"]') || event.target.closest('[class*="Item_actionMenu"]')) return;
+          let native2 = nativeLootItem(item), itemHrid = native2?.props.itemHrid || resolveEntityFromElement("item", item), detail = runtime.state.initData_itemDetailMap?.[itemHrid];
+          if (detail?.categoryHrid !== "/item_categories/loot" || (event.preventDefault(), event.stopImmediatePropagation(), pending) || !native2 || native2.instance?.canOpen?.() === !1 || !lootOpenCount(
             native2.props,
             detail,
             runtime.state.initData_characterItems ?? []
           )) return;
           let availableProps = {
             ...native2.props,
-            count: currentStock(itemHrid)
+            count: currentStock(
+              itemHrid,
+              Number(native2.props.enhancementLevel || 0)
+            )
           }, remaining = lootOpenCount(
             availableProps,
             detail,
             runtime.state.initData_characterItems ?? []
           );
-          pending = { itemHrid, detail, element: item, remaining }, submit();
+          pending = {
+            itemHrid,
+            detail,
+            element: item,
+            remaining,
+            hash: native2.props.hash,
+            enhancementLevel: Number(native2.props.enhancementLevel || 0)
+          }, submit();
         },
         !0
       );
@@ -23100,8 +23117,7 @@ ${locks}` : ""}`, upgradeMount?.mode === "append" ? upgradeMount.host.append(bad
         (event) => {
           if (event.button && event.button !== 0) return;
           let target = inventoryItemTarget(event.target);
-          if (!target || runtime.settings.get("inventoryLootDoubleClick") && runtime.state.initData_itemDetailMap?.[target.itemHrid]?.categoryHrid === "/item_categories/loot")
-            return;
+          if (!target) return;
           let open = runtime.api.openProcurementMarketplace;
           typeof open == "function" && (event.preventDefault(), event.stopPropagation(), open(target.itemHrid, target.enhancementLevel));
         },
@@ -23122,22 +23138,32 @@ ${locks}` : ""}`, upgradeMount?.mode === "append" ? upgradeMount.host.append(bad
       }),
       body: Object.freeze({
         zh: Object.freeze([
-          "适配 9 月 28 日库存标签页、最爱分类和市场规则：普通税率改为 4%，强化物品采用独立价格步进；切换库存标签会恢复价值角标与排序。",
-          "修复任务返回与关闭开关、关闭自动整理后的原始顺序、刷新图标和重置时火车按钮；购物车按当前顺序循环下一项，市场筛选独立即时生效。",
-          "生产计划汇总共享材料、扣一次库存并保留手动购物数量；支持单站制作计划、第二步删除房屋目标，修复动作窗口复用的经验估算和护符需求等级。",
-          "新增默认关闭的战利品双击全部打开、公会仓库兑换推荐与缺口购物入口、聊天字号、每日盈亏七类勾选，以及铁牛适配选择记忆和更明确的等待原因。",
-          "正式站与 cn 站通过同一脚本管理器共享持久化数据，测试服保持独立；自动迁移保留恢复副本，统一备份包含设置、购物计划和历史记录，兼容旧资产备份。",
-          "修复共享存储与公会经验历史导致的页面严重卡顿：按成员独立保存经验样本，批量读写并复用未变化的数据，不再反复重建整份历史；语言缓存与迁移标记保持本站独立。",
-          "26.4.18 已标记为重要更新，涵盖本轮游戏更新适配、功能修复与跨站数据共享；重要更新提醒门槛同步提升至 26.4.18。"
+          "性能：修复共享存储与公会经验历史引起的严重卡顿，按成员保存经验、批量读写并复用未变化的数据；首次迁移分批处理，语言缓存和迁移标记保持本站独立。",
+          "库存：适配全部、最爱、分类标签和搜索结果，切换后恢复价值角标与排序；保留最爱置顶，锁定物品仍计入资产。",
+          "市场计算：普通税率调整为 4%，牛铃袋维持 18%；适配普通与强化物品价格步进，修复不同语言的小数点和千分位解析。",
+          "任务：修复生产与战斗窗口的任务返回、关闭后仍返回、关闭自动整理后顺序变化，以及刷新图标不更新；仅在可用的“前往”旁显示规划火车。",
+          "购物车与筛选：下一项按购物车顺序循环，区分强化等级，兼容删除、重排和快速点击；市场筛选独立即时生效，关闭后恢复显示。",
+          "生产规划：汇总多个计划的共享材料需求，库存只扣一次，重复加入不增加购物数量，保留手动添加量；支持第二步删除房屋目标、普通神射护腕制作链和单站计划。",
+          "装备与经验：护符等装备显示真正的需求等级；修复动作窗口复用时沿用旧经验或耗时，以及本地化数字造成的经验估算错误。",
+          "战利品：全部打开改为右键库存中的当前战利品，使用原生开箱入口，按库存和钥匙限制数量；等待回执后继续，失败停止，阻止原生右键重复开一个。独立开关默认关闭，沿用已保存的选择。",
+          "公会信用点：增加仓库可兑换前 N 名，与全材料榜共用数量设置；兑换窗口可按当前批次数将材料缺口加入购物车。",
+          "跨站与备份：正式站和 cn 站共享持久化数据，测试服独立；按记录合并，保留冲突副本和删除记录。统一备份包含设置、购物计划和历史，兼容旧资产备份。",
+          "显示与偏好：行动队列自适应宽度；聊天字号 80%–160% 同步调整消息、人物名字、时间戳、频道和输入框，仅影响聊天区域。每日盈亏可勾选七类资产，记住铁牛选择，并显示具体等待原因。",
+          "版本与公告：26.4.18 为重要更新，更新提醒门槛同步提升；中英文公告按功能分类列出变化，便于逐项查看。"
         ]),
         en: Object.freeze([
-          "Updated inventory tabs, favorite sections and September 28 market rules: standard tax is now 4%, enhanced items use separate price increments, and tab changes restore value badges and sorting.",
-          "Fixed task return and its off switch, original order with auto-sort disabled, reroll artwork and train controls during reset. Cart navigation cycles in cart order; market filters update independently and immediately.",
-          "Production plans pool material demand, deduct shared inventory once and preserve manual purchases. Added single-stop production plans and house-goal removal in step two; corrected reused action-panel XP estimates and charm requirements.",
-          "Added optional double-click opening of all available loot, owned-material guild exchange rankings and shortage shopping, chat font sizing, seven-category daily P/L selection, remembered Iron Cow choices and clearer waiting explanations.",
-          "The live and CN sites share persistent plugin data through the same userscript manager, with the test server kept separate. Migration retains recovery copies; unified backups include settings, shopping plans and history, and legacy asset backups remain supported.",
-          "Fixed severe page stalls from shared storage and guild XP history. XP samples are saved per member, reads and writes are batched, and unchanged data is reused instead of rebuilding the full history. Language caches and migration markers remain local to each site.",
-          "Version 26.4.18 is marked as an important update for game compatibility, feature fixes and cross-site data sharing. The important-update threshold is now 26.4.18."
+          "Performance: Fixed severe stalls caused by shared storage and guild XP history. History is saved per member, reads and writes are batched, unchanged data is reused, and initial migration yields between batches. Language caches and migration markers stay local.",
+          "Inventory: Updated All, Favorites, category tabs and search results. Tab changes restore value badges and sorting, favorites stay pinned, and locked items remain included in assets.",
+          "Market calculations: Standard tax is now 4%; cowbell bags remain at 18%. Updated normal and enhanced-item price increments and fixed locale-specific decimal and grouping separators.",
+          "Tasks: Fixed production and combat task return, returning after disabling it, order changes with auto-sort off, and stale reroll artwork. Train controls appear only beside an available Go to button.",
+          "Cart and filters: Next cycles in cart order, distinguishes enhancement levels and handles deletion, reordering and rapid clicks. Market filters apply independently and immediately; disabling them restores hidden items.",
+          "Production planning: Plans pool material demand and deduct shared inventory once. Repeated additions are idempotent and manual quantities are preserved. Added house-goal deletion in step two, the ordinary Marksman Bracers crafting chain and single-stop plans.",
+          "Equipment and XP: Charms and other equipment show actual requirement levels. Fixed stale experience and duration when reusing action panels, and XP estimates affected by localized number formats.",
+          "Loot: Open all now uses right-click on the selected inventory loot and the native opening handler, limited by stock and keys. Further batches wait for receipts; failures stop the operation, and the native single-open action is suppressed. The separate setting is off by default and preserves saved choices.",
+          "Guild credits: Added the top N exchangeable materials already in storage, sharing the all-material ranking limit. Exchange dialogs can add material shortages to the cart for the currently selected batch count.",
+          "Cross-site data and backups: Live and CN share persistent data; test remains separate. Records merge with recoverable conflicts and deletion markers. Unified backups contain settings, shopping plans and history, with legacy asset backup support.",
+          "Display and preferences: The action queue adapts its width. Chat font sizing from 80% to 160% now includes messages, player names, timestamps, channels and input within chat only. Daily P/L supports seven asset categories, Iron Cow choices are remembered, and waiting states explain missing dependencies.",
+          "Version and announcements: 26.4.18 is an important update with a matching notification threshold. Chinese and English announcements now list changes by feature for easier review."
         ])
       })
     }),
@@ -26679,7 +26705,11 @@ ${locks}` : ""}`, upgradeMount?.mode === "append" ? upgradeMount.host.append(bad
     );
     let chatStyle = document.getElementById("mwitools-chat-font");
     chatStyle || (chatStyle = document.createElement("style"), chatStyle.id = "mwitools-chat-font", document.head.append(chatStyle));
-    let chatCss = `[class*="ChatMessage_chatMessage"],[class*="Chat_chatInput"] { font-size: ${0.875 * (Number(runtime.settings.getPreference("chatFontScale") ?? 100) / 100)}rem !important; } [class*="ChatMessage_timestamp"] { font-size: .85em !important; }`;
+    let chatScale = Number(runtime.settings.getPreference("chatFontScale") ?? 100) / 100, chatRoot = '[class*="Chat_chat__"]', chatCss = chatScale === 1 ? "" : `${chatRoot} { font-size: ${0.875 * chatScale}rem !important; }
+         ${chatRoot} * { font-size: inherit !important; }
+         ${chatRoot} [class*="ChatMessage_timestamp"],
+         ${chatRoot} [class*="Chat_timestamp"],
+         ${chatRoot} .MuiBadge-badge { font-size: ${0.75 * chatScale}rem !important; }`;
     chatStyle.textContent = chatCss;
     let hoverScale = { standard: 1, large: 1.12, largest: 1.25 }[runtime.settings.getPreference("hoverFontScale")] ?? 1;
     document.documentElement?.style.setProperty(

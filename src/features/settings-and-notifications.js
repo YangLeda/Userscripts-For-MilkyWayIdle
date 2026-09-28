@@ -178,7 +178,18 @@ function applyVisualSettings() {
   }
   const chatScale =
     Number(runtime.settings.getPreference("chatFontScale") ?? 100) / 100;
-  const chatCss = `[class*="ChatMessage_chatMessage"],[class*="Chat_chatInput"] { font-size: ${0.875 * chatScale}rem !important; } [class*="ChatMessage_timestamp"] { font-size: .85em !important; }`;
+  // Names, linked items and native controls have their own font rules. Scope
+  // every override to the chat root so shared name/button components elsewhere
+  // keep their original size. At 100%, restore the game's native typography.
+  const chatRoot = '[class*="Chat_chat__"]';
+  const chatCss =
+    chatScale === 1
+      ? ""
+      : `${chatRoot} { font-size: ${0.875 * chatScale}rem !important; }
+         ${chatRoot} * { font-size: inherit !important; }
+         ${chatRoot} [class*="ChatMessage_timestamp"],
+         ${chatRoot} [class*="Chat_timestamp"],
+         ${chatRoot} .MuiBadge-badge { font-size: ${0.75 * chatScale}rem !important; }`;
   chatStyle.textContent = chatCss;
   const hoverScale =
     { standard: 1, large: 1.12, largest: 1.25 }[
