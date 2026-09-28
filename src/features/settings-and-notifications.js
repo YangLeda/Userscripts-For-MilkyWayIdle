@@ -1,3 +1,4 @@
+import { sharedStorage } from "../core/shared-storage.js";
 import { runtime } from "../core/runtime.js";
 import {
   getGameTranslation,
@@ -32,7 +33,7 @@ function normalizeGuildCreditRecommendationCount(value) {
 }
 
 function loadGuildCreditRecommendationCount() {
-  const stored = localStorage.getItem(GUILD_CREDIT_RECOMMENDATION_COUNT_KEY);
+  const stored = sharedStorage.getItem(GUILD_CREDIT_RECOMMENDATION_COUNT_KEY);
   return stored === null ? 3 : normalizeGuildCreditRecommendationCount(stored);
 }
 
@@ -45,7 +46,7 @@ function getGuildCreditRecommendationCount() {
 function setGuildCreditRecommendationCount(value) {
   guildCreditRecommendationCount =
     normalizeGuildCreditRecommendationCount(value);
-  localStorage.setItem(
+  sharedStorage.setItem(
     GUILD_CREDIT_RECOMMENDATION_COUNT_KEY,
     String(guildCreditRecommendationCount),
   );
@@ -72,7 +73,7 @@ function normalizeTooltipProfitShortcut(value) {
 function loadTooltipProfitShortcut() {
   try {
     return normalizeTooltipProfitShortcut(
-      JSON.parse(localStorage.getItem(TOOLTIP_PROFIT_SHORTCUT_KEY) || "null"),
+      JSON.parse(sharedStorage.getItem(TOOLTIP_PROFIT_SHORTCUT_KEY) || "null"),
     );
   } catch {
     return normalizeTooltipProfitShortcut(null);
@@ -107,7 +108,7 @@ function getTooltipProfitShortcut() {
 
 function setTooltipProfitShortcut(value) {
   tooltipProfitShortcut = normalizeTooltipProfitShortcut(value);
-  localStorage.setItem(
+  sharedStorage.setItem(
     TOOLTIP_PROFIT_SHORTCUT_KEY,
     JSON.stringify(tooltipProfitShortcut),
   );
@@ -131,13 +132,13 @@ function persistSettings() {
       runtime.settings.getPreference(id),
     ]),
   );
-  localStorage.setItem(
+  sharedStorage.setItem(
     SETTINGS_V2_KEY,
     JSON.stringify({ version: 2, values, preferences }),
   );
 
   // Keep the legacy shape current so users can safely roll back MWITools.
-  localStorage.setItem(
+  sharedStorage.setItem(
     "script_settingsMap",
     JSON.stringify(runtime.settings.settingsMap),
   );
@@ -169,6 +170,27 @@ function applyVisualSettings() {
     "--mwi-ui-font-scale",
     String(scale),
   );
+  let chatStyle = document.getElementById("mwitools-chat-font");
+  if (!chatStyle) {
+    chatStyle = document.createElement("style");
+    chatStyle.id = "mwitools-chat-font";
+    document.head.append(chatStyle);
+  }
+  const chatScale =
+    Number(runtime.settings.getPreference("chatFontScale") ?? 100) / 100;
+  // Names, linked items and native controls have their own font rules. Scope
+  // every override to the chat root so shared name/button components elsewhere
+  // keep their original size. At 100%, restore the game's native typography.
+  const chatRoot = '[class*="Chat_chat__"]';
+  const chatCss =
+    chatScale === 1
+      ? ""
+      : `${chatRoot} { font-size: ${0.875 * chatScale}rem !important; }
+         ${chatRoot} * { font-size: inherit !important; }
+         ${chatRoot} [class*="ChatMessage_timestamp"],
+         ${chatRoot} [class*="Chat_timestamp"],
+         ${chatRoot} .MuiBadge-badge { font-size: ${0.75 * chatScale}rem !important; }`;
+  chatStyle.textContent = chatCss;
   const hoverScale =
     { standard: 1, large: 1.12, largest: 1.25 }[
       runtime.settings.getPreference("hoverFontScale")
@@ -179,6 +201,7 @@ function applyVisualSettings() {
   );
 }
 
+runtime.settings.onPreferenceChange?.("chatFontScale", applyVisualSettings);
 runtime.settings.onPreferenceChange?.("uiFontScale", applyVisualSettings);
 runtime.settings.onPreferenceChange?.("hoverFontScale", applyVisualSettings);
 
@@ -187,7 +210,7 @@ function readSettings() {
   let storedPreferences = null;
   try {
     const storedV2 = JSON.parse(
-      localStorage.getItem(SETTINGS_V2_KEY) || "null",
+      sharedStorage.getItem(SETTINGS_V2_KEY) || "null",
     );
     if (storedV2?.version === 2 && storedV2.values) {
       for (const [id, value] of Object.entries(storedV2.values)) {
@@ -208,7 +231,7 @@ function readSettings() {
   if (!loadedV2) {
     try {
       const legacy = JSON.parse(
-        localStorage.getItem("script_settingsMap") || "null",
+        sharedStorage.getItem("script_settingsMap") || "null",
       );
       for (const option of Object.values(legacy ?? {})) {
         if (!option?.id) continue;
@@ -242,9 +265,9 @@ function readSettings() {
 
   // Reset the briefly repurposed back-equipment option once. Valuing plain
   // back gear by a protection mirror is opt-in, so later choices stick.
-  if (!localStorage.getItem(BACK_MIRROR_DEFAULT_CORRECTION_KEY)) {
+  if (!sharedStorage.getItem(BACK_MIRROR_DEFAULT_CORRECTION_KEY)) {
     runtime.settings.settingsMap.valueBackEquipmentWithProtectionMirror.isTrue = false;
-    localStorage.setItem(BACK_MIRROR_DEFAULT_CORRECTION_KEY, "1");
+    sharedStorage.setItem(BACK_MIRROR_DEFAULT_CORRECTION_KEY, "1");
   }
   applyVisualSettings();
   persistSettings();
@@ -525,9 +548,12 @@ function createSettingCard(definition, options = {}) {
   const setStatus = () => {
     const current = featureStatusForSetting(definition.id);
     status.dataset.status = current.status;
-    status.textContent = statusLabel(current.status);
+    status.textContent =
+      current.status === "waiting" && current.error
+        ? current.error
+        : statusLabel(current.status);
     if (current.error) status.title = current.error;
-    if (current.status === "failed") {
+    if (["failed", "waiting"].includes(current.status)) {
       const retry = document.createElement("button");
       retry.className = "mwi-setting-retry";
       retry.type = "button";
@@ -963,7 +989,7 @@ function closeSettingsPopover({ restoreFocus = false } = {}) {
 
 function readSettingsPopoverScrollTop() {
   try {
-    const stored = Number(localStorage.getItem(SETTINGS_POPOVER_SCROLL_KEY));
+    const stored = Number(sharedStorage.getItem(SETTINGS_POPOVER_SCROLL_KEY));
     return Number.isFinite(stored) && stored > 0 ? stored : 0;
   } catch {
     return 0;
@@ -973,7 +999,7 @@ function readSettingsPopoverScrollTop() {
 function persistSettingsPopoverScrollTop(value) {
   const scrollTop = Math.max(0, Number(value) || 0);
   try {
-    localStorage.setItem(SETTINGS_POPOVER_SCROLL_KEY, String(scrollTop));
+    sharedStorage.setItem(SETTINGS_POPOVER_SCROLL_KEY, String(scrollTop));
   } catch {
     // Remembering the position is optional when browser storage is unavailable.
   }
@@ -1594,4 +1620,14 @@ runtime.features.register({
       document.getElementById(SETTINGS_STYLE_ID)?.remove();
     });
   },
+});
+
+globalThis.addEventListener?.("mwitools-shared-storage", (event) => {
+  if (event.detail?.key !== SETTINGS_V2_KEY) return;
+  const stored = JSON.parse(sharedStorage.getItem(SETTINGS_V2_KEY) || "null");
+  if (stored?.version === 2)
+    void runtime.settings.applyBatch?.(
+      { values: stored.values, preferences: stored.preferences },
+      { persist: false },
+    );
 });

@@ -124,7 +124,7 @@ runtime.api.getFairValue = (itemHrid) => {
   const ask = runtime.api.getAskPrice(itemHrid);
   if (ask > 0) return ask;
   const netSell = runtime.api.getNetSellPrice(itemHrid);
-  return netSell > 0 ? netSell / 0.95 : 0;
+  return netSell > 0 ? netSell / 0.96 : 0;
 };
 
 test("production duration accepts either decimal separator and mixed grouping", () => {

@@ -203,7 +203,7 @@ test("sell-and-rebuy consumes bid depth, tax and whole exchange batches", () => 
   assert.equal(result.status, "ok");
   assert.equal(result.directCredits, 4);
   assert.equal(result.saleQuantity, 8);
-  assert.equal(result.netSaleValue, 3_800);
+  assert.equal(result.netSaleValue, 3_840);
   assert.equal(result.replacement.requiredItems, 30);
   assert.equal(result.replacement.producedCredits, 6);
   assert.equal(result.difference, 2);

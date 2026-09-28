@@ -1,3 +1,4 @@
+import { parseCompactNumber } from "./market.js";
 import { runtime } from "./runtime.js";
 
 const MAX_TRAIN_DEPTH = 50;
@@ -180,7 +181,7 @@ export function buildTrainChain(topItemHrid) {
     current = upgrade.inputHrid;
   }
 
-  if (current && steps.length) {
+  if (current && !cycle && !truncated) {
     const base = findBaseActionForItem(current);
     if (base) {
       steps.unshift({
@@ -353,13 +354,7 @@ export function trainChainDepth(itemHrid) {
 }
 
 export function parseTrainCount(raw) {
-  const match = String(raw ?? "")
-    .trim()
-    .toLowerCase()
-    .match(/^(\d+(?:\.\d+)?)([kmb])?$/);
-  if (!match) return null;
-  const multiplier = { k: 1e3, m: 1e6, b: 1e9 }[match[2]] ?? 1;
-  const count = Math.floor(Number(match[1]) * multiplier);
+  const count = Math.floor(parseCompactNumber(raw));
   return Number.isFinite(count) && count > 0 ? count : null;
 }
 

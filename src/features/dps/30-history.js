@@ -1,3 +1,4 @@
+import { sharedStorage } from "../../core/shared-storage.js";
 import {
   ACCENT,
   Settings,
@@ -107,8 +108,8 @@ const HistoryStore = (() => {
     }
   }
   function migrateLegacy() {
-    if (localStorage.getItem(KEY) !== null) return;
-    const migrated = validArray(localStorage.getItem(LEGACY_KEY)).map(
+    if (sharedStorage.getItem(KEY) !== null) return;
+    const migrated = validArray(sharedStorage.getItem(LEGACY_KEY)).map(
       (e, i) => ({
         ...e,
         schemaVersion: 2,
@@ -150,11 +151,11 @@ const HistoryStore = (() => {
   }
   function load() {
     migrateLegacy();
-    const raw = validArray(localStorage.getItem(KEY)),
+    const raw = validArray(sharedStorage.getItem(KEY)),
       data = trimToByteLimit(trim(raw));
     if (data.length !== raw.length) {
       try {
-        localStorage.setItem(KEY, JSON.stringify(data));
+        sharedStorage.setItem(KEY, JSON.stringify(data));
       } catch (e) {}
     }
     return data;
@@ -163,7 +164,7 @@ const HistoryStore = (() => {
     const data = trimToByteLimit(trim(entries));
     while (data.length >= 0) {
       try {
-        localStorage.setItem(KEY, JSON.stringify(data));
+        sharedStorage.setItem(KEY, JSON.stringify(data));
         return true;
       } catch (e) {
         const idx = oldestEntryIndex(data);
@@ -209,14 +210,14 @@ const HistoryStore = (() => {
     clear(type) {
       if (!type) {
         try {
-          localStorage.removeItem(KEY);
+          sharedStorage.removeItem(KEY);
         } catch (e) {}
         revision++;
         return;
       }
       const remaining = load().filter((e) => (e.type || "combat") !== type);
       try {
-        localStorage.setItem(KEY, JSON.stringify(remaining));
+        sharedStorage.setItem(KEY, JSON.stringify(remaining));
       } catch (e) {}
       revision++;
     },
@@ -241,7 +242,7 @@ const HistoryStore = (() => {
     entryKey,
     saveActive(snapshot) {
       try {
-        localStorage.setItem(ACTIVE_KEY, JSON.stringify(snapshot));
+        sharedStorage.setItem(ACTIVE_KEY, JSON.stringify(snapshot));
         return true;
       } catch (e) {
         return false;
@@ -249,7 +250,7 @@ const HistoryStore = (() => {
     },
     loadActive() {
       try {
-        const v = JSON.parse(localStorage.getItem(ACTIVE_KEY) || "null");
+        const v = JSON.parse(sharedStorage.getItem(ACTIVE_KEY) || "null");
         return v && v.schemaVersion === 2 ? v : null;
       } catch (e) {
         return null;
@@ -257,12 +258,12 @@ const HistoryStore = (() => {
     },
     clearActive() {
       try {
-        localStorage.removeItem(ACTIVE_KEY);
+        sharedStorage.removeItem(ACTIVE_KEY);
       } catch (e) {}
     },
     getRevision: () => revision,
     getStoredByteSize: () =>
-      serializedBytes(validArray(localStorage.getItem(KEY))),
+      serializedBytes(validArray(sharedStorage.getItem(KEY))),
     maxHistoryBytes: MAX_HISTORY_BYTES,
     keys: { history: KEY, active: ACTIVE_KEY },
   };

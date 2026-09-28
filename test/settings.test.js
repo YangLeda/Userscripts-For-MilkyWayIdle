@@ -188,6 +188,7 @@ test("iron-cow detection automatically enables and persists market adaptation", 
   runtime.api.checkEquipment = () => {};
   runtime.state.currentCharacterGameMode = "standard";
   await runtime.settings.set("adaptIronCowMarketFeatures", false);
+  localStorage.removeItem("MWITools_ironCowChoice");
   runtime.api.handleMessage(
     JSON.stringify({
       type: "init_character_data",
@@ -233,9 +234,9 @@ test("iron-cow detection automatically enables and persists market adaptation", 
   );
   assert.equal(
     runtime.settings.settingsMap.adaptIronCowMarketFeatures.isTrue,
-    true,
+    false,
   );
-  assert.equal(runtime.api.shouldSuppressMarketFeatures(), true);
+  assert.equal(runtime.api.shouldSuppressMarketFeatures(), false);
   runtime.api.handleMessage(
     JSON.stringify({
       type: "init_character_data",
@@ -625,4 +626,32 @@ test("market autofill recognizes the current official locale template", () => {
   runtime.api.handleMarketNewOrder(document.querySelector("#market-order-es"));
   assert.equal(clicks, 1);
   localStorage.setItem("i18nextLng", "en");
+});
+
+test("chat font scaling covers nested names and controls only inside chat", async () => {
+  const host = document.createElement("section");
+  host.innerHTML =
+    '<div class="Chat_chat__test"><span class="ChatMessage_name__test"><b>Player</b></span><input class="Chat_chatInput__test"><span class="ChatMessage_timestamp__test">12:00</span><button>Send</button></div><span class="ChatMessage_name__outside">Other player</span><button>Outside</button>';
+  document.body.append(host);
+  await runtime.settings.setPreference("chatFontScale", "160");
+  const style = document.getElementById("mwitools-chat-font");
+  const rules = [...style.sheet.cssRules];
+  const matched = (element) =>
+    rules.some((rule) => element.matches(rule.selectorText));
+  for (const element of host.firstElementChild.querySelectorAll("*"))
+    assert.equal(matched(element), true);
+  assert.equal(matched(host.children[1]), false);
+  assert.equal(matched(host.children[2]), false);
+  assert.ok(
+    Math.abs(parseFloat(rules[0].style.getPropertyValue("font-size")) - 1.4) <
+      1e-9,
+  );
+  assert.equal(
+    JSON.parse(localStorage.getItem("MWITools_settings_v2")).preferences
+      .chatFontScale,
+    "160",
+  );
+  await runtime.settings.setPreference("chatFontScale", "100");
+  assert.equal(style.textContent, "");
+  host.remove();
 });

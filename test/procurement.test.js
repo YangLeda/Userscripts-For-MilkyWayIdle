@@ -325,7 +325,7 @@ test("selected upgrade stages buy predecessor items when their producer is exclu
   );
 });
 
-test("projects lock inventory and only duplicate their own cart shortages", () => {
+test("projects share inventory and remove their generated shopping quantities", () => {
   const chain = procurement.calculateUpgradeChain("/actions/crafting/final", 3);
   const plan = procurement.createPlan(
     "/actions/crafting/final",
@@ -334,7 +334,7 @@ test("projects lock inventory and only duplicate their own cart shortages", () =
   );
   assert.ok(plan?.id);
   assert.equal(procurement.getLockedDetails("/items/log").total, 6);
-  assert.equal(procurement.getEffectiveInventory("/items/log"), 0);
+  assert.equal(procurement.getEffectiveInventory("/items/log"), 5);
 
   const first = procurement.addProjectRequirementsToCart(plan.id);
   const second = procurement.addProjectRequirementsToCart(plan.id);
@@ -350,15 +350,7 @@ test("projects lock inventory and only duplicate their own cart shortages", () =
     ],
   );
   procurement.removePlan(plan.id);
-  assert.deepEqual(
-    procurement
-      .getCartItems()
-      .map((item) => [item.itemHrid, item.allocations.manual]),
-    [
-      ["/items/nail", 5],
-      ["/items/log", 1],
-    ],
-  );
+  assert.deepEqual(procurement.getCartItems(), []);
 });
 
 test("projects disappear after their shopping rows are fulfilled or cleared", () => {
@@ -503,11 +495,11 @@ test("full inventory refresh expands project cart shortages without changing man
   assert.equal(result.changedItemCount, 1);
   assert.equal(procurement.getInventoryCount("/items/log"), 3);
   assert.deepEqual(procurement.getCartAllocationSummary("/items/log"), {
-    total: 13,
+    total: 9,
     manual: 4,
     planning: 0,
-    project: 9,
-    projects: { [plan.id]: 9 },
+    project: 5,
+    projects: { [plan.id]: 5 },
   });
 
   runtime.state.initData_characterItems = [
@@ -673,4 +665,36 @@ test("v2 planning policies migrate to per-goal v3 strategies", () => {
     ).version,
     3,
   );
+});
+
+test("two demands of 80 and 70 share 100 inventory and 20 manual purchases", () => {
+  runtime.state.initData_characterItems = [
+    {
+      id: "shared-logs",
+      itemHrid: "/items/log",
+      itemLocationHrid: "/item_locations/inventory",
+      count: 100,
+    },
+  ];
+  procurement.loadCharacterData("shared-material-regression");
+  procurement.addToCart({ itemHrid: "/items/log", quantity: 20 });
+  const create = (count) =>
+    procurement.createPlan("/actions/crafting/board", count, [
+      {
+        itemHrid: "/items/log",
+        enhancementLevel: 0,
+        suggested: count,
+        purchasable: true,
+      },
+    ]);
+  const one = create(80),
+    two = create(70);
+  procurement.addProjectRequirementsToCart(one.id);
+  assert.equal(procurement.getCartItem("/items/log").quantity, 50);
+  assert.equal(procurement.getCartAllocationSummary("/items/log").manual, 20);
+  assert.equal(procurement.getCartAllocationSummary("/items/log").project, 30);
+  procurement.addProjectRequirementsToCart(two.id);
+  assert.equal(procurement.getCartItem("/items/log").quantity, 50);
+  procurement.removePlan(two.id);
+  assert.equal(procurement.getCartItem("/items/log").quantity, 20);
 });

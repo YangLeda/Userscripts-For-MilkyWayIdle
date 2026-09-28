@@ -3,6 +3,10 @@
  * that other modules need, while their implementation details stay private.
  */
 
+const routeCharacterRequested = /[?&]characterId=/.test(
+  globalThis.location?.search ?? "",
+);
+
 function resolveCharacterId(payload) {
   return String(
     payload?.character?.id ??
@@ -117,14 +121,34 @@ async function initializeFeature(id) {
     return false;
   }
   if (definition.scope === "character" && !activeCharacterId) {
-    setFeatureStatus(id, "waiting");
+    setFeatureStatus(
+      id,
+      "waiting",
+      new Error(
+        runtime.config.isZH
+          ? runtime.state.currentCharacterId || routeCharacterRequested
+            ? "角色数据尚未收到：请等待连接完成；若页面已断线，请重连后重试。"
+            : "尚未进入角色：请选择角色并等待角色数据到达。"
+          : runtime.state.currentCharacterId || routeCharacterRequested
+            ? "Character data has not arrived: wait for connection, or reconnect and retry if disconnected."
+            : "No character selected: select a character and wait for its data.",
+      ),
+    );
     return false;
   }
 
   for (const dependencyId of definition.dependsOn ?? []) {
     const dependencyReady = await initializeFeature(dependencyId);
     if (!dependencyReady) {
-      setFeatureStatus(id, "waiting");
+      setFeatureStatus(
+        id,
+        "waiting",
+        new Error(
+          runtime.config.isZH
+            ? `依赖 ${dependencyId} 未就绪（${featureStates.get(dependencyId)?.status ?? "missing"}）：请启用或重试该功能。`
+            : `Dependency ${dependencyId} is not ready (${featureStates.get(dependencyId)?.status ?? "missing"}); enable or retry it.`,
+        ),
+      );
       return false;
     }
   }
@@ -145,6 +169,11 @@ async function initializeFeature(id) {
       characterId: activeCharacterId || null,
     });
     const state = featureStates.get(id) ?? {};
+    if (state.scope !== scope || !isFeatureEnabled(definition)) {
+      scope.cleanup();
+      if (typeof instanceCleanup === "function") await instanceCleanup();
+      return false;
+    }
     featureStates.set(id, {
       ...state,
       status: "active",
@@ -180,7 +209,7 @@ async function disableFeature(id) {
   }
   const definition = featureDefinitions.get(id);
   const state = featureStates.get(id);
-  if (state?.status === "active" || state?.status === "failed") {
+  if (["active", "failed", "initializing"].includes(state?.status)) {
     try {
       await state.instanceCleanup?.();
       await definition?.cleanup?.({ runtime, characterId: activeCharacterId });
@@ -364,10 +393,20 @@ export const runtime = {
         status: "unregistered",
         error: null,
       };
+      const staticDataMissing =
+        state.status === "initializing" &&
+        (!runtime.state.initData_itemDetailMap ||
+          !runtime.state.initData_actionDetailMap);
       return {
         id,
-        status: state.status,
-        error: state.error?.message ?? null,
+        status: staticDataMissing ? "waiting" : state.status,
+        error:
+          state.error?.message ??
+          (staticDataMissing
+            ? runtime.config.isZH
+              ? "静态游戏数据尚未就绪（物品／行动表）：请等待加载完成；若长时间不变，请刷新游戏后重试。"
+              : "Static game data is unavailable (items/actions): wait for loading, or refresh the game and retry if it persists."
+            : null),
       };
     },
     list() {

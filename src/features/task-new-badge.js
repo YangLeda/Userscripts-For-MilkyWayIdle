@@ -1,3 +1,4 @@
+import { sharedStorage } from "../core/shared-storage.js";
 import { runtime } from "../core/runtime.js";
 import {
   resolveTaskCards,
@@ -51,7 +52,7 @@ export function taskNewStorageKey(
 
 export function readTaskNewState(storageKey) {
   try {
-    const value = JSON.parse(localStorage.getItem(storageKey) || "null");
+    const value = JSON.parse(sharedStorage.getItem(storageKey) || "null");
     return {
       known: new Set(Array.isArray(value?.known) ? value.known : []),
       fresh: new Set(Array.isArray(value?.fresh) ? value.fresh : []),
@@ -65,7 +66,7 @@ export function readTaskNewState(storageKey) {
 }
 
 export function writeTaskNewState(storageKey, state) {
-  localStorage.setItem(
+  sharedStorage.setItem(
     storageKey,
     JSON.stringify({
       initialized: state.initialized === true,

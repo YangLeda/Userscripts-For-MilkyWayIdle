@@ -641,7 +641,7 @@ test("listing values use explicit balances and never infer buy reserves", () => 
     },
   ]);
 
-  assert.deepEqual(totals, { fair: 15_890, ask: 16_960, bid: 14_820 });
+  assert.deepEqual(totals, { fair: 15_950, ask: 17_026, bid: 14_874 });
 });
 
 test("task tokens join inventory assets only when their switch is enabled", async () => {
@@ -1029,4 +1029,27 @@ test("all nine game languages leave inventory summary visibility to the native p
     assert.notEqual(summary.style.display, "none", locale);
   }
   localStorage.setItem("i18nextLng", "zh-CN");
+});
+
+test("native favorite and lock ranges apply only to matching enhancement levels", async () => {
+  const { hasInventoryMark } = await import("../src/features/inventory.js");
+  runtime.state.characterItemMarks = [
+    {
+      itemHrid: "/items/gear",
+      kind: "favorite",
+      minEnhancementLevel: 5,
+      maxEnhancementLevel: 5,
+    },
+    {
+      itemHrid: "/items/gear",
+      kind: "lock",
+      minEnhancementLevel: 0,
+      maxEnhancementLevel: 1000,
+    },
+  ];
+  assert.equal(hasInventoryMark("/items/gear", 5, "favorite"), true);
+  assert.equal(hasInventoryMark("/items/gear", 4, "favorite"), false);
+  assert.equal(hasInventoryMark("/items/gear", 12, "lock"), true);
+  assert.equal(hasInventoryMark("/items/other", 12, "lock"), false);
+  runtime.state.characterItemMarks = [];
 });

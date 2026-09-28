@@ -2,7 +2,7 @@ import LZString from "lz-string";
 
 import { runtime } from "./runtime.js";
 
-const MARKET_TAX_RATE = 0.05;
+const MARKET_TAX_RATE = 0.04;
 const COWBELL_TAX_RATE = 0.18;
 const MARKET_MAX_PRICE = 1_000_000_000_000;
 const TEST_MARKET_REFRESH_MS = 10 * 60 * 1000;
@@ -194,24 +194,56 @@ function getNetSellPriceAtAsk(itemHrid, enhancementLevel = 0) {
   );
 }
 
-function getMarketPriceIncrement(price) {
-  const integerPrice = Math.max(1, Math.floor(Math.abs(Number(price) || 0)));
-  const priceText = String(integerPrice);
-  const firstDigit = Number(priceText[0]);
-  const digits = priceText.length;
-
-  if (firstDigit <= 2 && digits >= 4) return 5 * 10 ** (digits - 4);
-  if (firstDigit <= 4 && digits >= 3) return 10 ** (digits - 3);
-  if (digits >= 3) return 2 * 10 ** (digits - 3);
-  return 1;
+function getMarketPriceIncrement(price, enhancementLevel = 0) {
+  const integer = Math.max(1, Math.floor(Math.abs(Number(price) || 0)));
+  const text = String(integer);
+  const digits = text.length;
+  if (digits <= 2) return 1;
+  const first = Number(text[0]);
+  if (digits === 3) {
+    return enhancementLevel > 0
+      ? first === 1
+        ? 2
+        : first <= 3
+          ? 5
+          : first <= 7
+            ? 10
+            : 20
+      : first <= 3
+        ? 1
+        : first <= 7
+          ? 2
+          : 4;
+  }
+  const tiers = [
+    [12, 4],
+    [15, 5],
+    [18, 6],
+    [24, 8],
+    [30, 10],
+    [36, 12],
+    [48, 16],
+    [60, 20],
+    [75, 25],
+    [90, 30],
+  ];
+  const unit =
+    tiers.find(([threshold]) => Number(text.slice(0, 2)) < threshold)?.[1] ??
+    40;
+  return unit * 10 ** (digits - 4) * (enhancementLevel > 0 ? 5 : 1);
 }
 
-function normalizeMarketPrice(price, minimum = 1, maximum = MARKET_MAX_PRICE) {
+function normalizeMarketPrice(
+  price,
+  minimum = 1,
+  maximum = MARKET_MAX_PRICE,
+  enhancementLevel = 0,
+) {
   const numericPrice = Math.min(
     Math.max(Number(price) || minimum, minimum),
     maximum,
   );
-  const increment = getMarketPriceIncrement(numericPrice);
+  const increment = getMarketPriceIncrement(numericPrice, enhancementLevel);
   const normalized = Math.round(numericPrice / increment) * increment;
   return Math.min(Math.max(normalized, minimum), maximum);
 }
@@ -389,8 +421,18 @@ function getPriceBand(itemHrid, enhancementLevel = 0) {
   const fairValue = getFairValue(itemHrid, enhancementLevel);
   if (!fairValue) return null;
   return {
-    minimum: normalizeMarketPrice(fairValue * 0.9),
-    maximum: normalizeMarketPrice(fairValue * 1.1),
+    minimum: normalizeMarketPrice(
+      fairValue * 0.9,
+      1,
+      MARKET_MAX_PRICE,
+      enhancementLevel,
+    ),
+    maximum: normalizeMarketPrice(
+      fairValue * 1.1,
+      1,
+      MARKET_MAX_PRICE,
+      enhancementLevel,
+    ),
   };
 }
 

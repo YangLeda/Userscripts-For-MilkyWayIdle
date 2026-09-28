@@ -1,3 +1,4 @@
+import { sharedStorage } from "./shared-storage.js";
 import { runtime } from "./runtime.js";
 
 export const PERFORMANCE_PROFILE_STORAGE_KEY =
@@ -8,8 +9,8 @@ const USAGES = Object.freeze(["life", "combat", "balanced"]);
 const TIERS = Object.freeze(["smooth", "standard", "full", "custom"]);
 const REFRESH_INTERVALS = Object.freeze([1000, 2000]);
 const EXISTING_SETTINGS_AT_LOAD = Boolean(
-  globalThis.localStorage?.getItem("MWITools_settings_v2") ||
-  globalThis.localStorage?.getItem("script_settingsMap"),
+  sharedStorage?.getItem("MWITools_settings_v2") ||
+  sharedStorage?.getItem("script_settingsMap"),
 );
 
 const GUILD_SETTINGS = Object.freeze([
@@ -105,8 +106,7 @@ function loadStoredProfile() {
   try {
     return normalizeStoredProfile(
       JSON.parse(
-        globalThis.localStorage?.getItem(PERFORMANCE_PROFILE_STORAGE_KEY) ||
-          "null",
+        sharedStorage?.getItem(PERFORMANCE_PROFILE_STORAGE_KEY) || "null",
       ),
     );
   } catch {
@@ -122,7 +122,7 @@ function saveStoredProfile(profile) {
     version: PERFORMANCE_PROFILE_VERSION,
     completed: true,
   });
-  globalThis.localStorage?.setItem(
+  sharedStorage?.setItem(
     PERFORMANCE_PROFILE_STORAGE_KEY,
     JSON.stringify(storedProfile),
   );

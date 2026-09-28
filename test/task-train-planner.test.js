@@ -105,7 +105,7 @@ test("task planner combines every remaining count in the same chain", () => {
   );
 });
 
-test("a lone base-production task does not create an empty train", () => {
+test("a lone base-production task creates a single-stop train", () => {
   const { entries, groups } = planner.collectTaskTrainGroups([
     {
       actionHrid: "/actions/crafting/base",
@@ -113,8 +113,8 @@ test("a lone base-production task does not create an empty train", () => {
       currentCount: 0,
     },
   ]);
-  assert.equal(entries[0].state, "isolated");
-  assert.equal(groups.size, 0);
+  assert.equal(entries[0].state, "top");
+  assert.equal(groups.size, 1);
 });
 
 test("sibling upgrade branches receive separate train plans", () => {
@@ -243,7 +243,7 @@ test("train controls wait for navigation and repair a misplaced mount", () => {
   const card = document.querySelector('div[class*="RandomTask_randomTask"]');
   const action = card.querySelector('div[class*="RandomTask_action"]');
 
-  assert.equal(planner.renderTaskTrainPlanner(undefined, [quests[1]]), false);
+  assert.equal(planner.renderTaskTrainPlanner(undefined, [quests[1]]), true);
   assert.equal(card.querySelector(".mwi-task-train-planner"), null);
 
   const buttons = document.createElement("div");

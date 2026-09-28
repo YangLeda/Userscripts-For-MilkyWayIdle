@@ -59,6 +59,7 @@ export async function buildUserscript({ banner, outfile }) {
     target: ["chrome100"],
     charset: "utf8",
     minify: false,
+    minifySyntax: true,
     keepNames: false,
     sourcemap: false,
     legalComments: "inline",

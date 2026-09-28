@@ -75,6 +75,26 @@ runtime.api.getTeaBuffsByActionHrid = () => ({ efficiency: 0 });
 runtime.api.getItemEffiBuffByActionHrid = () => 0;
 runtime.api.timeReadable = (seconds) => `${Math.round(seconds)}s`;
 
+test("reused action panels refresh experience and duration without slot multipliers", async () => {
+  const panel = document.querySelector(
+    '[class*="SkillActionDetail_regularComponent"]',
+  );
+  const exp = panel.querySelector('[class*="SkillActionDetail_expGain"]');
+  const duration = panel.querySelector('[class*="SkillActionDetail_value"]');
+  await runtime.api.handleActionPanel(panel);
+  const first = panel.querySelector("#expPerHour").textContent;
+  exp.textContent = "17";
+  duration.textContent = "12.22s";
+  await runtime.api.handleActionPanel(panel);
+  assert.equal(panel.querySelector("#expPerHour").textContent, first);
+  duration.textContent = "6.11s";
+  await runtime.api.handleActionPanel(panel);
+  assert.notEqual(panel.querySelector("#expPerHour").textContent, first);
+  assert.equal(panel.querySelectorAll(".mwi-native-level-stat").length, 4);
+  exp.textContent = "8.5";
+  await runtime.api.handleActionPanel(panel);
+});
+
 test("production details add target-level and working quick-input controls", async () => {
   const panel = document.querySelector(
     'div[class*="SkillActionDetail_regularComponent"]',

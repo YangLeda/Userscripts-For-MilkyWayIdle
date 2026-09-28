@@ -1,3 +1,7 @@
+import {
+  exportSharedBackup,
+  restoreSharedBackup,
+} from "../../core/shared-storage.js";
 /*!
  * Asset-center interface adapted from Everyday Profit Pro (MIT License).
  * Copyright (c) 2025 VictoryWinWinWin, PaperCat, SuXingX
@@ -109,6 +113,11 @@ function addStyles() {
     #${ROOT_ID} .ep-heatmap{display:grid;grid-template-columns:repeat(7,1fr);gap:5px}#${ROOT_ID} .ep-day{position:relative;min-height:58px;padding:5px;border:1px solid hsl(var(--ep-border));border-radius:6px;background:hsl(var(--ep-card2));font-size:10px}#${ROOT_ID} .ep-day.in-period{outline:1px solid hsl(var(--ep-accent)/.55);outline-offset:-2px}#${ROOT_ID} .ep-day.empty{visibility:hidden}#${ROOT_ID} .ep-day strong{display:block;margin-top:9px;font:700 10px ui-monospace,monospace}
     #${ROOT_ID} .ep-tags,#${ROOT_ID} .ep-achievements{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}#${ROOT_ID} .ep-tag-row,#${ROOT_ID} .ep-achievement{display:flex;min-width:0;align-items:center;gap:10px;padding:10px;border:1px solid hsl(var(--ep-border));border-radius:8px;background:hsl(var(--ep-card))}#${ROOT_ID} .ep-achievement.locked{filter:grayscale(1);opacity:.45}#${ROOT_ID} .ep-achievement-icon{font-size:23px}#${ROOT_ID} .ep-grow{min-width:0;flex:1}#${ROOT_ID} .ep-grow small{display:block;color:hsl(var(--ep-muted))}
     #${ROOT_ID} .ep-form{display:flex;align-items:end;flex-wrap:wrap;gap:8px}#${ROOT_ID} label{display:grid;gap:4px;color:hsl(var(--ep-muted));font-size:10px}#${ROOT_ID} input,#${ROOT_ID} select{min-height:33px;border:1px solid hsl(var(--ep-border));border-radius:6px;background:hsl(var(--ep-card2));padding:5px 8px;color:hsl(var(--ep-fg))}#${ROOT_ID} .ep-setting{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid hsl(var(--ep-border))}#${ROOT_ID} .ep-setting>div{flex:1}#${ROOT_ID} .ep-setting small{display:block;color:hsl(var(--ep-muted))}
+    #${ROOT_ID} .ep-profit-categories{margin:0 0 12px;padding:0;min-inline-size:0}#${ROOT_ID} .ep-profit-categories legend{float:left;width:100%;margin:0}#${ROOT_ID} .ep-profit-categories .ep-section-body{clear:both}
+    #${ROOT_ID} .ep-profit-category-options{display:flex;flex-wrap:wrap;gap:8px}#${ROOT_ID} .ep-profit-category{display:inline-flex;align-items:center;gap:7px;min-height:33px;margin:0;font-size:13px;line-height:1.5;color:hsl(var(--ep-fg));white-space:nowrap}
+    #${ROOT_ID} .ep-profit-category:has(:checked){border-color:hsl(var(--ep-accent)/.65);background:hsl(var(--ep-accent)/.15)}#${ROOT_ID} .ep-profit-category:has(:focus-visible){outline:2px solid hsl(var(--ep-accent));outline-offset:2px}
+    #${ROOT_ID} .ep-profit-category input{appearance:none;display:grid;place-content:center;flex:0 0 14px;width:14px;height:14px;min-height:0;margin:0;padding:0;border:1px solid hsl(var(--ep-muted));border-radius:3px;background:hsl(var(--ep-panel));cursor:pointer}#${ROOT_ID} .ep-profit-category input:checked{border-color:hsl(var(--ep-accent));background:hsl(var(--ep-accent))}#${ROOT_ID} .ep-profit-category input:checked::after{content:"";width:4px;height:7px;border:solid hsl(var(--ep-bg));border-width:0 2px 2px 0;transform:translateY(-1px) rotate(45deg)}
+    #${ROOT_ID} .ep-profit-category-note{margin:9px 0 0;color:hsl(var(--ep-muted));font-size:11px}
     #${ROOT_ID} .ep-sim-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}#${ROOT_ID} .ep-prob{padding:10px;border-radius:8px;background:hsl(var(--ep-card2));text-align:center}#${ROOT_ID} .ep-sim-band{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-top:8px}#${ROOT_ID} .ep-sim-band div{padding:7px;border:1px solid hsl(var(--ep-border));border-radius:6px;text-align:center}#${ROOT_ID} .ep-sim-band small{display:block;color:hsl(var(--ep-muted))}#${ROOT_ID} .ep-disclaimer{margin-top:10px;color:hsl(var(--ep-muted));font-size:10px}
     #${ROOT_ID} dialog{width:min(620px,90vw);border:1px solid hsl(var(--ep-border));border-radius:10px;background:hsl(var(--ep-panel));color:hsl(var(--ep-fg))}#${ROOT_ID} dialog::backdrop{background:rgba(0,0,0,.55)}#${ROOT_ID} .ep-edit-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
     @media(max-width:820px){#${ROOT_ID}{align-items:stretch}#${ROOT_ID} .ep-shell{grid-template-columns:64px 1fr!important;width:100vw!important;height:100dvh!important;min-width:0;min-height:0;border:0;border-radius:0;resize:none}#${ROOT_ID} .ep-sidebar{padding:10px 6px}#${ROOT_ID} .ep-brand strong,#${ROOT_ID} .ep-brand small,#${ROOT_ID} .ep-nav-label,#${ROOT_ID} .ep-nav-text{display:none}#${ROOT_ID} .ep-nav-item{justify-content:center;padding:10px 4px}#${ROOT_ID} .ep-grid{grid-template-columns:repeat(2,minmax(0,1fr))}#${ROOT_ID} .ep-page{padding:12px}#${ROOT_ID} .ep-analysis-row{grid-template-columns:80px 1fr 90px}#${ROOT_ID} .ep-analysis-row>:last-child{display:none}#${ROOT_ID} .ep-tags,#${ROOT_ID} .ep-achievements{grid-template-columns:1fr}#${ROOT_ID} .ep-sim-band{grid-template-columns:repeat(2,1fr)}}
@@ -341,11 +350,13 @@ export class AssetCenter {
     const current = this.snapshot?.values ?? entries.at(-1)?.[1]?.values ?? {};
     const previous =
       entries.length > 1 ? (entries.at(-2)?.[1]?.values ?? {}) : {};
+    const currentProfit = this.store.profitValue(current, this.scopeKey);
+    const previousProfit = this.store.profitValue(previous, this.scopeKey);
     const change =
-      Number.isFinite(current.total) && Number.isFinite(previous.total)
-        ? current.total - previous.total
+      Number.isFinite(currentProfit) && Number.isFinite(previousProfit)
+        ? currentProfit - previousProfit
         : null;
-    return { entries, current, previous, change };
+    return { entries, current, previous, change, previousProfit };
   }
 
   metric(label, value, className = "", liveKey = "") {
@@ -353,11 +364,17 @@ export class AssetCenter {
   }
 
   chartSummaryValues() {
-    const { current, previous, change } = this.summaryValues();
+    const { current, previousProfit, change } = this.summaryValues();
     return [
       ["current", current.total, ""],
       ["change", change, change >= 0 ? "pos" : "neg"],
-      ["percent", previous.total ? (change / previous.total) * 100 : null, ""],
+      [
+        "percent",
+        previousProfit && Number.isFinite(change)
+          ? (change / previousProfit) * 100
+          : null,
+        "",
+      ],
       ["average", this.store.sevenDayAverage(undefined, this.scopeKey), "pos"],
     ];
   }
@@ -386,6 +403,46 @@ export class AssetCenter {
       <section class="ep-card ep-section"><div class="ep-toolbar"><button class="ep-btn" data-chart-mode="total">${this.t("净资产", "Net worth")}</button><button class="ep-btn" data-chart-mode="profit">${this.t("盈亏", "P/L")}</button><button class="ep-btn" data-chart-mode="breakdown">${this.t("分项资产", "Components")}</button><span class="ep-spacer"></span>${[7, 15, 30].map((range) => `<button class="ep-btn" data-chart-range="${range}">${range}${this.t("天", "d")}</button>`).join("")}<button class="ep-btn" data-chart-range="all">${this.t("全部", "All")}</button><button class="ep-btn" data-reset-zoom>${this.t("重置缩放", "Reset zoom")}</button></div><div class="ep-chart"><canvas data-center-chart></canvas><div data-chart-fallback></div></div></section>
       <section class="ep-card ep-section"><div class="ep-section-title">🎯 ${this.t("目标追踪与蒙特卡洛", "Goal & Monte Carlo")}</div><div class="ep-section-body"><div class="ep-form"><label>${this.t("目标净资产", "Target net worth")}<input data-goal type="number" min="1" value="${target ?? ""}"></label><button class="ep-btn" data-save-goal>${this.t("保存目标", "Save target")}</button><button class="ep-btn" data-simulate>${this.t("运行 90 日模拟", "Run 90-day simulation")}</button></div><div data-simulation></div></div></section>
       <p class="ep-disclaimer">${this.t("盈亏按资产估值变化计算，包含市场波动，并非已实现交易利润；预测仅供参考和娱乐。", "P/L includes valuation changes and is not realized profit. Forecasts are for reference and entertainment only.")}</p>`;
+    const selection = document.createElement("fieldset");
+    selection.className = "ep-card ep-profit-categories";
+    const legend = document.createElement("legend");
+    legend.className = "ep-section-title";
+    legend.textContent = this.t("每日盈亏统计类别", "Daily P/L categories");
+    const body = document.createElement("div");
+    body.className = "ep-section-body";
+    const options = document.createElement("div");
+    options.className = "ep-profit-category-options";
+    const note = document.createElement("p");
+    note.className = "ep-profit-category-note";
+    note.textContent = this.t(
+      "选择计入每日盈亏的资产类别，自动保存；缺少历史分项时不可计算。",
+      "Choose assets included in daily P/L. Saved automatically; unavailable when historical components are missing.",
+    );
+    selection.append(legend);
+    for (const key of ASSET_COMPONENT_KEYS) {
+      const label = document.createElement("label");
+      label.className = "ep-btn ep-profit-category";
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.checked = this.store
+        .getProfitCategories(this.scopeKey)
+        .includes(key);
+      input.addEventListener("change", () => {
+        const chosen = new Set(this.store.getProfitCategories(this.scopeKey));
+        if (input.checked) chosen.add(key);
+        else chosen.delete(key);
+        this.store.setProfitCategories([...chosen], this.scopeKey);
+        this.changed();
+      });
+      label.append(
+        input,
+        this.t(ASSET_COMPONENT_META[key].zh, ASSET_COMPONENT_META[key].en),
+      );
+      options.append(label);
+    }
+    body.append(options, note);
+    selection.append(body);
+    page.prepend(selection);
     page.querySelectorAll("[data-chart-mode]").forEach((button) => {
       button.classList.toggle(
         "active",
@@ -448,17 +505,22 @@ export class AssetCenter {
           : Number(button.dataset.chartRange);
       button.classList.toggle("active", range === this.chartRange);
     });
-    this.chart?.renderWithOptions(this.store.list(this.scopeKey), {
-      mode: this.chartMode,
-      range: this.chartRange,
-      maWindow: prefs.chart.maWindow,
-      lineTension: prefs.chart.lineTension,
-      tags: this.store.getRole(this.scopeKey).tagVisibility
-        ? this.store
-            .listTags(this.scopeKey)
-            .map((tag) => ({ ...tag, color: this.tagColor(tag.type) }))
-        : [],
-    });
+    this.chart?.renderWithOptions(
+      this.chartMode === "profit"
+        ? this.store.profitEntries(this.scopeKey)
+        : this.store.list(this.scopeKey),
+      {
+        mode: this.chartMode,
+        range: this.chartRange,
+        maWindow: prefs.chart.maWindow,
+        lineTension: prefs.chart.lineTension,
+        tags: this.store.getRole(this.scopeKey).tagVisibility
+          ? this.store
+              .listTags(this.scopeKey)
+              .map((tag) => ({ ...tag, color: this.tagColor(tag.type) }))
+          : [],
+      },
+    );
   }
 
   renderSimulation(host, result) {
@@ -501,9 +563,12 @@ export class AssetCenter {
       this.reportMode === "week"
         ? weekRange(this.reportDate)
         : monthRange(this.reportDate);
-    const entries = this.store.list(this.scopeKey);
-    const stats = periodStatistics(entries, range);
-    const heatmap = buildHeatmap(entries);
+    const entries = this.store.profitEntries(this.scopeKey);
+    const stats = periodStatistics(
+      this.store.profitEntries(this.scopeKey),
+      range,
+    );
+    const heatmap = buildHeatmap(this.store.profitEntries(this.scopeKey));
     const firstDay = new Date(range.year, range.month, 1).getDay();
     const offset = firstDay === 0 ? 6 : firstDay - 1;
     const count = new Date(range.year, range.month + 1, 0).getDate();
@@ -612,10 +677,15 @@ export class AssetCenter {
       const file = event.target.files?.[0];
       if (!file) return;
       try {
-        this.store.importBackup(JSON.parse(await file.text()), {
-          mode: this.pendingImportMode,
-          scopeKey: this.scopeKey,
-        });
+        const backup = JSON.parse(await file.text());
+        if (backup?.__mwitools_backup__) {
+          restoreSharedBackup(backup);
+          this.store.reloadFromStorage();
+        } else
+          this.store.importBackup(backup, {
+            mode: this.pendingImportMode,
+            scopeKey: this.scopeKey,
+          });
         this.changed();
       } catch (error) {
         globalThis.alert?.(
@@ -900,10 +970,9 @@ export class AssetCenter {
   }
 
   downloadBackup() {
-    const blob = new Blob(
-      [JSON.stringify(this.store.exportBackup(), null, 2)],
-      { type: "application/json" },
-    );
+    const blob = new Blob([JSON.stringify(exportSharedBackup(), null, 2)], {
+      type: "application/json",
+    });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;

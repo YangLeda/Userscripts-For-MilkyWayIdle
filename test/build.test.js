@@ -21,7 +21,7 @@ test("generated userscript has a single valid metadata block", () => {
   assert.equal(output.indexOf("// ==UserScript=="), 0);
   assert.equal(output.match(/\/\/ ==UserScript==/g)?.length, 1);
   assert.equal(output.match(/\/\/ ==\/UserScript==/g)?.length, 1);
-  assert.match(output, /^\/\/ @version\s+26\.4\.17$/m);
+  assert.match(output, /^\/\/ @version\s+26\.4\.18$/m);
   assert.match(output, /^\/\/ @author\s+bot7420, shykai, Stella$/m);
   assert.match(
     output,
@@ -50,6 +50,8 @@ test("generated userscript has a single valid metadata block", () => {
     "// @grant        GM_xmlhttpRequest",
     "// @grant        GM_notification",
     "// @grant        GM_getValue",
+    "// @grant        GM_getValues",
+    "// @grant        GM_setValues",
     "// @grant        GM_setValue",
     "// @connect      www.milkywayidle.com",
     "// @connect      test.milkywayidle.com",

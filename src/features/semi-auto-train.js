@@ -965,7 +965,7 @@ function renderControls(context) {
       context.actionHrid === runningStep?.actionHrid);
   const plan = activeTrain ?? idlePlan(context);
   const shouldShow =
-    relevantRunningPanel || (!activeTrain && plan?.steps?.length >= 2);
+    relevantRunningPanel || (!activeTrain && plan?.steps?.length >= 1);
   let controls = host.querySelector(`:scope > .${CONTROL_CLASS}`);
   setTrainWindowWide(context.panel, shouldShow);
   if (!shouldShow) {
@@ -1028,7 +1028,7 @@ function renderControls(context) {
     );
   } else {
     const start = createButton(
-      `🚂 ${t("开始火车", "Start train")} (${plan.steps.length}${t("步", " stops")})`,
+      `🚂 ${t("开始火车", "Start train")} (${plan.steps.length === 1 ? t("单站计划", "Single stop") : `${plan.steps.length}${t("步", " stops")}`})`,
       "start",
       () => startTrain(idlePlan(context)),
     );

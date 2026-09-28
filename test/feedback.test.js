@@ -394,21 +394,23 @@ test("the shared Ctrl tooltip announcement is red, bold, and underlined", () => 
   scope.cleanup();
 });
 
-test("announcement history preserves each release separately through 26.4.17", () => {
-  const release17 = ANNOUNCEMENTS[0];
-  const release16 = ANNOUNCEMENTS[1];
-  const release15 = ANNOUNCEMENTS[2];
-  const latest = ANNOUNCEMENTS[3];
-  const newest = ANNOUNCEMENTS[4];
-  const current = ANNOUNCEMENTS[5];
-  const previous = ANNOUNCEMENTS[6];
-  const prior = ANNOUNCEMENTS[7];
-  const older = ANNOUNCEMENTS[8];
-  const oldest = ANNOUNCEMENTS[9];
-  const earliest = ANNOUNCEMENTS[10];
+test("announcement history preserves each release separately through 26.4.18", () => {
+  const release18 = ANNOUNCEMENTS[0];
+  const release17 = ANNOUNCEMENTS[1];
+  const release16 = ANNOUNCEMENTS[2];
+  const release15 = ANNOUNCEMENTS[3];
+  const latest = ANNOUNCEMENTS[4];
+  const newest = ANNOUNCEMENTS[5];
+  const current = ANNOUNCEMENTS[6];
+  const previous = ANNOUNCEMENTS[7];
+  const prior = ANNOUNCEMENTS[8];
+  const older = ANNOUNCEMENTS[9];
+  const oldest = ANNOUNCEMENTS[10];
+  const earliest = ANNOUNCEMENTS[11];
   assert.deepEqual(
     ANNOUNCEMENTS.map(({ version }) => version),
     [
+      "26.4.18",
       "26.4.17",
       "26.4.16",
       "26.4.15",
@@ -421,6 +423,20 @@ test("announcement history preserves each release separately through 26.4.17", (
       "26.4.7",
       "26.4.6",
     ],
+  );
+  assert.equal(release18.version, "26.4.18");
+  assert.equal(release18.publishedAt, "2026-09-28");
+  assert.match(release18.title.zh, /重要更新/);
+  assert.match(release18.title.en, /important update/);
+  assert.equal(release18.body.zh.length, 12);
+  assert.equal(release18.body.en.length, 12);
+  assert.match(
+    release18.body.zh.join("\n"),
+    /4%[\s\S]*任务返回[\s\S]*共享材料[\s\S]*右键[\s\S]*统一备份[\s\S]*聊天字号[\s\S]*重要更新/,
+  );
+  assert.match(
+    release18.body.en.join("\n"),
+    /4%[\s\S]*task return[\s\S]*shared inventory[\s\S]*right-click[\s\S]*Unified backups[\s\S]*Chat font[\s\S]*important update/,
   );
   assert.equal(release17.version, "26.4.17");
   assert.equal(release17.publishedAt, "2026-08-28");

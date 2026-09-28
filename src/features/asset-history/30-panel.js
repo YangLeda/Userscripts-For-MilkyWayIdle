@@ -922,15 +922,17 @@ class AssetHistoryPanel {
     const current = this.snapshot?.values ?? todayRecord?.values ?? {};
     const comparison = this.store.comparison(dayKey, this.scopeKey);
     const previous = comparison?.record?.values ?? {};
+    const currentProfit = this.store.profitValue(current, this.scopeKey);
+    const previousProfit = this.store.profitValue(previous, this.scopeKey);
     const totalChange =
-      Number.isFinite(current.total) && Number.isFinite(previous.total)
-        ? current.total - previous.total
+      Number.isFinite(currentProfit) && Number.isFinite(previousProfit)
+        ? currentProfit - previousProfit
         : null;
     const totalPercent =
       Number.isFinite(totalChange) &&
-      Number.isFinite(previous.total) &&
-      previous.total !== 0
-        ? (totalChange / previous.total) * 100
+      Number.isFinite(previousProfit) &&
+      previousProfit !== 0
+        ? (totalChange / previousProfit) * 100
         : null;
     this.shareStats =
       comparison && Number.isFinite(totalPercent)
@@ -967,14 +969,27 @@ class AssetHistoryPanel {
       signed: true,
       className: valueClass(totalChange),
     });
-    const liquidChange =
-      Number.isFinite(current.liquid) && Number.isFinite(previous.liquid)
-        ? current.liquid - previous.liquid
+    const selected = this.store.getProfitCategories(this.scopeKey);
+    const selectedChange = (keys) => {
+      const included = keys.filter((key) => selected.includes(key));
+      return included.every(
+        (key) =>
+          Number.isFinite(current[key]) && Number.isFinite(previous[key]),
+      )
+        ? included.reduce((sum, key) => sum + current[key] - previous[key], 0)
         : null;
-    const fixedChange =
-      Number.isFinite(current.fixed) && Number.isFinite(previous.fixed)
-        ? current.fixed - previous.fixed
-        : null;
+    };
+    const liquidChange = selectedChange([
+      "equipment",
+      "inventory",
+      "marketListings",
+    ]);
+    const fixedChange = selectedChange([
+      "houses",
+      "abilities",
+      "nonTradableTokens",
+      "shrine",
+    ]);
     setNumber("#mwi-asset-liquid-change", liquidChange, {
       signed: true,
       className: valueClass(liquidChange),
@@ -984,12 +999,17 @@ class AssetHistoryPanel {
       className: valueClass(fixedChange),
     });
     this.host.querySelector("#mwi-asset-compare-date").textContent =
-      compareText;
+      Number.isFinite(totalChange)
+        ? compareText
+        : t(
+            "所选分类缺少历史分项，无法计算",
+            "Selected categories lack historical components; unavailable",
+          );
     setNumber("#mwi-asset-total-percent", null, {
       className: valueClass(totalChange),
     });
     this.host.querySelector("#mwi-asset-total-percent").textContent =
-      formatPercent(current.total, previous.total);
+      formatPercent(currentProfit, previousProfit);
     const average = this.store.sevenDayAverage(dayKey, this.scopeKey);
     setNumber("#mwi-asset-seven-average", average, {
       signed: true,
@@ -1079,10 +1099,15 @@ class AssetHistoryPanel {
         button.dataset.range === "all" ? null : Number(button.dataset.range);
       button.dataset.active = String(range === this.range);
     });
-    this.chart.render(this.store.list(this.scopeKey), {
-      mode: this.mode,
-      range: this.range,
-    });
+    this.chart.render(
+      this.mode === "profit"
+        ? this.store.profitEntries(this.scopeKey)
+        : this.store.list(this.scopeKey),
+      {
+        mode: this.mode,
+        range: this.range,
+      },
+    );
   }
 
   setVisible(visible) {

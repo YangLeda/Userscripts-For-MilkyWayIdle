@@ -19,6 +19,7 @@ let drawerOpen = false;
 let activeTab = "cart";
 let currentMarketTarget = "";
 let armedNextItem = "";
+let fulfilledNextKey = "";
 let marketSessionDone = new Map();
 let marketSessionActive = false;
 let marketSessionRequiresModal = false;
@@ -185,13 +186,7 @@ function showToast(message) {
 }
 
 function pendingItems() {
-  return procurement
-    .getCartItems()
-    .filter((item) => item.quantity > 0)
-    .sort((a, b) => {
-      if (a.starred !== b.starred) return a.starred ? -1 : 1;
-      return a.name.localeCompare(b.name, runtime.config.isZH ? "zh" : "en");
-    });
+  return procurement.getCartItems().filter((item) => item.quantity > 0);
 }
 
 function renderItemIcon(item) {
@@ -2270,6 +2265,7 @@ function openMarketplace(itemHrid, enhancementLevel = 0) {
         requiresModal: true,
         restoreNavTarget,
       });
+      fulfilledNextKey = "";
       currentMarketTarget = target;
       currentMarketLevel = level;
       const showFloatingModal = () => {
@@ -2324,6 +2320,7 @@ function openMarketplace(itemHrid, enhancementLevel = 0) {
     try {
       resolved.fn.call(resolved.host, ...args);
       beginMarketSession(resolved, { requiresModal: false });
+      fulfilledNextKey = "";
       currentMarketTarget = target;
       currentMarketLevel = level;
       if (window.matchMedia?.("(max-width:760px)").matches) {
@@ -2420,6 +2417,7 @@ function clearMarketUi({ preserveSession = false, closeModal = false } = {}) {
     marketSessionHost = null;
     marketSessionRestoreNavTarget = "";
     currentMarketTarget = "";
+    fulfilledNextKey = "";
     currentMarketLevel = 0;
     armedNextItem = "";
     marketSessionDone = new Map();
@@ -2567,14 +2565,28 @@ function renderMarketNav(panel) {
       badge: item.done ? "✓" : formatNumber(item.quantity),
     };
   });
-  const next =
-    items.find(
+  const nextPending = () => {
+    const currentItems = pendingItems();
+    if (currentItems.length < 2) return null;
+    const key = procurement.itemKey(
+      currentMarketTarget || detectedCurrent,
+      currentMarketLevel,
+    );
+    const index = currentItems.findIndex(
       (item) =>
-        procurement.itemKey(item.itemHrid, item.enhancementLevel) !==
-        currentKey,
-    ) ??
-    items.at(0) ??
-    null;
+        procurement.itemKey(item.itemHrid, item.enhancementLevel) === key,
+    );
+    if (index < 0 && fulfilledNextKey) {
+      const next = currentItems.find(
+        (item) =>
+          procurement.itemKey(item.itemHrid, item.enhancementLevel) ===
+          fulfilledNextKey,
+      );
+      if (next) return next;
+    }
+    return currentItems[(index + 1) % currentItems.length];
+  };
+  const next = nextPending();
   const currentItem = items.find(
     (item) =>
       procurement.itemKey(item.itemHrid, item.enhancementLevel) === currentKey,
@@ -2634,7 +2646,8 @@ function renderMarketNav(panel) {
     nextButton.textContent = nextText;
     nextButton.disabled = !next;
     nextButton.addEventListener("click", () => {
-      if (next) openMarketplace(next.itemHrid, next.enhancementLevel);
+      const target = nextPending();
+      if (target) openMarketplace(target.itemHrid, target.enhancementLevel);
       armedNextItem = "";
     });
     const removeButton = document.createElement("button");
@@ -2711,7 +2724,8 @@ function handleShortcut(event) {
     .getCartItems()
     .find(
       (candidate) =>
-        candidate.itemHrid === armedNextItem && candidate.quantity > 0,
+        procurement.itemKey(candidate.itemHrid, candidate.enhancementLevel) ===
+          armedNextItem && candidate.quantity > 0,
     );
   const fallback = item ?? pendingItems().at(0);
   armedNextItem = "";
@@ -2757,7 +2771,7 @@ function subscribeProcurement(scope) {
     }),
   );
   scope.add(
-    procurement.on("item:fulfilled", ({ item }) => {
+    procurement.on("item:fulfilled", ({ item, nextItemKey }) => {
       marketSessionDone.set(
         procurement.itemKey(item.itemHrid, item.enhancementLevel),
         {
@@ -2765,8 +2779,18 @@ function subscribeProcurement(scope) {
           done: true,
         },
       );
-      const next = pendingItems().at(0);
-      armedNextItem = next?.itemHrid ?? "";
+      if (isCurrentMarketItem(item)) fulfilledNextKey = nextItemKey || "";
+      const next =
+        pendingItems().find(
+          (candidate) =>
+            procurement.itemKey(
+              candidate.itemHrid,
+              candidate.enhancementLevel,
+            ) === nextItemKey,
+        ) ?? pendingItems().at(0);
+      armedNextItem = next
+        ? procurement.itemKey(next.itemHrid, next.enhancementLevel)
+        : "";
       showToast(
         next
           ? t(

@@ -225,13 +225,13 @@ test("compressed game market values are restored at startup", () => {
 });
 
 test("taxes, compact numbers and new price increments are supported", () => {
-  assert.equal(runtime.api.getMarketTaxRate("/items/milk"), 0.05);
+  assert.equal(runtime.api.getMarketTaxRate("/items/milk"), 0.04);
   assert.equal(runtime.api.getMarketTaxRate("/items/bag_of_10_cowbells"), 0.18);
   assert.equal(runtime.api.parseCompactNumber("1.25t"), 1.25e12);
   assert.equal(runtime.api.parseCompactNumber("2.5B"), 2.5e9);
   assert.equal(runtime.api.numberFormatter(1.2e12), "1.2T");
-  assert.equal(runtime.api.getMarketPriceIncrement(1_000), 5);
-  assert.equal(runtime.api.getMarketPriceIncrement(3_000), 10);
+  assert.equal(runtime.api.getMarketPriceIncrement(1_000), 4);
+  assert.equal(runtime.api.getMarketPriceIncrement(3_000), 12);
   assert.equal(runtime.api.getMarketPriceIncrement(5_000), 20);
   assert.equal(runtime.api.normalizeMarketPrice(1_234_567), 1_235_000);
   assert.equal(runtime.api.normalizeMarketPrice(2e12), 1e12);
@@ -248,4 +248,36 @@ test("price bands and pegged listing prices retain server semantics", () => {
     110,
   );
   assert.equal(runtime.api.getListingWorkingPrice({ price: 95 }), 95);
+});
+
+test("official market increment boundaries distinguish enhanced equipment", () => {
+  for (const [price, normal, enhanced] of [
+    [99, 1, 1],
+    [100, 1, 2],
+    [199, 1, 2],
+    [200, 1, 5],
+    [399, 1, 5],
+    [400, 2, 10],
+    [799, 2, 10],
+    [800, 4, 20],
+    [999, 4, 20],
+    [1000, 4, 20],
+    [1199, 4, 20],
+    [1200, 5, 25],
+    [1499, 5, 25],
+    [1500, 6, 30],
+    [9000, 40, 200],
+  ]) {
+    assert.equal(
+      runtime.api.getMarketPriceIncrement(price),
+      normal,
+      String(price),
+    );
+    assert.equal(
+      runtime.api.getMarketPriceIncrement(price, 7),
+      enhanced,
+      `${price} +7`,
+    );
+  }
+  assert.equal(runtime.api.normalizeMarketPrice(1234, 1, 1e12, 1), 1225);
 });

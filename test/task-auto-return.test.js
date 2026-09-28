@@ -87,7 +87,11 @@ function taskPage({ task = true, scrollTop = 143, goLabel = "Go" } = {}) {
 function actionPage(label = "添加到队列") {
   const root = document.getElementById("root");
   root.innerHTML = `<div class="Modal_modalContainer__test"><div class="SkillActionDetail_regularComponent__test"><button>${label}</button></div></div>`;
-  return root.querySelector("button");
+  const button = root.querySelector("button");
+  button.addEventListener("click", () =>
+    runtime.dispatchMessage({ type: "actions_updated" }),
+  );
+  return button;
 }
 
 function attachGameHost(renderTasks) {
@@ -262,4 +266,32 @@ test("character switch and feature disable discard pending navigation", async ()
   document.getElementById("root").innerHTML = "";
   await settle();
   assert.deepEqual(host.targets, []);
+});
+
+test("turning return off cancels a scheduled return immediately", async () => {
+  await runtime.settings.set("taskAutoReturn", true);
+  await runtime.features.restart("taskAutoReturn");
+  const first = taskPage();
+  const host = attachGameHost(() => taskPage());
+  first.go.click();
+  const button = actionPage();
+  await settle(20);
+  button.click();
+  await runtime.settings.set("taskAutoReturn", false);
+  await settle(600);
+  assert.deepEqual(host.targets, []);
+  await runtime.settings.set("taskAutoReturn", true);
+});
+
+test("closing a combat detail modal returns to the originating task", async () => {
+  await runtime.features.restart("taskAutoReturn");
+  const first = taskPage();
+  const host = attachGameHost(() => taskPage());
+  first.go.click();
+  first.root.innerHTML =
+    '<div class="BattlePanel_modalContent__test"><button>Cancel</button></div>';
+  await settle(20);
+  first.root.replaceChildren();
+  await settle(100);
+  assert.deepEqual(host.targets, ["tasks"]);
 });

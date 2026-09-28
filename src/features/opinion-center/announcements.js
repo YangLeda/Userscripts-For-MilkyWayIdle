@@ -2,6 +2,45 @@ const STORAGE_KEY = "MWITools_opinion_center_seen_announcements_v1";
 
 export const ANNOUNCEMENTS = Object.freeze([
   Object.freeze({
+    id: "26.4.18",
+    version: "26.4.18",
+    publishedAt: "2026-09-28",
+    title: Object.freeze({
+      zh: "26.4.18 重要更新",
+      en: "Version 26.4.18 important update",
+    }),
+    body: Object.freeze({
+      zh: Object.freeze([
+        "性能：修复共享存储与公会经验历史引起的严重卡顿，按成员保存经验、批量读写并复用未变化的数据；首次迁移分批处理，语言缓存和迁移标记保持本站独立。",
+        "库存：适配全部、最爱、分类标签和搜索结果，切换后恢复价值角标与排序；保留最爱置顶，锁定物品仍计入资产。",
+        "市场计算：普通税率调整为 4%，牛铃袋维持 18%；适配普通与强化物品价格步进，修复不同语言的小数点和千分位解析。",
+        "任务：修复生产与战斗窗口的任务返回、关闭后仍返回、关闭自动整理后顺序变化，以及刷新图标不更新；仅在可用的“前往”旁显示规划火车。",
+        "购物车与筛选：下一项按购物车顺序循环，区分强化等级，兼容删除、重排和快速点击；市场筛选独立即时生效，关闭后恢复显示。",
+        "生产规划：汇总多个计划的共享材料需求，库存只扣一次，重复加入不增加购物数量，保留手动添加量；支持第二步删除房屋目标、普通神射护腕制作链和单站计划。",
+        "装备与经验：护符等装备显示真正的需求等级；修复动作窗口复用时沿用旧经验或耗时，以及本地化数字造成的经验估算错误。",
+        "战利品：全部打开改为右键库存中的当前战利品，使用原生开箱入口，按库存和钥匙限制数量；等待回执后继续，失败停止，阻止原生右键重复开一个。独立开关默认关闭，沿用已保存的选择。",
+        "公会信用点：增加仓库可兑换前 N 名，与全材料榜共用数量设置；兑换窗口可按当前批次数将材料缺口加入购物车。",
+        "跨站与备份：正式站和 cn 站共享持久化数据，测试服独立；按记录合并，保留冲突副本和删除记录。统一备份包含设置、购物计划和历史，兼容旧资产备份。",
+        "显示与偏好：行动队列自适应宽度；聊天字号 80%–160% 同步调整消息、人物名字、时间戳、频道和输入框，仅影响聊天区域。每日盈亏的七类勾选项统一为资产中心风格的紧凑控件，适配深浅主题和窄屏；记住铁牛选择，并显示具体等待原因。",
+        "版本与公告：26.4.18 为重要更新，更新提醒门槛同步提升；中英文公告按功能分类列出变化，便于逐项查看。",
+      ]),
+      en: Object.freeze([
+        "Performance: Fixed severe stalls caused by shared storage and guild XP history. History is saved per member, reads and writes are batched, unchanged data is reused, and initial migration yields between batches. Language caches and migration markers stay local.",
+        "Inventory: Updated All, Favorites, category tabs and search results. Tab changes restore value badges and sorting, favorites stay pinned, and locked items remain included in assets.",
+        "Market calculations: Standard tax is now 4%; cowbell bags remain at 18%. Updated normal and enhanced-item price increments and fixed locale-specific decimal and grouping separators.",
+        "Tasks: Fixed production and combat task return, returning after disabling it, order changes with auto-sort off, and stale reroll artwork. Train controls appear only beside an available Go to button.",
+        "Cart and filters: Next cycles in cart order, distinguishes enhancement levels and handles deletion, reordering and rapid clicks. Market filters apply independently and immediately; disabling them restores hidden items.",
+        "Production planning: Plans pool material demand and deduct shared inventory once. Repeated additions are idempotent and manual quantities are preserved. Added house-goal deletion in step two, the ordinary Marksman Bracers crafting chain and single-stop plans.",
+        "Equipment and XP: Charms and other equipment show actual requirement levels. Fixed stale experience and duration when reusing action panels, and XP estimates affected by localized number formats.",
+        "Loot: Open all now uses right-click on the selected inventory loot and the native opening handler, limited by stock and keys. Further batches wait for receipts; failures stop the operation, and the native single-open action is suppressed. The separate setting is off by default and preserves saved choices.",
+        "Guild credits: Added the top N exchangeable materials already in storage, sharing the all-material ranking limit. Exchange dialogs can add material shortages to the cart for the currently selected batch count.",
+        "Cross-site data and backups: Live and CN share persistent data; test remains separate. Records merge with recoverable conflicts and deletion markers. Unified backups contain settings, shopping plans and history, with legacy asset backup support.",
+        "Display and preferences: The action queue adapts its width. Chat font sizing from 80% to 160% now includes messages, player names, timestamps, channels and input within chat only. Daily P/L uses compact seven-category controls matching the Asset Center, including dark/light themes and narrow screens. Iron Cow choices are remembered, and waiting states explain missing dependencies.",
+        "Version and announcements: 26.4.18 is an important update with a matching notification threshold. Chinese and English announcements now list changes by feature for easier review.",
+      ]),
+    }),
+  }),
+  Object.freeze({
     id: "26.4.17",
     version: "26.4.17",
     publishedAt: "2026-08-28",

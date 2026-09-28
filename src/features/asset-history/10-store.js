@@ -1,3 +1,4 @@
+import { sharedStorage } from "../../core/shared-storage.js";
 import { runtime } from "../../core/runtime.js";
 import { ASSET_COMPONENT_KEYS } from "./00-snapshot.js";
 
@@ -109,6 +110,11 @@ function normalizePreferences(input = {}) {
 function normalizeRole(role = {}) {
   return {
     ...role,
+    profitCategories: Array.isArray(role.profitCategories)
+      ? [...new Set(role.profitCategories)].filter((key) =>
+          ASSET_COMPONENT_KEYS.includes(key),
+        )
+      : undefined,
     days: role.days && typeof role.days === "object" ? role.days : {},
     tags: role.tags && typeof role.tags === "object" ? role.tags : {},
     achievements:
@@ -307,7 +313,7 @@ function legacyPayloadFromStorage(storage) {
 }
 
 export class AssetHistoryStore {
-  constructor(storage = globalThis.localStorage) {
+  constructor(storage = sharedStorage) {
     this.storage = storage;
     this.listeners = new Set();
     const loaded = safeParse(storage?.getItem(ASSET_HISTORY_STORAGE_KEY), null);
@@ -319,7 +325,23 @@ export class AssetHistoryStore {
     if (!this.storage) return false;
     const serialized = JSON.stringify(this.data);
     this.storage.setItem(ASSET_HISTORY_STORAGE_KEY, serialized);
-    if (this.storage.getItem(ASSET_HISTORY_STORAGE_KEY) !== serialized) {
+    const stored = this.storage.getItem(ASSET_HISTORY_STORAGE_KEY);
+    if (
+      this.storage === sharedStorage &&
+      typeof globalThis.GM_listValues === "function"
+    ) {
+      // A concurrent write can add other records; keep the merged result in memory.
+      const merged = safeParse(stored, null);
+      if (!merged?.roles)
+        throw new Error(
+          runtime.config.isZH
+            ? "合并后的资产历史格式无效。"
+            : "Invalid merged asset history.",
+        );
+      this.data = migrateStoredData(merged);
+      return true;
+    }
+    if (stored !== serialized) {
       throw new Error(
         runtime.config.isZH
           ? "资产历史写入校验失败。"
@@ -381,13 +403,47 @@ export class AssetHistoryStore {
   }
 
   scopeKey(characterId = runtime.state.currentCharacterId) {
-    const server = runtime.api.getMarketEnvironment?.() ?? "production";
+    const server =
+      runtime.api.getMarketEnvironment?.() === "test" ? "test" : "production";
     return `${server}:${String(characterId ?? "")}`;
   }
 
   getRole(scopeKey = this.scopeKey()) {
     this.data.roles[scopeKey] = normalizeRole(this.data.roles[scopeKey]);
     return this.data.roles[scopeKey];
+  }
+
+  getProfitCategories(scopeKey = this.scopeKey()) {
+    return this.getRole(scopeKey).profitCategories ?? [...ASSET_COMPONENT_KEYS];
+  }
+
+  setProfitCategories(categories, scopeKey = this.scopeKey()) {
+    const selected = [...new Set(categories)].filter((key) =>
+      ASSET_COMPONENT_KEYS.includes(key),
+    );
+    return this.commit({ reason: "profitCategories" }, () => {
+      this.getRole(scopeKey).profitCategories = selected;
+      return true;
+    });
+  }
+
+  profitValue(values, scopeKey = this.scopeKey()) {
+    const keys = this.getProfitCategories(scopeKey);
+    if (!keys.every((key) => Number.isFinite(values?.[key]))) return null;
+    return keys.reduce((sum, key) => sum + values[key], 0);
+  }
+
+  profitEntries(scopeKey = this.scopeKey()) {
+    return this.list(scopeKey).map(([day, record]) => [
+      day,
+      {
+        ...record,
+        values: {
+          ...record.values,
+          total: this.profitValue(record.values, scopeKey),
+        },
+      },
+    ]);
   }
 
   getPreferences() {
@@ -549,9 +605,12 @@ export class AssetHistoryStore {
   }
 
   sevenDayAverage(dayKey = getUtc8DayKey(), scopeKey = this.scopeKey()) {
-    const entries = this.list(scopeKey).filter(
-      ([date, record]) =>
-        date <= dayKey && Number.isFinite(record?.values?.total),
+    const history = this.profitEntries(scopeKey).filter(
+      ([date]) => date <= dayKey,
+    );
+    if (!Number.isFinite(history.at(-1)?.[1]?.values?.total)) return null;
+    const entries = history.filter(([, record]) =>
+      Number.isFinite(record?.values?.total),
     );
     if (entries.length < 2) return null;
     const currentIndex = entries.findLastIndex(([date]) => date <= dayKey);
@@ -841,3 +900,7 @@ export class AssetHistoryStore {
 }
 
 export const assetHistoryStore = new AssetHistoryStore();
+globalThis.addEventListener?.("mwitools-shared-storage", (event) => {
+  if (event.detail?.key === ASSET_HISTORY_STORAGE_KEY)
+    assetHistoryStore.reloadFromStorage();
+});
