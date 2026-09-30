@@ -23146,14 +23146,14 @@ ${locks}` : ""}`, upgradeMount?.mode === "append" ? upgradeMount.host.append(bad
     Object.freeze({
       id: "26.4.18",
       version: "26.4.18",
-      publishedAt: "2026-09-28",
+      publishedAt: "2026-09-30",
       title: Object.freeze({
         zh: "26.4.18 重要更新",
         en: "Version 26.4.18 important update"
       }),
       body: Object.freeze({
         zh: Object.freeze([
-          "性能：修复共享存储与公会经验历史引起的严重卡顿，按成员保存经验、批量读写并复用未变化的数据；首次迁移分批处理，语言缓存和迁移标记保持本站独立。",
+          "性能：修复共享存储与公会经验历史引起的严重卡顿，按成员保存经验、批量读写并复用未变化的数据；首次迁移分批处理，语言缓存和迁移标记保持本站独立。修复市场列表移除后仍保留旧游戏界面的内存占用，列表重建后自动恢复挂单价格填充。",
           "库存：适配全部、最爱、分类标签和搜索结果，切换后恢复价值角标与排序；保留最爱置顶，锁定物品仍计入资产。",
           "市场计算：普通税率调整为 4%，牛铃袋维持 18%；适配普通与强化物品价格步进，修复不同语言的小数点和千分位解析。",
           "任务：修复生产与战斗窗口的任务返回、关闭后仍返回、关闭自动整理后顺序变化，以及刷新图标不更新；仅在可用的“前往”旁显示规划火车。",
@@ -23167,7 +23167,7 @@ ${locks}` : ""}`, upgradeMount?.mode === "append" ? upgradeMount.host.append(bad
           "版本与公告：26.4.18 为重要更新，更新提醒门槛同步提升；中英文公告按功能分类列出变化，便于逐项查看。"
         ]),
         en: Object.freeze([
-          "Performance: Fixed severe stalls caused by shared storage and guild XP history. History is saved per member, reads and writes are batched, unchanged data is reused, and initial migration yields between batches. Language caches and migration markers stay local.",
+          "Performance: Fixed severe stalls caused by shared storage and guild XP history. History is saved per member, reads and writes are batched, unchanged data is reused, and initial migration yields between batches. Language caches and migration markers stay local. Fixed memory retained by the old game interface after market lists are removed; price autofill resumes when a replacement list mounts.",
           "Inventory: Updated All, Favorites, category tabs and search results. Tab changes restore value badges and sorting, favorites stay pinned, and locked items remain included in assets.",
           "Market calculations: Standard tax is now 4%; cowbell bags remain at 18%. Updated normal and enhanced-item price increments and fixed locale-specific decimal and grouping separators.",
           "Tasks: Fixed production and combat task return, returning after disabling it, order changes with auto-sort off, and stale reroll artwork. Train controls appear only beside an available Go to button.",
@@ -35719,8 +35719,7 @@ ${langText2("理论命中率", "Theoretical hit chance")}: ${pct.toFixed(2)}%`;
         let target = document.querySelector(
           ".MarketplacePanel_marketListings__1GCyQ"
         );
-        if (!target || target === observed2) return;
-        listingObserver?.disconnect(), observed2 = target;
+        if (target === observed2 || (listingObserver?.disconnect(), listingObserver = null, observed2 = target, !target)) return;
         let observer = new MutationObserver((mutations) => {
           for (let mutation of mutations)
             for (let node of mutation.addedNodes)
