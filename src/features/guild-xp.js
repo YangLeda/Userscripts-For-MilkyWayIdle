@@ -4,6 +4,7 @@ import { subscribeMutationChannel } from "../core/mutation-channel.js";
 
 const STYLE_ID = "mwitools-guild-xp-style";
 const rateCache = new Map();
+let rateCacheGeneration = 0;
 const HOUR_MS = 60 * 60 * 1000;
 const TREND_WINDOW_MS = 7 * 24 * HOUR_MS;
 const TREND_RATE_WINDOW_MS = 6 * HOUR_MS;
@@ -226,31 +227,39 @@ function objectKey(kind, entity, parentId = "") {
 
 async function refreshRate(key) {
   if (!key) return null;
+  const generation = rateCacheGeneration;
   const history = await runtime.api.getXpHistory(key);
   const rates = runtime.api.calculateXpRates(history);
-  rateCache.set(key, rates);
+  // Only the guild overview renders a history curve. Member/ranking cells
+  // need the computed rates, not another retained copy of every XP sample.
+  if (!key.startsWith("guild:")) rates.points = [];
+  if (generation === rateCacheGeneration) rateCache.set(key, rates);
   return rates;
 }
 
 async function sampleEntity(kind, entity, parentId = "", at = Date.now()) {
+  const generation = rateCacheGeneration;
   const key = objectKey(kind, entity, parentId);
   const xp = entityXp(entity);
   if (!key || xp === null) return null;
   await runtime.api.recordXpSnapshot(key, xp, at);
+  if (generation !== rateCacheGeneration) return null;
   return refreshRate(key);
 }
 
 async function sampleGuildState(includeLeaderboard = false) {
+  const generation = rateCacheGeneration;
   const now = Date.now();
   const guild = runtime.state.guild;
   const guildId = entityId(guild);
   if (guild) await sampleEntity("guild", guild, "", now);
+  if (generation !== rateCacheGeneration) return;
   await Promise.all(
     (runtime.state.guildCharacters ?? []).map((member) =>
       sampleEntity("member", member, guildId, now),
     ),
   );
-  if (includeLeaderboard) {
+  if (includeLeaderboard && generation === rateCacheGeneration) {
     await Promise.all(
       (runtime.state.guildLeaderboard ?? []).map((row) =>
         sampleEntity("leaderboard", row, "", now),
@@ -345,21 +354,26 @@ function guildXpRatePoints(points, now = Date.now()) {
     .filter((point) => Number.isFinite(point.at) && Number.isFinite(point.xp))
     .sort((left, right) => left.at - right.at);
   const rates = [];
+  let baselineIndex = 0;
+  let coverageIndex = -1;
   for (let index = 1; index < sorted.length; index += 1) {
     const current = sorted[index];
     if (current.at < cutoff) continue;
-    let baselineIndex = index - 1;
     while (
-      baselineIndex > 0 &&
-      current.at - sorted[baselineIndex - 1].at <= TREND_RATE_WINDOW_MS
+      baselineIndex < index - 1 &&
+      current.at - sorted[baselineIndex].at > TREND_RATE_WINDOW_MS
     ) {
-      baselineIndex -= 1;
+      baselineIndex += 1;
+    }
+    while (
+      coverageIndex + 1 < index &&
+      current.at - sorted[coverageIndex + 1].at >= TREND_MINIMUM_COVERAGE_MS
+    ) {
+      coverageIndex += 1;
     }
     let baseline = sorted[baselineIndex];
     if (current.at - baseline.at < TREND_MINIMUM_COVERAGE_MS) {
-      baseline = [...sorted.slice(0, baselineIndex)]
-        .reverse()
-        .find((point) => current.at - point.at >= TREND_MINIMUM_COVERAGE_MS);
+      baseline = sorted[coverageIndex];
     }
     if (!baseline) continue;
     const elapsed = current.at - baseline.at;
@@ -863,6 +877,10 @@ runtime.features.register({
   setting: "guildXpTracking",
   scope: "character",
   initialize({ scope }) {
+    scope.add(() => {
+      rateCacheGeneration += 1;
+      rateCache.clear();
+    });
     sampleGuildState(false);
     scope.add(
       runtime.onMessage("guild_updated", () => sampleGuildState(false)),

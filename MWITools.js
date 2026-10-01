@@ -721,7 +721,7 @@
   });
 
   // src/core/shared-storage.js
-  var PREFIX = "MWITools_shared_v1:", bases = /* @__PURE__ */ new Map(), observed = /* @__PURE__ */ new Set(), snapshots = /* @__PURE__ */ new Map(), indexedNames = null, indexedNameSet = /* @__PURE__ */ new Set(), forbidden = /* @__PURE__ */ new Set(["__proto__", "prototype", "constructor"]), equal = (a, b) => JSON.stringify(a) === JSON.stringify(b), canonical = (key) => String(key).replace(/(^|:)china:/g, "$1production:"), environment = () => String(globalThis.location?.hostname ?? "").startsWith("test.") ? "test" : "live", root = () => `${PREFIX}${environment()}:`, shared = (key) => /^(MWITools_|script_settingsMap$|kikimeter:(settings|history):|kbd_|ep_)/.test(
+  var PREFIX = "MWITools_shared_v1:", bases = /* @__PURE__ */ new Map(), observed = /* @__PURE__ */ new Set(), snapshots = /* @__PURE__ */ new Map(), indexedNames = null, forbidden = /* @__PURE__ */ new Set(["__proto__", "prototype", "constructor"]), equal = (a, b) => JSON.stringify(a) === JSON.stringify(b), canonical = (key) => String(key).replace(/(^|:)china:/g, "$1production:"), environment = () => String(globalThis.location?.hostname ?? "").startsWith("test.") ? "test" : "live", root = () => `${PREFIX}${environment()}:`, shared = (key) => /^(MWITools_|script_settingsMap$|kikimeter:(settings|history):|kbd_|ep_)/.test(
     key
   ) && !/cache|marketAPI|market_data|game_locale|important_update_manifest|xp_(?:object_)?migrated|popover_scroll|active:/i.test(
     key
@@ -777,8 +777,18 @@
   function revisionKey(key) {
     return `${root()}revision:${encodeURIComponent(canonical(key))}`;
   }
+  function indexRecordName(name) {
+    let prefix = name.match(
+      /^MWITools_shared_v1:(?:live|test):record:[^:]+:/
+    )?.[0];
+    prefix && (indexedNames.has(prefix) || indexedNames.set(prefix, /* @__PURE__ */ new Set()), indexedNames.get(prefix).add(name));
+  }
   function listNames() {
-    return indexedNames || (indexedNames = globalThis.GM_listValues(), indexedNameSet = new Set(indexedNames)), indexedNames;
+    if (!indexedNames) {
+      indexedNames = /* @__PURE__ */ new Map();
+      for (let name of globalThis.GM_listValues()) indexRecordName(name);
+    }
+    return indexedNames;
   }
   function setValues(values) {
     let entries = Object.entries(values);
@@ -788,15 +798,14 @@
       else
         for (let [key, value] of entries) globalThis.GM_setValue(key, value);
       if (indexedNames)
-        for (let [key] of entries)
-          indexedNameSet.has(key) || (indexedNameSet.add(key), indexedNames.push(key));
+        for (let [key] of entries) indexRecordName(key);
     }
   }
   function entriesFor(key) {
     let prefix = recordPrefix(key), revision = globalThis.GM_getValue(revisionKey(key), null), cached = snapshots.get(prefix);
     if (cached && cached.revision === revision) return cached.entries;
     (cached || revision !== null && typeof globalThis.GM_addValueChangeListener != "function") && (indexedNames = null);
-    let names = listNames().filter((name) => name.startsWith(prefix)), values = typeof globalThis.GM_getValues == "function" ? globalThis.GM_getValues(names) : Object.fromEntries(
+    let names = [...listNames().get(prefix) ?? []], values = typeof globalThis.GM_getValues == "function" ? globalThis.GM_getValues(names) : Object.fromEntries(
       names.map((name) => [name, globalThis.GM_getValue(name)])
     ), entries = new Map(
       names.map((name) => [
@@ -8605,7 +8614,11 @@
     return [...new Set(duplicates)].sort().join("\0");
   }
   function createDuplicateWarningMonitor(options = {}) {
-    let documentRef = options.documentRef ?? globalThis.document, detect = options.detect ?? (() => detectDuplicateScripts(options)), render = options.render ?? showDuplicateWarning, scheduleTask = options.scheduleTask ?? globalThis.queueMicrotask, setIntervalRef = options.setIntervalRef ?? globalThis.setInterval, clearIntervalRef = options.clearIntervalRef ?? globalThis.clearInterval, Observer = options.MutationObserverRef ?? globalThis.MutationObserver, intervalMs = options.intervalMs ?? 1e4, detected = /* @__PURE__ */ new Set(), usesStoredMuted = !options.muted, muted = options.muted ?? readMutedDuplicateScriptIds(options.storage), isDuplicateEnabled = options.isDuplicateEnabled ?? ((name) => duplicateScriptId(name) !== "mwi-task-manager" || (runtime.settings.get?.("taskInsights") ?? !0)), lastSignature = "", dismissed = !1, pending = !1, destroyed = !1, scan2 = () => {
+    let documentRef = options.documentRef ?? globalThis.document, detect = options.detect ?? (() => detectDuplicateScripts(options)), render = options.render ?? showDuplicateWarning, pendingTimer = null, clearTimeoutRef = options.clearTimeoutRef ?? globalThis.clearTimeout, scheduleTask = options.scheduleTask ?? ((callback) => {
+      pendingTimer = (options.setTimeoutRef ?? globalThis.setTimeout)(() => {
+        pendingTimer = null, callback();
+      }, 1e3);
+    }), setIntervalRef = options.setIntervalRef ?? globalThis.setInterval, clearIntervalRef = options.clearIntervalRef ?? globalThis.clearInterval, Observer = options.MutationObserverRef ?? globalThis.MutationObserver, intervalMs = options.intervalMs ?? 1e4, detected = /* @__PURE__ */ new Set(), usesStoredMuted = !options.muted, muted = options.muted ?? readMutedDuplicateScriptIds(options.storage), isDuplicateEnabled = options.isDuplicateEnabled ?? ((name) => duplicateScriptId(name) !== "mwi-task-manager" || (runtime.settings.get?.("taskInsights") ?? !0)), lastSignature = "", dismissed = !1, pending = !1, destroyed = !1, scan2 = () => {
       if (pending = !1, destroyed || dismissed) return;
       if (usesStoredMuted) {
         muted.clear();
@@ -8650,7 +8663,7 @@
       scan: scan2,
       schedule,
       destroy() {
-        destroyed || (destroyed = !0, pending = !1, observer?.disconnect(), intervalId !== void 0 && clearIntervalRef?.(intervalId), documentRef?.getElementById(WARNING_ID)?.remove());
+        destroyed || (destroyed = !0, pending = !1, pendingTimer !== null && clearTimeoutRef(pendingTimer), pendingTimer = null, observer?.disconnect(), intervalId !== void 0 && clearIntervalRef?.(intervalId), documentRef?.getElementById(WARNING_ID)?.remove());
       }
     };
   }
@@ -23146,14 +23159,14 @@ ${locks}` : ""}`, upgradeMount?.mode === "append" ? upgradeMount.host.append(bad
     Object.freeze({
       id: "26.4.18",
       version: "26.4.18",
-      publishedAt: "2026-09-30",
+      publishedAt: "2026-10-01",
       title: Object.freeze({
         zh: "26.4.18 重要更新",
         en: "Version 26.4.18 important update"
       }),
       body: Object.freeze({
         zh: Object.freeze([
-          "性能：修复共享存储与公会经验历史引起的严重卡顿，按成员保存经验、批量读写并复用未变化的数据；首次迁移分批处理，语言缓存和迁移标记保持本站独立。修复市场列表移除后仍保留旧游戏界面的内存占用，列表重建后自动恢复挂单价格填充。",
+          "性能：修复共享存储与公会经验历史引起的严重卡顿，按成员保存经验、批量读写并复用未变化的数据；首次迁移分批处理，语言缓存和迁移标记保持本站独立。修复市场列表移除后仍保留旧游戏界面的内存占用，列表重建后自动恢复挂单价格填充。减少重复脚本检测的全页扫描，优化共享历史索引与公会曲线计算，释放成员和榜单不使用的曲线缓存。",
           "库存：适配全部、最爱、分类标签和搜索结果，切换后恢复价值角标与排序；保留最爱置顶，锁定物品仍计入资产。",
           "市场计算：普通税率调整为 4%，牛铃袋维持 18%；适配普通与强化物品价格步进，修复不同语言的小数点和千分位解析。",
           "任务：修复生产与战斗窗口的任务返回、关闭后仍返回、关闭自动整理后顺序变化，以及刷新图标不更新；仅在可用的“前往”旁显示规划火车。",
@@ -23167,7 +23180,7 @@ ${locks}` : ""}`, upgradeMount?.mode === "append" ? upgradeMount.host.append(bad
           "版本与公告：26.4.18 为重要更新，更新提醒门槛同步提升；中英文公告按功能分类列出变化，便于逐项查看。"
         ]),
         en: Object.freeze([
-          "Performance: Fixed severe stalls caused by shared storage and guild XP history. History is saved per member, reads and writes are batched, unchanged data is reused, and initial migration yields between batches. Language caches and migration markers stay local. Fixed memory retained by the old game interface after market lists are removed; price autofill resumes when a replacement list mounts.",
+          "Performance: Fixed severe stalls caused by shared storage and guild XP history. History is saved per member, reads and writes are batched, unchanged data is reused, and initial migration yields between batches. Language caches and migration markers stay local. Fixed memory retained by the old game interface after market lists are removed; price autofill resumes when a replacement list mounts. Reduced full-page duplicate-script scans, optimized shared-history lookups and guild trend calculations, and released unused member and leaderboard curve caches.",
           "Inventory: Updated All, Favorites, category tabs and search results. Tab changes restore value badges and sorting, favorites stay pinned, and locked items remain included in assets.",
           "Market calculations: Standard tax is now 4%; cowbell bags remain at 18%. Updated normal and enhanced-item price increments and fixed locale-specific decimal and grouping separators.",
           "Tasks: Fixed production and combat task return, returning after disabling it, order changes with auto-sort off, and stale reroll artwork. Train controls appear only beside an available Go to button.",
@@ -24443,7 +24456,7 @@ ${locks}` : ""}`, upgradeMount?.mode === "append" ? upgradeMount.host.append(bad
   };
 
   // src/features/guild-xp.js
-  var STYLE_ID16 = "mwitools-guild-xp-style", rateCache = /* @__PURE__ */ new Map(), HOUR_MS2 = 3600 * 1e3, TREND_WINDOW_MS = 168 * HOUR_MS2, TREND_RATE_WINDOW_MS = 6 * HOUR_MS2, TREND_MINIMUM_COVERAGE_MS = HOUR_MS2, GUILD_SURFACE_SELECTOR = '[class*="Guild"],[class*="Leaderboard"]', OWNED_GUILD_SELECTOR = ".mwi-guild-xp-card,.mwi-guild-rate-cell,.mwi-guild-div-rates,.mwi-guild-div-rate-head,.mwi-guild-idle";
+  var STYLE_ID16 = "mwitools-guild-xp-style", rateCache = /* @__PURE__ */ new Map(), rateCacheGeneration = 0, HOUR_MS2 = 3600 * 1e3, TREND_WINDOW_MS = 168 * HOUR_MS2, TREND_RATE_WINDOW_MS = 6 * HOUR_MS2, TREND_MINIMUM_COVERAGE_MS = HOUR_MS2, GUILD_SURFACE_SELECTOR = '[class*="Guild"],[class*="Leaderboard"]', OWNED_GUILD_SELECTOR = ".mwi-guild-xp-card,.mwi-guild-rate-cell,.mwi-guild-div-rates,.mwi-guild-div-rate-head,.mwi-guild-idle";
   function observeGuildSurface(scope, render) {
     let scheduler = createFrameScheduler(render);
     subscribeMutationChannel(
@@ -24572,24 +24585,24 @@ ${locks}` : ""}`, upgradeMount?.mode === "append" ? upgradeMount.host.append(bad
   }
   async function refreshRate(key) {
     if (!key) return null;
-    let history = await runtime.api.getXpHistory(key), rates = runtime.api.calculateXpRates(history);
-    return rateCache.set(key, rates), rates;
+    let generation = rateCacheGeneration, history = await runtime.api.getXpHistory(key), rates = runtime.api.calculateXpRates(history);
+    return key.startsWith("guild:") || (rates.points = []), generation === rateCacheGeneration && rateCache.set(key, rates), rates;
   }
   async function sampleEntity(kind, entity, parentId = "", at = Date.now()) {
-    let key = objectKey(kind, entity, parentId), xp = entityXp(entity);
-    return !key || xp === null ? null : (await runtime.api.recordXpSnapshot(key, xp, at), refreshRate(key));
+    let generation = rateCacheGeneration, key = objectKey(kind, entity, parentId), xp = entityXp(entity);
+    return !key || xp === null || (await runtime.api.recordXpSnapshot(key, xp, at), generation !== rateCacheGeneration) ? null : refreshRate(key);
   }
   async function sampleGuildState(includeLeaderboard = !1) {
-    let now = Date.now(), guild2 = runtime.state.guild, guildId = entityId(guild2);
-    guild2 && await sampleEntity("guild", guild2, "", now), await Promise.all(
+    let generation = rateCacheGeneration, now = Date.now(), guild2 = runtime.state.guild, guildId = entityId(guild2);
+    guild2 && await sampleEntity("guild", guild2, "", now), generation === rateCacheGeneration && (await Promise.all(
       (runtime.state.guildCharacters ?? []).map(
         (member) => sampleEntity("member", member, guildId, now)
       )
-    ), includeLeaderboard && await Promise.all(
+    ), includeLeaderboard && generation === rateCacheGeneration && await Promise.all(
       (runtime.state.guildLeaderboard ?? []).map(
         (row) => sampleEntity("leaderboard", row, "", now)
       )
-    );
+    ));
   }
   function addStyles14() {
     if (document.getElementById(STYLE_ID16)) return;
@@ -24658,15 +24671,16 @@ ${locks}` : ""}`, upgradeMount?.mode === "append" ? upgradeMount.host.append(bad
     return value?.nodeType ? strong.append(value) : strong.textContent = value, strong.title = title, box.append(caption, strong), box;
   }
   function guildXpRatePoints(points, now = Date.now()) {
-    let cutoff = now - TREND_WINDOW_MS, sorted = [...points].map((point) => ({ at: Number(point?.at), xp: Number(point?.xp) })).filter((point) => Number.isFinite(point.at) && Number.isFinite(point.xp)).sort((left, right) => left.at - right.at), rates = [];
+    let cutoff = now - TREND_WINDOW_MS, sorted = [...points].map((point) => ({ at: Number(point?.at), xp: Number(point?.xp) })).filter((point) => Number.isFinite(point.at) && Number.isFinite(point.xp)).sort((left, right) => left.at - right.at), rates = [], baselineIndex = 0, coverageIndex = -1;
     for (let index = 1; index < sorted.length; index += 1) {
       let current = sorted[index];
       if (current.at < cutoff) continue;
-      let baselineIndex = index - 1;
-      for (; baselineIndex > 0 && current.at - sorted[baselineIndex - 1].at <= TREND_RATE_WINDOW_MS; )
-        baselineIndex -= 1;
+      for (; baselineIndex < index - 1 && current.at - sorted[baselineIndex].at > TREND_RATE_WINDOW_MS; )
+        baselineIndex += 1;
+      for (; coverageIndex + 1 < index && current.at - sorted[coverageIndex + 1].at >= TREND_MINIMUM_COVERAGE_MS; )
+        coverageIndex += 1;
       let baseline = sorted[baselineIndex];
-      if (current.at - baseline.at < TREND_MINIMUM_COVERAGE_MS && (baseline = [...sorted.slice(0, baselineIndex)].reverse().find((point) => current.at - point.at >= TREND_MINIMUM_COVERAGE_MS)), !baseline) continue;
+      if (current.at - baseline.at < TREND_MINIMUM_COVERAGE_MS && (baseline = sorted[coverageIndex]), !baseline) continue;
       let elapsed = current.at - baseline.at, gained = current.xp - baseline.xp;
       elapsed <= 0 || gained < 0 || rates.push({ at: current.at, rate: gained / elapsed * HOUR_MS2 });
     }
@@ -24958,7 +24972,9 @@ ${locks}` : ""}`, upgradeMount?.mode === "append" ? upgradeMount.host.append(bad
     setting: "guildXpTracking",
     scope: "character",
     initialize({ scope }) {
-      sampleGuildState(!1), scope.add(
+      scope.add(() => {
+        rateCacheGeneration += 1, rateCache.clear();
+      }), sampleGuildState(!1), scope.add(
         runtime.onMessage("guild_updated", () => sampleGuildState(!1))
       ), scope.add(
         runtime.onMessage(

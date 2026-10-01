@@ -211,3 +211,38 @@ test("duplicate monitor coalesces mutations and ignores its own warning", () => 
   assert.equal(observerDisconnected, true);
   assert.equal(intervalCleared, true);
 });
+
+test("continuous page mutations share one delayed duplicate scan and cleanup cancels it", () => {
+  let scans = 0;
+  let callback;
+  let timers = 0;
+  let cancelled = null;
+  const monitor = createDuplicateWarningMonitor({
+    documentRef: document,
+    detect: () => {
+      scans++;
+      return [];
+    },
+    setIntervalRef: () => undefined,
+    MutationObserverRef: null,
+    setTimeoutRef: (run, delay) => {
+      assert.equal(delay, 1_000);
+      callback = run;
+      return ++timers;
+    },
+    clearTimeoutRef: (id) => {
+      cancelled = id;
+    },
+  });
+  assert.equal(scans, 1);
+  for (let index = 0; index < 100; index++) monitor.schedule();
+  assert.equal(timers, 1);
+  assert.equal(scans, 1);
+  callback();
+  assert.equal(scans, 2);
+  monitor.schedule();
+  monitor.destroy();
+  assert.equal(cancelled, 2);
+  callback();
+  assert.equal(scans, 2);
+});
