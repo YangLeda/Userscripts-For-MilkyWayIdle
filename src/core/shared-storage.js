@@ -6,7 +6,6 @@ const observed = new Set();
 // Cache immutable read snapshots; revisions invalidate only the changed store.
 const snapshots = new Map();
 let indexedNames = null;
-let indexedNameSet = new Set();
 const forbidden = new Set(["__proto__", "prototype", "constructor"]);
 const equal = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const canonical = (key) => String(key).replace(/(^|:)china:/g, "$1production:");
@@ -106,10 +105,18 @@ function recordPrefix(key) {
 function revisionKey(key) {
   return `${root()}revision:${encodeURIComponent(canonical(key))}`;
 }
+function indexRecordName(name) {
+  const prefix = name.match(
+    /^MWITools_shared_v1:(?:live|test):record:[^:]+:/,
+  )?.[0];
+  if (!prefix) return;
+  if (!indexedNames.has(prefix)) indexedNames.set(prefix, new Set());
+  indexedNames.get(prefix).add(name);
+}
 function listNames() {
   if (!indexedNames) {
-    indexedNames = globalThis.GM_listValues();
-    indexedNameSet = new Set(indexedNames);
+    indexedNames = new Map();
+    for (const name of globalThis.GM_listValues()) indexRecordName(name);
   }
   return indexedNames;
 }
@@ -122,11 +129,7 @@ function setValues(values) {
     for (const [key, value] of entries) globalThis.GM_setValue(key, value);
   }
   if (indexedNames) {
-    for (const [key] of entries) {
-      if (indexedNameSet.has(key)) continue;
-      indexedNameSet.add(key);
-      indexedNames.push(key);
-    }
+    for (const [key] of entries) indexRecordName(key);
   }
 }
 function entriesFor(key) {
@@ -141,7 +144,7 @@ function entriesFor(key) {
       typeof globalThis.GM_addValueChangeListener !== "function")
   )
     indexedNames = null;
-  const names = listNames().filter((name) => name.startsWith(prefix));
+  const names = [...(listNames().get(prefix) ?? [])];
   const values =
     typeof globalThis.GM_getValues === "function"
       ? globalThis.GM_getValues(names)

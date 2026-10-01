@@ -452,34 +452,38 @@ function resolveInventoryCategoryHrid(grid, heading) {
   )?.[0];
 }
 
+function getInventoryStackAssetValue(item) {
+  if (item?.itemLocationHrid !== "/item_locations/inventory") return 0;
+  if (runtime.api.shouldExcludeItemFromAssets?.(item.itemHrid)) return 0;
+  if (
+    item.itemHrid === "/items/cowbell" &&
+    !runtime.api.shouldIncludeCowbellsInAssets()
+  )
+    return 0;
+  if (
+    runtime.api.isOptionalTokenAsset?.(item.itemHrid) &&
+    !runtime.api.shouldIncludeGuildDungeonTokensInAssets?.()
+  )
+    return 0;
+  return (
+    Math.max(0, Number(item.count) || 0) *
+    runtime.api.getAssetValue(item.itemHrid, item.enhancementLevel ?? 0, {
+      itemLocationHrid: item.itemLocationHrid,
+    })
+  );
+}
+
 function calculateInventoryCategoryValues() {
   const categoryValues = new Map();
   for (const item of runtime.state.initData_characterItems ?? []) {
     if (item?.itemLocationHrid !== "/item_locations/inventory") continue;
-    if (runtime.api.shouldExcludeItemFromAssets?.(item.itemHrid)) continue;
-    if (
-      item.itemHrid === "/items/cowbell" &&
-      !runtime.api.shouldIncludeCowbellsInAssets()
-    ) {
-      continue;
-    }
-    if (
-      runtime.api.isOptionalTokenAsset?.(item.itemHrid) &&
-      !runtime.api.shouldIncludeGuildDungeonTokensInAssets?.()
-    ) {
-      continue;
-    }
     const categoryHrid =
       runtime.state.initData_itemDetailMap?.[item.itemHrid]?.categoryHrid;
     if (!categoryHrid) continue;
-    const value =
-      Math.max(0, Number(item.count) || 0) *
-      runtime.api.getAssetValue(item.itemHrid, item.enhancementLevel, {
-        itemLocationHrid: item.itemLocationHrid,
-      });
     categoryValues.set(
       categoryHrid,
-      (categoryValues.get(categoryHrid) ?? 0) + value,
+      (categoryValues.get(categoryHrid) ?? 0) +
+        getInventoryStackAssetValue(item),
     );
   }
 
@@ -515,15 +519,7 @@ function addInventoryCategoryValues(
               Number(entry.enhancementLevel || 0) === enhancementLevel &&
               entry.itemLocationHrid === "/item_locations/inventory",
           );
-          return (
-            sum +
-            (owned
-              ? Number(owned.count) *
-                runtime.api.getAssetValue(itemHrid, enhancementLevel, {
-                  itemLocationHrid: "/item_locations/inventory",
-                })
-              : 0)
-          );
+          return sum + getInventoryStackAssetValue(owned);
         }, 0)
       : (categoryValues.get(categoryHrid) ?? 0);
     grid.dataset.mwitoolsInventoryCategory = "true";
@@ -561,12 +557,7 @@ async function getFrozenInventoryDisplay(force = false) {
             )
             .map((item) => [
               `${item.itemHrid}:${item.enhancementLevel ?? 0}`,
-              Number(item.count) *
-                runtime.api.getAssetValue(
-                  item.itemHrid,
-                  item.enhancementLevel ?? 0,
-                  { itemLocationHrid: "/item_locations/inventory" },
-                ),
+              getInventoryStackAssetValue(item),
             ]),
         ),
         version: ++inventoryDisplayVersion,

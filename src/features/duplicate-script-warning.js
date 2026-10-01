@@ -142,7 +142,16 @@ function createDuplicateWarningMonitor(options = {}) {
   const documentRef = options.documentRef ?? globalThis.document;
   const detect = options.detect ?? (() => detectDuplicateScripts(options));
   const render = options.render ?? showDuplicateWarning;
-  const scheduleTask = options.scheduleTask ?? globalThis.queueMicrotask;
+  let pendingTimer = null;
+  const clearTimeoutRef = options.clearTimeoutRef ?? globalThis.clearTimeout;
+  const scheduleTask =
+    options.scheduleTask ??
+    ((callback) => {
+      pendingTimer = (options.setTimeoutRef ?? globalThis.setTimeout)(() => {
+        pendingTimer = null;
+        callback();
+      }, 1_000);
+    });
   const setIntervalRef = options.setIntervalRef ?? globalThis.setInterval;
   const clearIntervalRef = options.clearIntervalRef ?? globalThis.clearInterval;
   const Observer = options.MutationObserverRef ?? globalThis.MutationObserver;
@@ -242,6 +251,8 @@ function createDuplicateWarningMonitor(options = {}) {
       if (destroyed) return;
       destroyed = true;
       pending = false;
+      if (pendingTimer !== null) clearTimeoutRef(pendingTimer);
+      pendingTimer = null;
       observer?.disconnect();
       if (intervalId !== undefined) clearIntervalRef?.(intervalId);
       documentRef?.getElementById(WARNING_ID)?.remove();

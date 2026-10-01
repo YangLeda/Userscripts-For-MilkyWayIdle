@@ -502,6 +502,71 @@ test("guild trend smooths a very short XP burst over at least one hour", () => {
   assert.ok(points.at(-1).rate < 1_000);
 });
 
+test("linear guild trend preserves rolling-window results across gaps, duplicates and XP decreases", () => {
+  const hour = 3_600_000;
+  const now = 50 * 24 * hour;
+  let at = now - 10 * 24 * hour;
+  const input = Array.from({ length: 1500 }, (_, index) => {
+    at += index % 17 === 0 ? 8 * hour : (index % 4) * 60_000;
+    return { at, xp: index % 61 === 0 ? 0 : index * 100 };
+  }).filter((point) => point.at <= now);
+  const expected = [];
+  for (let i = 1; i < input.length; i++) {
+    const current = input[i];
+    if (current.at < now - 7 * 24 * hour) continue;
+    // Definition: first preceding sample within six hours, or the immediate
+    // predecessor across a gap; fall back to the latest sample >= 1 hour old.
+    const previous = input.slice(0, i);
+    let baseline =
+      previous.find((point) => current.at - point.at <= 6 * hour) ??
+      previous.at(-1);
+    if (current.at - baseline.at < hour)
+      baseline = previous.findLast((point) => current.at - point.at >= hour);
+    if (!baseline || current.xp < baseline.xp) continue;
+    expected.push({
+      at: current.at,
+      rate: ((current.xp - baseline.xp) / (current.at - baseline.at)) * hour,
+    });
+  }
+  assert.ok(expected.length > 100);
+  assert.deepEqual(runtime.api.getGuildXpRatePoints(input, now), expected);
+});
+
+test("member and leaderboard rates do not retain unused history curves", async () => {
+  const original = runtime.api.calculateXpRates;
+  const getHistory = runtime.api.getXpHistory;
+  const history = [
+    { at: 1, xp: 10 },
+    { at: 2, xp: 20 },
+  ];
+  const calculated = [];
+  runtime.api.getXpHistory = async () => history;
+  runtime.api.calculateXpRates = (points) => {
+    const rates = { day: 123, points, lastSampleAt: 2 };
+    calculated.push(rates);
+    return rates;
+  };
+  runtime.state.guild = { id: "memory", guildExperience: 20 };
+  runtime.state.guildCharacters = [{ id: "member", guildExperience: 20 }];
+  runtime.state.guildLeaderboard = [{ id: "ranking", guildExperience: 20 }];
+  try {
+    await runtime.api.sampleGuildState(true);
+    assert.equal(calculated.length, 3);
+    assert.equal(calculated[0].points, history);
+    assert.deepEqual(
+      calculated.slice(1).map((rates) => rates.points),
+      [[], []],
+    );
+    assert.ok(calculated.every((rates) => rates.day === 123));
+    assert.equal(history.length, 2, "stored/read history remains intact");
+  } finally {
+    runtime.api.calculateXpRates = original;
+    runtime.api.getXpHistory = getHistory;
+    runtime.state.guildCharacters = [];
+    runtime.state.guildLeaderboard = [];
+  }
+});
+
 test("guild trend renders axes, readable ticks, grid lines, and bounded data", async () => {
   guildMarkup();
   const now = Date.now();

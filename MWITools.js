@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWITools
 // @namespace    http://tampermonkey.net/
-// @version      26.4.18
+// @version      26.4.19
 // @updateURL    https://update.greasyfork.org/scripts/494467/MWITools.meta.js
 // @downloadURL  https://update.greasyfork.org/scripts/494467/MWITools.user.js
 // @description  Tools for MilkyWayIdle. Includes a feedback center, action projections, market insights, asset history, DPS/HPS statistics, inventory tools, tasks, and guild utilities.
@@ -721,7 +721,7 @@
   });
 
   // src/core/shared-storage.js
-  var PREFIX = "MWITools_shared_v1:", bases = /* @__PURE__ */ new Map(), observed = /* @__PURE__ */ new Set(), snapshots = /* @__PURE__ */ new Map(), indexedNames = null, indexedNameSet = /* @__PURE__ */ new Set(), forbidden = /* @__PURE__ */ new Set(["__proto__", "prototype", "constructor"]), equal = (a, b) => JSON.stringify(a) === JSON.stringify(b), canonical = (key) => String(key).replace(/(^|:)china:/g, "$1production:"), environment = () => String(globalThis.location?.hostname ?? "").startsWith("test.") ? "test" : "live", root = () => `${PREFIX}${environment()}:`, shared = (key) => /^(MWITools_|script_settingsMap$|kikimeter:(settings|history):|kbd_|ep_)/.test(
+  var PREFIX = "MWITools_shared_v1:", bases = /* @__PURE__ */ new Map(), observed = /* @__PURE__ */ new Set(), snapshots = /* @__PURE__ */ new Map(), indexedNames = null, forbidden = /* @__PURE__ */ new Set(["__proto__", "prototype", "constructor"]), equal = (a, b) => JSON.stringify(a) === JSON.stringify(b), canonical = (key) => String(key).replace(/(^|:)china:/g, "$1production:"), environment = () => String(globalThis.location?.hostname ?? "").startsWith("test.") ? "test" : "live", root = () => `${PREFIX}${environment()}:`, shared = (key) => /^(MWITools_|script_settingsMap$|kikimeter:(settings|history):|kbd_|ep_)/.test(
     key
   ) && !/cache|marketAPI|market_data|game_locale|important_update_manifest|xp_(?:object_)?migrated|popover_scroll|active:/i.test(
     key
@@ -777,8 +777,18 @@
   function revisionKey(key) {
     return `${root()}revision:${encodeURIComponent(canonical(key))}`;
   }
+  function indexRecordName(name) {
+    let prefix = name.match(
+      /^MWITools_shared_v1:(?:live|test):record:[^:]+:/
+    )?.[0];
+    prefix && (indexedNames.has(prefix) || indexedNames.set(prefix, /* @__PURE__ */ new Set()), indexedNames.get(prefix).add(name));
+  }
   function listNames() {
-    return indexedNames || (indexedNames = globalThis.GM_listValues(), indexedNameSet = new Set(indexedNames)), indexedNames;
+    if (!indexedNames) {
+      indexedNames = /* @__PURE__ */ new Map();
+      for (let name of globalThis.GM_listValues()) indexRecordName(name);
+    }
+    return indexedNames;
   }
   function setValues(values) {
     let entries = Object.entries(values);
@@ -788,15 +798,14 @@
       else
         for (let [key, value] of entries) globalThis.GM_setValue(key, value);
       if (indexedNames)
-        for (let [key] of entries)
-          indexedNameSet.has(key) || (indexedNameSet.add(key), indexedNames.push(key));
+        for (let [key] of entries) indexRecordName(key);
     }
   }
   function entriesFor(key) {
     let prefix = recordPrefix(key), revision = globalThis.GM_getValue(revisionKey(key), null), cached = snapshots.get(prefix);
     if (cached && cached.revision === revision) return cached.entries;
     (cached || revision !== null && typeof globalThis.GM_addValueChangeListener != "function") && (indexedNames = null);
-    let names = listNames().filter((name) => name.startsWith(prefix)), values = typeof globalThis.GM_getValues == "function" ? globalThis.GM_getValues(names) : Object.fromEntries(
+    let names = [...listNames().get(prefix) ?? []], values = typeof globalThis.GM_getValues == "function" ? globalThis.GM_getValues(names) : Object.fromEntries(
       names.map((name) => [name, globalThis.GM_getValue(name)])
     ), entries = new Map(
       names.map((name) => [
@@ -8605,7 +8614,11 @@
     return [...new Set(duplicates)].sort().join("\0");
   }
   function createDuplicateWarningMonitor(options = {}) {
-    let documentRef = options.documentRef ?? globalThis.document, detect = options.detect ?? (() => detectDuplicateScripts(options)), render = options.render ?? showDuplicateWarning, scheduleTask = options.scheduleTask ?? globalThis.queueMicrotask, setIntervalRef = options.setIntervalRef ?? globalThis.setInterval, clearIntervalRef = options.clearIntervalRef ?? globalThis.clearInterval, Observer = options.MutationObserverRef ?? globalThis.MutationObserver, intervalMs = options.intervalMs ?? 1e4, detected = /* @__PURE__ */ new Set(), usesStoredMuted = !options.muted, muted = options.muted ?? readMutedDuplicateScriptIds(options.storage), isDuplicateEnabled = options.isDuplicateEnabled ?? ((name) => duplicateScriptId(name) !== "mwi-task-manager" || (runtime.settings.get?.("taskInsights") ?? !0)), lastSignature = "", dismissed = !1, pending = !1, destroyed = !1, scan2 = () => {
+    let documentRef = options.documentRef ?? globalThis.document, detect = options.detect ?? (() => detectDuplicateScripts(options)), render = options.render ?? showDuplicateWarning, pendingTimer = null, clearTimeoutRef = options.clearTimeoutRef ?? globalThis.clearTimeout, scheduleTask = options.scheduleTask ?? ((callback) => {
+      pendingTimer = (options.setTimeoutRef ?? globalThis.setTimeout)(() => {
+        pendingTimer = null, callback();
+      }, 1e3);
+    }), setIntervalRef = options.setIntervalRef ?? globalThis.setInterval, clearIntervalRef = options.clearIntervalRef ?? globalThis.clearInterval, Observer = options.MutationObserverRef ?? globalThis.MutationObserver, intervalMs = options.intervalMs ?? 1e4, detected = /* @__PURE__ */ new Set(), usesStoredMuted = !options.muted, muted = options.muted ?? readMutedDuplicateScriptIds(options.storage), isDuplicateEnabled = options.isDuplicateEnabled ?? ((name) => duplicateScriptId(name) !== "mwi-task-manager" || (runtime.settings.get?.("taskInsights") ?? !0)), lastSignature = "", dismissed = !1, pending = !1, destroyed = !1, scan2 = () => {
       if (pending = !1, destroyed || dismissed) return;
       if (usesStoredMuted) {
         muted.clear();
@@ -8650,7 +8663,7 @@
       scan: scan2,
       schedule,
       destroy() {
-        destroyed || (destroyed = !0, pending = !1, observer?.disconnect(), intervalId !== void 0 && clearIntervalRef?.(intervalId), documentRef?.getElementById(WARNING_ID)?.remove());
+        destroyed || (destroyed = !0, pending = !1, pendingTimer !== null && clearTimeoutRef(pendingTimer), pendingTimer = null, observer?.disconnect(), intervalId !== void 0 && clearIntervalRef?.(intervalId), documentRef?.getElementById(WARNING_ID)?.remove());
       }
     };
   }
@@ -14417,19 +14430,19 @@ ${preview}`
       ([, aliases]) => labels.some((label) => aliases.includes(label))
     )?.[0];
   }
+  function getInventoryStackAssetValue(item) {
+    return item?.itemLocationHrid !== "/item_locations/inventory" || runtime.api.shouldExcludeItemFromAssets?.(item.itemHrid) || item.itemHrid === "/items/cowbell" && !runtime.api.shouldIncludeCowbellsInAssets() || runtime.api.isOptionalTokenAsset?.(item.itemHrid) && !runtime.api.shouldIncludeGuildDungeonTokensInAssets?.() ? 0 : Math.max(0, Number(item.count) || 0) * runtime.api.getAssetValue(item.itemHrid, item.enhancementLevel ?? 0, {
+      itemLocationHrid: item.itemLocationHrid
+    });
+  }
   function calculateInventoryCategoryValues() {
     let categoryValues = /* @__PURE__ */ new Map();
     for (let item of runtime.state.initData_characterItems ?? []) {
-      if (item?.itemLocationHrid !== "/item_locations/inventory" || runtime.api.shouldExcludeItemFromAssets?.(item.itemHrid) || item.itemHrid === "/items/cowbell" && !runtime.api.shouldIncludeCowbellsInAssets() || runtime.api.isOptionalTokenAsset?.(item.itemHrid) && !runtime.api.shouldIncludeGuildDungeonTokensInAssets?.())
-        continue;
+      if (item?.itemLocationHrid !== "/item_locations/inventory") continue;
       let categoryHrid = runtime.state.initData_itemDetailMap?.[item.itemHrid]?.categoryHrid;
-      if (!categoryHrid) continue;
-      let value = Math.max(0, Number(item.count) || 0) * runtime.api.getAssetValue(item.itemHrid, item.enhancementLevel, {
-        itemLocationHrid: item.itemLocationHrid
-      });
-      categoryValues.set(
+      categoryHrid && categoryValues.set(
         categoryHrid,
-        (categoryValues.get(categoryHrid) ?? 0) + value
+        (categoryValues.get(categoryHrid) ?? 0) + getInventoryStackAssetValue(item)
       );
     }
     return categoryValues;
@@ -14453,9 +14466,7 @@ ${preview}`
         let owned = (runtime.state.initData_characterItems ?? []).find(
           (entry) => entry.itemHrid === itemHrid && Number(entry.enhancementLevel || 0) === enhancementLevel && entry.itemLocationHrid === "/item_locations/inventory"
         );
-        return sum + (owned ? Number(owned.count) * runtime.api.getAssetValue(itemHrid, enhancementLevel, {
-          itemLocationHrid: "/item_locations/inventory"
-        }) : 0);
+        return sum + getInventoryStackAssetValue(owned);
       }, 0) : categoryValues.get(categoryHrid) ?? 0;
       grid.dataset.mwitoolsInventoryCategory = "true", heading.classList.add("mwi-inventory-category-heading"), heading.querySelector(":scope > .mwi-inventory-category-value")?.remove();
       let value = document.createElement("span");
@@ -14479,11 +14490,7 @@ ${preview}`
             (item) => item.itemLocationHrid === "/item_locations/inventory"
           ).map((item) => [
             `${item.itemHrid}:${item.enhancementLevel ?? 0}`,
-            Number(item.count) * runtime.api.getAssetValue(
-              item.itemHrid,
-              item.enhancementLevel ?? 0,
-              { itemLocationHrid: "/item_locations/inventory" }
-            )
+            getInventoryStackAssetValue(item)
           ])
         ),
         version: ++inventoryDisplayVersion
@@ -23144,6 +23151,27 @@ ${locks}` : ""}`, upgradeMount?.mode === "append" ? upgradeMount.host.append(bad
   // src/features/opinion-center/announcements.js
   var STORAGE_KEY = "MWITools_opinion_center_seen_announcements_v1", ANNOUNCEMENTS = Object.freeze([
     Object.freeze({
+      id: "26.4.19",
+      version: "26.4.19",
+      publishedAt: "2026-10-01",
+      title: Object.freeze({
+        zh: "26.4.19 更新公告",
+        en: "Version 26.4.19 update"
+      }),
+      body: Object.freeze({
+        zh: Object.freeze([
+          "库存：修复分类标签与缓存忽略资产计入设置的问题，牛铃、任务代币和公会／地下城代币统一遵守开关；全部、分类、最爱和搜索结果按同一口径估值，切换标签继续复用快照。",
+          "市场：修复市场列表移除后仍保留旧游戏界面的内存占用，列表重建后自动恢复挂单价格填充。",
+          "性能：减少重复脚本检测的全页扫描，优化共享历史索引与公会曲线计算，释放成员和榜单不使用的曲线缓存。"
+        ]),
+        en: Object.freeze([
+          "Inventory: Fixed category tabs and cached values ignoring asset inclusion settings. Cowbells, task tokens and guild/dungeon tokens now consistently follow their switches across All, category, Favorites and search views. Tab changes continue to reuse the snapshot.",
+          "Market: Fixed memory retained by the old game interface after market lists are removed; price autofill resumes when a replacement list mounts.",
+          "Performance: Reduced full-page duplicate-script scans, optimized shared-history lookups and guild trend calculations, and released unused member and leaderboard curve caches."
+        ])
+      })
+    }),
+    Object.freeze({
       id: "26.4.18",
       version: "26.4.18",
       publishedAt: "2026-09-28",
@@ -24443,7 +24471,7 @@ ${locks}` : ""}`, upgradeMount?.mode === "append" ? upgradeMount.host.append(bad
   };
 
   // src/features/guild-xp.js
-  var STYLE_ID16 = "mwitools-guild-xp-style", rateCache = /* @__PURE__ */ new Map(), HOUR_MS2 = 3600 * 1e3, TREND_WINDOW_MS = 168 * HOUR_MS2, TREND_RATE_WINDOW_MS = 6 * HOUR_MS2, TREND_MINIMUM_COVERAGE_MS = HOUR_MS2, GUILD_SURFACE_SELECTOR = '[class*="Guild"],[class*="Leaderboard"]', OWNED_GUILD_SELECTOR = ".mwi-guild-xp-card,.mwi-guild-rate-cell,.mwi-guild-div-rates,.mwi-guild-div-rate-head,.mwi-guild-idle";
+  var STYLE_ID16 = "mwitools-guild-xp-style", rateCache = /* @__PURE__ */ new Map(), rateCacheGeneration = 0, HOUR_MS2 = 3600 * 1e3, TREND_WINDOW_MS = 168 * HOUR_MS2, TREND_RATE_WINDOW_MS = 6 * HOUR_MS2, TREND_MINIMUM_COVERAGE_MS = HOUR_MS2, GUILD_SURFACE_SELECTOR = '[class*="Guild"],[class*="Leaderboard"]', OWNED_GUILD_SELECTOR = ".mwi-guild-xp-card,.mwi-guild-rate-cell,.mwi-guild-div-rates,.mwi-guild-div-rate-head,.mwi-guild-idle";
   function observeGuildSurface(scope, render) {
     let scheduler = createFrameScheduler(render);
     subscribeMutationChannel(
@@ -24572,24 +24600,24 @@ ${locks}` : ""}`, upgradeMount?.mode === "append" ? upgradeMount.host.append(bad
   }
   async function refreshRate(key) {
     if (!key) return null;
-    let history = await runtime.api.getXpHistory(key), rates = runtime.api.calculateXpRates(history);
-    return rateCache.set(key, rates), rates;
+    let generation = rateCacheGeneration, history = await runtime.api.getXpHistory(key), rates = runtime.api.calculateXpRates(history);
+    return key.startsWith("guild:") || (rates.points = []), generation === rateCacheGeneration && rateCache.set(key, rates), rates;
   }
   async function sampleEntity(kind, entity, parentId = "", at = Date.now()) {
-    let key = objectKey(kind, entity, parentId), xp = entityXp(entity);
-    return !key || xp === null ? null : (await runtime.api.recordXpSnapshot(key, xp, at), refreshRate(key));
+    let generation = rateCacheGeneration, key = objectKey(kind, entity, parentId), xp = entityXp(entity);
+    return !key || xp === null || (await runtime.api.recordXpSnapshot(key, xp, at), generation !== rateCacheGeneration) ? null : refreshRate(key);
   }
   async function sampleGuildState(includeLeaderboard = !1) {
-    let now = Date.now(), guild2 = runtime.state.guild, guildId = entityId(guild2);
-    guild2 && await sampleEntity("guild", guild2, "", now), await Promise.all(
+    let generation = rateCacheGeneration, now = Date.now(), guild2 = runtime.state.guild, guildId = entityId(guild2);
+    guild2 && await sampleEntity("guild", guild2, "", now), generation === rateCacheGeneration && (await Promise.all(
       (runtime.state.guildCharacters ?? []).map(
         (member) => sampleEntity("member", member, guildId, now)
       )
-    ), includeLeaderboard && await Promise.all(
+    ), includeLeaderboard && generation === rateCacheGeneration && await Promise.all(
       (runtime.state.guildLeaderboard ?? []).map(
         (row) => sampleEntity("leaderboard", row, "", now)
       )
-    );
+    ));
   }
   function addStyles14() {
     if (document.getElementById(STYLE_ID16)) return;
@@ -24658,15 +24686,16 @@ ${locks}` : ""}`, upgradeMount?.mode === "append" ? upgradeMount.host.append(bad
     return value?.nodeType ? strong.append(value) : strong.textContent = value, strong.title = title, box.append(caption, strong), box;
   }
   function guildXpRatePoints(points, now = Date.now()) {
-    let cutoff = now - TREND_WINDOW_MS, sorted = [...points].map((point) => ({ at: Number(point?.at), xp: Number(point?.xp) })).filter((point) => Number.isFinite(point.at) && Number.isFinite(point.xp)).sort((left, right) => left.at - right.at), rates = [];
+    let cutoff = now - TREND_WINDOW_MS, sorted = [...points].map((point) => ({ at: Number(point?.at), xp: Number(point?.xp) })).filter((point) => Number.isFinite(point.at) && Number.isFinite(point.xp)).sort((left, right) => left.at - right.at), rates = [], baselineIndex = 0, coverageIndex = -1;
     for (let index = 1; index < sorted.length; index += 1) {
       let current = sorted[index];
       if (current.at < cutoff) continue;
-      let baselineIndex = index - 1;
-      for (; baselineIndex > 0 && current.at - sorted[baselineIndex - 1].at <= TREND_RATE_WINDOW_MS; )
-        baselineIndex -= 1;
+      for (; baselineIndex < index - 1 && current.at - sorted[baselineIndex].at > TREND_RATE_WINDOW_MS; )
+        baselineIndex += 1;
+      for (; coverageIndex + 1 < index && current.at - sorted[coverageIndex + 1].at >= TREND_MINIMUM_COVERAGE_MS; )
+        coverageIndex += 1;
       let baseline = sorted[baselineIndex];
-      if (current.at - baseline.at < TREND_MINIMUM_COVERAGE_MS && (baseline = [...sorted.slice(0, baselineIndex)].reverse().find((point) => current.at - point.at >= TREND_MINIMUM_COVERAGE_MS)), !baseline) continue;
+      if (current.at - baseline.at < TREND_MINIMUM_COVERAGE_MS && (baseline = sorted[coverageIndex]), !baseline) continue;
       let elapsed = current.at - baseline.at, gained = current.xp - baseline.xp;
       elapsed <= 0 || gained < 0 || rates.push({ at: current.at, rate: gained / elapsed * HOUR_MS2 });
     }
@@ -24958,7 +24987,9 @@ ${locks}` : ""}`, upgradeMount?.mode === "append" ? upgradeMount.host.append(bad
     setting: "guildXpTracking",
     scope: "character",
     initialize({ scope }) {
-      sampleGuildState(!1), scope.add(
+      scope.add(() => {
+        rateCacheGeneration += 1, rateCache.clear();
+      }), sampleGuildState(!1), scope.add(
         runtime.onMessage("guild_updated", () => sampleGuildState(!1))
       ), scope.add(
         runtime.onMessage(
@@ -28346,7 +28377,7 @@ ${locks}` : ""}`, upgradeMount?.mode === "append" ? upgradeMount.host.append(bad
     return typeof value == "string" ? value : value?.[runtime.config.isZH ? "zh" : "en"] ?? value?.en ?? "";
   }
   function currentVersion() {
-    return String(globalThis.GM_info?.script?.version ?? "26.4.18");
+    return String(globalThis.GM_info?.script?.version ?? "26.4.19");
   }
   function isTestBuild() {
     let info = globalThis.GM_info?.script;
@@ -35719,8 +35750,7 @@ ${langText2("理论命中率", "Theoretical hit chance")}: ${pct.toFixed(2)}%`;
         let target = document.querySelector(
           ".MarketplacePanel_marketListings__1GCyQ"
         );
-        if (!target || target === observed2) return;
-        listingObserver?.disconnect(), observed2 = target;
+        if (target === observed2 || (listingObserver?.disconnect(), listingObserver = null, observed2 = target, !target)) return;
         let observer = new MutationObserver((mutations) => {
           for (let mutation of mutations)
             for (let node of mutation.addedNodes)

@@ -161,9 +161,13 @@ adapters.fillMarketOrderPrice = {
       const target = document.querySelector(
         ".MarketplacePanel_marketListings__1GCyQ",
       );
-      if (!target || target === observed) return;
+      if (target === observed) return;
       listingObserver?.disconnect();
+      listingObserver = null;
       observed = target;
+      // A removed market list can retain the entire detached game panel.
+      // Release it even when no replacement list has mounted yet.
+      if (!target) return;
       const observer = new MutationObserver((mutations) => {
         for (const mutation of mutations) {
           for (const node of mutation.addedNodes) {

@@ -44,6 +44,60 @@ after(async () => {
 const settle = () => new Promise((resolve) => setTimeout(resolve, 40));
 runtime.state.initData_characterItems = [];
 
+test("market price autofill releases removed lists and reattaches to replacements", async () => {
+  const originalHandler = runtime.api.handleMarketNewOrder;
+  const seen = [];
+  runtime.api.handleMarketNewOrder = (node) => seen.push(node);
+  const list = () => {
+    const node = document.createElement("div");
+    node.className = "MarketplacePanel_marketListings__1GCyQ";
+    return node;
+  };
+  const addModal = (parent) => {
+    const node = document.createElement("div");
+    node.className = "Modal_modalContainer__3B80m";
+    parent.append(node);
+    return node;
+  };
+  try {
+    await runtime.features.handleCharacterData({ character: { id: 1 } });
+    document.body.replaceChildren(list());
+    await runtime.settings.set("fillMarketOrderPrice", true, {
+      persist: false,
+      force: true,
+    });
+    await runtime.features.restart("fillMarketOrderPrice");
+    let current = document.body.firstElementChild;
+    const first = addModal(current);
+    await settle();
+    assert.deepEqual(seen, [first]);
+    for (let cycle = 0; cycle < 3; cycle++) {
+      const detached = current;
+      detached.remove();
+      await settle();
+      seen.length = 0;
+      addModal(detached);
+      await settle();
+      assert.equal(seen.length, 0, "detached lists must no longer be observed");
+      current = list();
+      document.body.append(current);
+      await settle();
+      const replacement = addModal(current);
+      await settle();
+      assert.deepEqual(seen, [replacement], "replacement has one listener");
+    }
+    await runtime.features.disable("fillMarketOrderPrice");
+    seen.length = 0;
+    addModal(current);
+    await settle();
+    assert.equal(seen.length, 0);
+  } finally {
+    await runtime.features.disable("fillMarketOrderPrice");
+    runtime.api.handleMarketNewOrder = originalHandler;
+    document.body.replaceChildren();
+  }
+});
+
 test("inventory lifecycle restores a summary removed beside a reused inventory node", async () => {
   const originalSchedule = runtime.api.scheduleNetworthRefresh;
   let refreshes = 0;
