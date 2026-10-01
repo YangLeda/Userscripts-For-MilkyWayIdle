@@ -2,17 +2,38 @@ const STORAGE_KEY = "MWITools_opinion_center_seen_announcements_v1";
 
 export const ANNOUNCEMENTS = Object.freeze([
   Object.freeze({
+    id: "26.4.19",
+    version: "26.4.19",
+    publishedAt: "2026-10-01",
+    title: Object.freeze({
+      zh: "26.4.19 更新公告",
+      en: "Version 26.4.19 update",
+    }),
+    body: Object.freeze({
+      zh: Object.freeze([
+        "库存：修复分类标签与缓存忽略资产计入设置的问题，牛铃、任务代币和公会／地下城代币统一遵守开关；全部、分类、最爱和搜索结果按同一口径估值，切换标签继续复用快照。",
+        "市场：修复市场列表移除后仍保留旧游戏界面的内存占用，列表重建后自动恢复挂单价格填充。",
+        "性能：减少重复脚本检测的全页扫描，优化共享历史索引与公会曲线计算，释放成员和榜单不使用的曲线缓存。",
+      ]),
+      en: Object.freeze([
+        "Inventory: Fixed category tabs and cached values ignoring asset inclusion settings. Cowbells, task tokens and guild/dungeon tokens now consistently follow their switches across All, category, Favorites and search views. Tab changes continue to reuse the snapshot.",
+        "Market: Fixed memory retained by the old game interface after market lists are removed; price autofill resumes when a replacement list mounts.",
+        "Performance: Reduced full-page duplicate-script scans, optimized shared-history lookups and guild trend calculations, and released unused member and leaderboard curve caches.",
+      ]),
+    }),
+  }),
+  Object.freeze({
     id: "26.4.18",
     version: "26.4.18",
-    publishedAt: "2026-10-01",
+    publishedAt: "2026-09-28",
     title: Object.freeze({
       zh: "26.4.18 重要更新",
       en: "Version 26.4.18 important update",
     }),
     body: Object.freeze({
       zh: Object.freeze([
-        "性能：修复共享存储与公会经验历史引起的严重卡顿，按成员保存经验、批量读写并复用未变化的数据；首次迁移分批处理，语言缓存和迁移标记保持本站独立。修复市场列表移除后仍保留旧游戏界面的内存占用，列表重建后自动恢复挂单价格填充。减少重复脚本检测的全页扫描，优化共享历史索引与公会曲线计算，释放成员和榜单不使用的曲线缓存。",
-        "库存：适配全部、最爱、分类标签和搜索结果，切换后恢复价值角标与排序；保留最爱置顶，锁定物品仍计入资产。修复单独查看分类时忽略资产计入设置，牛铃、任务代币和公会／地下城代币的分类价值与全部标签保持一致。",
+        "性能：修复共享存储与公会经验历史引起的严重卡顿，按成员保存经验、批量读写并复用未变化的数据；首次迁移分批处理，语言缓存和迁移标记保持本站独立。",
+        "库存：适配全部、最爱、分类标签和搜索结果，切换后恢复价值角标与排序；保留最爱置顶，锁定物品仍计入资产。",
         "市场计算：普通税率调整为 4%，牛铃袋维持 18%；适配普通与强化物品价格步进，修复不同语言的小数点和千分位解析。",
         "任务：修复生产与战斗窗口的任务返回、关闭后仍返回、关闭自动整理后顺序变化，以及刷新图标不更新；仅在可用的“前往”旁显示规划火车。",
         "购物车与筛选：下一项按购物车顺序循环，区分强化等级，兼容删除、重排和快速点击；市场筛选独立即时生效，关闭后恢复显示。",
@@ -25,8 +46,8 @@ export const ANNOUNCEMENTS = Object.freeze([
         "版本与公告：26.4.18 为重要更新，更新提醒门槛同步提升；中英文公告按功能分类列出变化，便于逐项查看。",
       ]),
       en: Object.freeze([
-        "Performance: Fixed severe stalls caused by shared storage and guild XP history. History is saved per member, reads and writes are batched, unchanged data is reused, and initial migration yields between batches. Language caches and migration markers stay local. Fixed memory retained by the old game interface after market lists are removed; price autofill resumes when a replacement list mounts. Reduced full-page duplicate-script scans, optimized shared-history lookups and guild trend calculations, and released unused member and leaderboard curve caches.",
-        "Inventory: Updated All, Favorites, category tabs and search results. Tab changes restore value badges and sorting, favorites stay pinned, and locked items remain included in assets. Fixed category views ignoring asset inclusion settings: cowbell, task-token and guild/dungeon-token values now match the All tab.",
+        "Performance: Fixed severe stalls caused by shared storage and guild XP history. History is saved per member, reads and writes are batched, unchanged data is reused, and initial migration yields between batches. Language caches and migration markers stay local.",
+        "Inventory: Updated All, Favorites, category tabs and search results. Tab changes restore value badges and sorting, favorites stay pinned, and locked items remain included in assets.",
         "Market calculations: Standard tax is now 4%; cowbell bags remain at 18%. Updated normal and enhanced-item price increments and fixed locale-specific decimal and grouping separators.",
         "Tasks: Fixed production and combat task return, returning after disabling it, order changes with auto-sort off, and stale reroll artwork. Train controls appear only beside an available Go to button.",
         "Cart and filters: Next cycles in cart order, distinguishes enhancement levels and handles deletion, reordering and rapid clicks. Market filters apply independently and immediately; disabling them restores hidden items.",

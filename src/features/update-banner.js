@@ -16,7 +16,7 @@ function t(value) {
 }
 
 function currentVersion() {
-  return String(globalThis.GM_info?.script?.version ?? "26.4.18");
+  return String(globalThis.GM_info?.script?.version ?? "26.4.19");
 }
 
 function isTestBuild() {
