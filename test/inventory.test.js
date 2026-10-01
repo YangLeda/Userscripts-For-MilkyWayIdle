@@ -1053,3 +1053,107 @@ test("native favorite and lock ranges apply only to matching enhancement levels"
   assert.equal(hasInventoryMark("/items/other", 12, "lock"), false);
   runtime.state.characterItemMarks = [];
 });
+
+test("category tabs and favorites honor asset inclusion settings with and without a frozen snapshot", async () => {
+  const stateKeys = [
+    "currentCharacterId",
+    "initData_characterItems",
+    "initData_itemDetailMap",
+    "itemEnNameToHridMap",
+  ];
+  const savedState = Object.fromEntries(
+    stateKeys.map((key) => [key, runtime.state[key]]),
+  );
+  const settingIds = [
+    "includeCowbellsInAssets",
+    "includeTaskTokensInAssets",
+    "includeGuildDungeonTokensInAssets",
+  ];
+  const savedSettings = settingIds.map((id) => runtime.settings.get(id));
+  const originalAsset = runtime.api.getAssetValue;
+  const originalRefresh = runtime.api.refreshAssetSnapshot;
+  const originalHtml = document.body.innerHTML;
+  document.body.innerHTML = '<section id="inventory-parent"></section>';
+  const parent = document.querySelector("#inventory-parent");
+  const names = [
+    "Coin",
+    "Cowbell",
+    "Task Token",
+    "Guild Token",
+    "Pirate Token",
+  ];
+  const hrids = [
+    "coin",
+    "cowbell",
+    "task_token",
+    "guild_token",
+    "pirate_token",
+  ].map((id) => `/items/${id}`);
+  const render = (visibleNames) => {
+    parent.innerHTML = `<div class="Inventory_items__test"><div><div class="Inventory_itemGrid__test">
+      <button class="Inventory_categoryButton__test">货币</button>
+      ${visibleNames.map((name) => `<div class="Item_itemContainer__test"><svg aria-label="${name}"></svg></div>`).join("")}
+    </div></div></div>`;
+    return parent.querySelector('[class*="Inventory_items"]');
+  };
+  const assertTotal = (total) =>
+    assert.equal(
+      parent.querySelector(".mwi-inventory-category-value").title,
+      `分类价值: ${total}`,
+    );
+  try {
+    runtime.state.initData_characterItems = hrids.map((itemHrid, index) => ({
+      itemHrid,
+      count: index + 1,
+      enhancementLevel: 0,
+      itemLocationHrid: "/item_locations/inventory",
+    }));
+    runtime.state.initData_itemDetailMap = Object.fromEntries(
+      hrids.map((id) => [id, { categoryHrid: "/item_categories/currency" }]),
+    );
+    runtime.state.itemEnNameToHridMap = Object.fromEntries(
+      names.map((name, index) => [name, hrids[index]]),
+    );
+    runtime.api.getAssetValue = () => 10;
+    let refreshCount = 0;
+    runtime.api.refreshAssetSnapshot = async () => {
+      refreshCount++;
+      return originalRefresh();
+    };
+    for (let mask = 0; mask < 8; mask++) {
+      runtime.state.currentCharacterId = `category-inclusion-${mask}`;
+      for (const [index, id] of settingIds.entries()) {
+        await runtime.settings.set(id, Boolean(mask & (1 << index)), {
+          persist: false,
+        });
+      }
+      const expected =
+        10 + (mask & 1 ? 20 : 0) + (mask & 2 ? 30 : 0) + (mask & 4 ? 90 : 0);
+      // The initial visible grid can render before the snapshot is available.
+      runtime.api.addInventoryCategoryValues(render(names));
+      assertTotal(expected);
+      render([]); // All tab with a collapsed currency category.
+      await runtime.api.calculateNetworth();
+      assertTotal(expected);
+      render(names); // Single category tab rebuilds the grid.
+      await runtime.api.calculateNetworth();
+      assertTotal(expected);
+      render(["Cowbell", "Guild Token"]); // Favorites/search show only matching stacks.
+      await runtime.api.calculateNetworth();
+      assertTotal((mask & 1 ? 20 : 0) + (mask & 4 ? 40 : 0));
+      assert.equal(
+        refreshCount,
+        mask + 1,
+        "tab switches must reuse the asset snapshot",
+      );
+    }
+  } finally {
+    Object.assign(runtime.state, savedState);
+    runtime.api.getAssetValue = originalAsset;
+    runtime.api.refreshAssetSnapshot = originalRefresh;
+    document.body.innerHTML = originalHtml;
+    for (const [index, id] of settingIds.entries()) {
+      await runtime.settings.set(id, savedSettings[index], { persist: false });
+    }
+  }
+});
