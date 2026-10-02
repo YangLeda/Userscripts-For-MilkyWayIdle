@@ -44,3 +44,34 @@ The live four-switch test did not establish a crash or account restriction.
 Do not describe this patch as a verified fix for every reported failure. Exact
 failure text/status and the failing URL are still needed if it recurs. Original
 switch values were restored after testing; no game resources were consumed.
+
+## Follow-up: whole phone becomes unresponsive
+
+The reporter clarified that a player experienced an unresponsive **entire phone**,
+not just a frozen game page. Device model, browser/version, installed script build,
+memory pressure and system logs remain unavailable. No physical phone crash was
+reproduced. Desktop tests and the changes below do not establish a fix for an
+OS-level hang. Affected players should pause MWITools rather than repeat the
+triggering configuration on their phones while this remains unexplained.
+
+Further inspection found overlapping guild-history sampling batches. Each guild
+notification launched all member history operations through `Promise.all`, and
+another notification could launch the same work before completion. Awaiting already
+resolved storage promises did not let browser input/render tasks run.
+
+A focused fixture with 60 members and ten overlapping notifications scheduled an
+input-like timer before sampling. The old implementation finished all sampling
+before that timer ran. Sampling now processes four entities before yielding to
+the event loop; overlapping updates queue a single subsequent pass over the latest
+state, preserving requests to sample the leaderboard. The fixture now allows the
+timer to execute during sampling and caps work at two passes, retaining the latest
+member values and leaderboard update. Character-generation checks stop obsolete
+batches after feature cleanup. Persistent history is not deleted or truncated.
+
+This is a verified reduction of redundant work and main-thread scheduling pressure,
+not proof that this path caused the reported phone-wide hang. It does not impose
+a whole-page memory cap or address resource use by the game/other installed scripts.
+
+The built patch was saved and read back exactly in desktop Tampermonkey. A fresh
+international game session loaded normally; opening the guild overview showed one
+experience card with the current sample and rates. This remains desktop-only QA.

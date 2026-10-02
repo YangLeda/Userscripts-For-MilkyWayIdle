@@ -23201,12 +23201,12 @@ ${locks}` : ""}`, upgradeMount?.mode === "append" ? upgradeMount.host.append(bad
         zh: Object.freeze([
           "库存：修复分类标签与缓存忽略资产计入设置的问题，牛铃、任务代币和公会／地下城代币统一遵守开关；全部、分类、最爱和搜索结果按同一口径估值，切换标签继续复用快照。",
           "市场：修复市场列表移除后仍保留旧游戏界面的内存占用，列表重建后自动恢复挂单价格填充。合并同时发生的市场数据请求，接口失败或限流时暂停重试并沿用缓存；刷新页面也遵守冷却时间，避免重复请求。",
-          "性能：减少重复脚本检测的全页扫描，优化共享历史索引与公会曲线计算，释放成员和榜单不使用的曲线缓存。"
+          "性能：减少重复脚本检测的全页扫描，优化共享历史索引与公会曲线计算，释放成员和榜单不使用的曲线缓存。公会历史采样改为小批处理，连续更新合并执行，减少集中计算对页面操作的阻塞。"
         ]),
         en: Object.freeze([
           "Inventory: Fixed category tabs and cached values ignoring asset inclusion settings. Cowbells, task tokens and guild/dungeon tokens now consistently follow their switches across All, category, Favorites and search views. Tab changes continue to reuse the snapshot.",
           "Market: Fixed memory retained by the old game interface after market lists are removed; price autofill resumes when a replacement list mounts. Concurrent market-data requests now share one fetch; failures and rate limits pause retries and reuse cached data. Reloads also honor the cooldown to avoid repeated requests.",
-          "Performance: Reduced full-page duplicate-script scans, optimized shared-history lookups and guild trend calculations, and released unused member and leaderboard curve caches."
+          "Performance: Reduced full-page duplicate-script scans, optimized shared-history lookups and guild trend calculations, and released unused member and leaderboard curve caches. Guild history sampling now yields between small batches and coalesces overlapping updates to reduce interference with page input."
         ])
       })
     }),
@@ -24510,7 +24510,7 @@ ${locks}` : ""}`, upgradeMount?.mode === "append" ? upgradeMount.host.append(bad
   };
 
   // src/features/guild-xp.js
-  var STYLE_ID16 = "mwitools-guild-xp-style", rateCache = /* @__PURE__ */ new Map(), rateCacheGeneration = 0, HOUR_MS2 = 3600 * 1e3, TREND_WINDOW_MS = 168 * HOUR_MS2, TREND_RATE_WINDOW_MS = 6 * HOUR_MS2, TREND_MINIMUM_COVERAGE_MS = HOUR_MS2, GUILD_SURFACE_SELECTOR = '[class*="Guild"],[class*="Leaderboard"]', OWNED_GUILD_SELECTOR = ".mwi-guild-xp-card,.mwi-guild-rate-cell,.mwi-guild-div-rates,.mwi-guild-div-rate-head,.mwi-guild-idle";
+  var STYLE_ID16 = "mwitools-guild-xp-style", rateCache = /* @__PURE__ */ new Map(), rateCacheGeneration = 0, samplingRun = null, SAMPLE_BATCH_SIZE = 4, yieldSampling = () => new Promise((resolve) => setTimeout(resolve, 0)), HOUR_MS2 = 3600 * 1e3, TREND_WINDOW_MS = 168 * HOUR_MS2, TREND_RATE_WINDOW_MS = 6 * HOUR_MS2, TREND_MINIMUM_COVERAGE_MS = HOUR_MS2, GUILD_SURFACE_SELECTOR = '[class*="Guild"],[class*="Leaderboard"]', OWNED_GUILD_SELECTOR = ".mwi-guild-xp-card,.mwi-guild-rate-cell,.mwi-guild-div-rates,.mwi-guild-div-rate-head,.mwi-guild-idle";
   function observeGuildSurface(scope, render) {
     let scheduler = createFrameScheduler(render);
     subscribeMutationChannel(
@@ -24646,17 +24646,38 @@ ${locks}` : ""}`, upgradeMount?.mode === "append" ? upgradeMount.host.append(bad
     let generation = rateCacheGeneration, key = objectKey(kind, entity, parentId), xp = entityXp(entity);
     return !key || xp === null || (await runtime.api.recordXpSnapshot(key, xp, at), generation !== rateCacheGeneration) ? null : refreshRate(key);
   }
-  async function sampleGuildState(includeLeaderboard = !1) {
-    let generation = rateCacheGeneration, now = Date.now(), guild2 = runtime.state.guild, guildId = entityId(guild2);
-    guild2 && await sampleEntity("guild", guild2, "", now), generation === rateCacheGeneration && (await Promise.all(
-      (runtime.state.guildCharacters ?? []).map(
-        (member) => sampleEntity("member", member, guildId, now)
-      )
-    ), includeLeaderboard && generation === rateCacheGeneration && await Promise.all(
-      (runtime.state.guildLeaderboard ?? []).map(
-        (row) => sampleEntity("leaderboard", row, "", now)
-      )
-    ));
+  async function sampleGuildBatch(includeLeaderboard, generation) {
+    let now = Date.now(), guild2 = runtime.state.guild, guildId = entityId(guild2), jobs = [
+      ...guild2 ? [["guild", guild2, ""]] : [],
+      ...(runtime.state.guildCharacters ?? []).map((member) => [
+        "member",
+        member,
+        guildId
+      ]),
+      ...includeLeaderboard ? (runtime.state.guildLeaderboard ?? []).map((row) => [
+        "leaderboard",
+        row,
+        ""
+      ]) : []
+    ];
+    for (let index = 0; index < jobs.length; index++) {
+      if (generation !== rateCacheGeneration) return;
+      await sampleEntity(...jobs[index], now), (index + 1) % SAMPLE_BATCH_SIZE === 0 && index + 1 < jobs.length && await yieldSampling();
+    }
+  }
+  function sampleGuildState(includeLeaderboard = !1) {
+    let generation = rateCacheGeneration;
+    if (samplingRun?.generation === generation)
+      return samplingRun.requested = !0, samplingRun.includeLeaderboard ||= includeLeaderboard, samplingRun.promise;
+    let run = { generation, requested: !0, includeLeaderboard };
+    return samplingRun = run, run.promise = (async () => {
+      for (; run.requested && generation === rateCacheGeneration; ) {
+        let withLeaderboard = run.includeLeaderboard;
+        run.requested = !1, run.includeLeaderboard = !1, await sampleGuildBatch(withLeaderboard, generation), run.requested && generation === rateCacheGeneration && await yieldSampling();
+      }
+    })().finally(() => {
+      samplingRun === run && (samplingRun = null);
+    }), run.promise;
   }
   function addStyles14() {
     if (document.getElementById(STYLE_ID16)) return;
