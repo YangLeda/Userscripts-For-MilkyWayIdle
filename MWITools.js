@@ -3268,7 +3268,24 @@
   var itemName = (hrid, options) => entityName("item", hrid, options), actionName = (hrid, options) => entityName("action", hrid, options), abilityName = (hrid, options) => entityName("ability", hrid, options), monsterName = (hrid, options) => entityName("monster", hrid, options);
 
   // src/core/market.js
-  var import_lz_string = __toESM(require_lz_string(), 1), MARKET_TAX_RATE = 0.04, COWBELL_TAX_RATE = 0.18, MARKET_MAX_PRICE = 1e12, TEST_MARKET_REFRESH_MS = 600 * 1e3, PRODUCTION_MARKET_REFRESH_MS = 360 * 60 * 1e3, MARKET_FALLBACK_URL = "https://q7.nainai.eu.org/game_data/marketplace.json", assetValuationMarketSnapshot = null, assetValuationMarketDirty = !1, decodedLocalMarketBackup;
+  var import_lz_string = __toESM(require_lz_string(), 1), MARKET_TAX_RATE = 0.04, COWBELL_TAX_RATE = 0.18, MARKET_MAX_PRICE = 1e12, TEST_MARKET_REFRESH_MS = 600 * 1e3, PRODUCTION_MARKET_REFRESH_MS = 360 * 60 * 1e3, MARKET_FALLBACK_URL = "https://q7.nainai.eu.org/game_data/marketplace.json", assetValuationMarketSnapshot = null, assetValuationMarketDirty = !1, decodedLocalMarketBackup, marketFetchInFlight = /* @__PURE__ */ new Map(), MARKET_REQUEST_GAP_MS = 3e4, MARKET_FAILURE_RETRY_MS = 6e4, MARKET_RATE_LIMIT_RETRY_MS = 5 * 6e4;
+  function marketRetryKey(hostname) {
+    return `MWITools_marketAPI_retry_after_${getMarketEnvironment(hostname)}`;
+  }
+  function marketRetryAt(hostname) {
+    let value = Number(localStorage.getItem(marketRetryKey(hostname)));
+    return Number.isFinite(value) ? value : 0;
+  }
+  function deferMarketRetry(hostname, until) {
+    localStorage.setItem(
+      marketRetryKey(hostname),
+      String(Math.max(marketRetryAt(hostname), until))
+    );
+  }
+  function marketFailureRetryDelay(response) {
+    let header = String(response?.responseHeaders ?? "").match(/^retry-after:\s*(.+)$/im)?.[1]?.trim(), seconds = Number(header), retryAfter = header ? Number.isFinite(seconds) ? Math.max(0, seconds * 1e3) : Math.max(0, Date.parse(header) - Date.now()) : 0, minimum = [403, 429].includes(response?.status) ? MARKET_RATE_LIMIT_RETRY_MS : MARKET_FAILURE_RETRY_MS;
+    return Number.isFinite(retryAfter) ? Math.max(minimum, retryAfter) : minimum;
+  }
   function getLocalMarketBackup() {
     let backup = runtime.data.MARKET_JSON_LOCAL_BACKUP;
     return runtime.data.MARKET_JSON_LOCAL_BACKUP_IS_COMPRESSED ? (decodedLocalMarketBackup !== void 0 || (decodedLocalMarketBackup = import_lz_string.default.decompressFromBase64(backup) || null), decodedLocalMarketBackup) : backup;
@@ -3622,33 +3639,55 @@
   async function ensureMarketValueSource() {
     return hasMarketValueSource() ? !0 : !!await fetchMarketJSON();
   }
-  async function fetchMarketJSON(forceFetch = !1, hostname = globalThis.location?.hostname ?? "") {
-    let cacheTimestamp = Number(
-      localStorage.getItem("MWITools_marketAPI_timestamp")
-    ), cachedJson = localStorage.getItem("MWITools_marketAPI_json");
-    if (!forceFetch && cachedJson && cacheTimestamp && Date.now() - cacheTimestamp < getMarketRefreshInterval(hostname))
-      return validateMarketJsonFetch(cachedJson, !1);
-    let response = await requestMarketJson(getMarketApiUrl(hostname)), jsonObj = validateMarketJsonFetch(
-      response?.status >= 200 && response?.status < 300 ? response.responseText : null,
-      !0
-    );
-    if (jsonObj)
-      return jsonObj;
-    if (getMarketEnvironment(hostname) !== "test") {
-      let fallbackResponse = await requestMarketJson(MARKET_FALLBACK_URL), fallbackJson = validateMarketJsonFetch(
-        fallbackResponse?.status >= 200 && fallbackResponse?.status < 300 ? fallbackResponse.responseText : null,
-        !0
-      );
-      if (fallbackJson) return fallbackJson;
-    }
-    if (setMarketFetchFailure(
-      "市场主接口和备用接口请求失败",
-      "Primary and fallback market API requests failed"
-    ), cachedJson) {
+  function marketCacheFallback(cachedJson, hostname) {
+    if (cachedJson) {
       let cached = validateMarketJsonFetch(cachedJson, !1);
       if (cached) return cached;
     }
     return getMarketEnvironment(hostname) === "test" ? null : validateMarketJsonFetch(getLocalMarketBackup(), !1);
+  }
+  async function fetchMarketJSON(forceFetch = !1, hostname = globalThis.location?.hostname ?? "") {
+    let environment2 = getMarketEnvironment(hostname);
+    if (marketFetchInFlight.has(environment2))
+      return marketFetchInFlight.get(environment2);
+    let cacheTimestamp = Number(
+      localStorage.getItem("MWITools_marketAPI_timestamp")
+    ), cachedJson = localStorage.getItem("MWITools_marketAPI_json");
+    if (!forceFetch && cachedJson && cacheTimestamp && Date.now() - cacheTimestamp < getMarketRefreshInterval(hostname)) {
+      let cached = validateMarketJsonFetch(cachedJson, !1);
+      if (cached) return cached;
+    }
+    if (Date.now() < marketRetryAt(hostname))
+      return marketCacheFallback(cachedJson, hostname);
+    deferMarketRetry(hostname, Date.now() + MARKET_REQUEST_GAP_MS);
+    let pending = (async () => {
+      let response = await requestMarketJson(getMarketApiUrl(hostname)), jsonObj = validateMarketJsonFetch(
+        response?.status >= 200 && response?.status < 300 ? response.responseText : null,
+        !0
+      );
+      if (jsonObj) return jsonObj;
+      if (deferMarketRetry(hostname, Date.now() + marketFailureRetryDelay(response)), environment2 !== "test") {
+        let fallbackResponse = await requestMarketJson(MARKET_FALLBACK_URL), fallbackJson = validateMarketJsonFetch(
+          fallbackResponse?.status >= 200 && fallbackResponse?.status < 300 ? fallbackResponse.responseText : null,
+          !0
+        );
+        if (fallbackJson) return fallbackJson;
+        deferMarketRetry(
+          hostname,
+          Date.now() + marketFailureRetryDelay(fallbackResponse)
+        );
+      }
+      return setMarketFetchFailure(
+        "市场接口请求失败，已暂停重试",
+        "Market API request failed; retries are paused"
+      ), marketCacheFallback(cachedJson, hostname);
+    })();
+    marketFetchInFlight.set(environment2, pending);
+    try {
+      return await pending;
+    } finally {
+      marketFetchInFlight.delete(environment2);
+    }
   }
   function applyMarketItemValues(payload) {
     payload.marketItemValues && (runtime.state.marketValuesVersion = payload.marketValuesVersion ?? null, runtime.state.marketItemValues = payload.marketItemValues, markAssetValuationMarketDirty());
@@ -23153,7 +23192,7 @@ ${locks}` : ""}`, upgradeMount?.mode === "append" ? upgradeMount.host.append(bad
     Object.freeze({
       id: "26.4.19",
       version: "26.4.19",
-      publishedAt: "2026-10-01",
+      publishedAt: "2026-10-02",
       title: Object.freeze({
         zh: "26.4.19 更新公告",
         en: "Version 26.4.19 update"
@@ -23161,12 +23200,12 @@ ${locks}` : ""}`, upgradeMount?.mode === "append" ? upgradeMount.host.append(bad
       body: Object.freeze({
         zh: Object.freeze([
           "库存：修复分类标签与缓存忽略资产计入设置的问题，牛铃、任务代币和公会／地下城代币统一遵守开关；全部、分类、最爱和搜索结果按同一口径估值，切换标签继续复用快照。",
-          "市场：修复市场列表移除后仍保留旧游戏界面的内存占用，列表重建后自动恢复挂单价格填充。",
+          "市场：修复市场列表移除后仍保留旧游戏界面的内存占用，列表重建后自动恢复挂单价格填充。合并同时发生的市场数据请求，接口失败或限流时暂停重试并沿用缓存；刷新页面也遵守冷却时间，避免重复请求。",
           "性能：减少重复脚本检测的全页扫描，优化共享历史索引与公会曲线计算，释放成员和榜单不使用的曲线缓存。"
         ]),
         en: Object.freeze([
           "Inventory: Fixed category tabs and cached values ignoring asset inclusion settings. Cowbells, task tokens and guild/dungeon tokens now consistently follow their switches across All, category, Favorites and search views. Tab changes continue to reuse the snapshot.",
-          "Market: Fixed memory retained by the old game interface after market lists are removed; price autofill resumes when a replacement list mounts.",
+          "Market: Fixed memory retained by the old game interface after market lists are removed; price autofill resumes when a replacement list mounts. Concurrent market-data requests now share one fetch; failures and rate limits pause retries and reuse cached data. Reloads also honor the cooldown to avoid repeated requests.",
           "Performance: Reduced full-page duplicate-script scans, optimized shared-history lookups and guild trend calculations, and released unused member and leaderboard curve caches."
         ])
       })

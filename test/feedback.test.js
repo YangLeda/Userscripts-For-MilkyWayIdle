@@ -427,7 +427,7 @@ test("announcement history preserves each release separately through 26.4.19", (
     ],
   );
   assert.equal(release19.version, "26.4.19");
-  assert.equal(release19.publishedAt, "2026-10-01");
+  assert.equal(release19.publishedAt, "2026-10-02");
   assert.equal(release19.body.zh.length, 3);
   assert.equal(release19.body.en.length, 3);
   assert.match(
