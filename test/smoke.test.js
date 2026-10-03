@@ -103,6 +103,22 @@ function createUserscriptWindow(url) {
 }
 
 for (const [buildName, userscript] of userscripts) {
+  test(`${buildName} safe-start bypass works before any feature or storage module loads`, async () => {
+    const { calls, dom, window } = createUserscriptWindow(
+      "https://www.milkywayidle.com/game?mwitoolsSafe=1",
+    );
+    window.GM_listValues = () => {
+      throw new Error("Shared storage must not be accessed in rescue");
+    };
+    window.eval(userscript);
+    for (let index = 0; index < 30; index += 1) await Promise.resolve();
+    assert.equal(calls.requests, 0);
+    assert.equal(calls.styles, 0);
+    assert.equal(calls.mutationObservers, 0);
+    assert.ok(window.document.querySelector("#mwitools-startup-debug"));
+    assert.equal(window.localStorage.getItem("initClientData"), "cached");
+    dom.window.close();
+  });
   test(`${buildName} game route starts without synchronous errors`, async () => {
     const { calls, dom, window } = createUserscriptWindow(
       "https://www.milkywayidle.com/",
@@ -123,11 +139,12 @@ for (const [buildName, userscript] of userscripts) {
     dom.window.close();
   });
 
-  test(`${buildName} external route stays isolated`, () => {
+  test(`${buildName} external route stays isolated`, async () => {
     const { calls, dom, window } = createUserscriptWindow(
       "https://mooneycalc.netlify.app/",
     );
     assert.doesNotThrow(() => window.eval(userscript));
+    for (let index = 0; index < 30; index += 1) await Promise.resolve();
     assert.equal(calls.requests, 0);
     assert.equal(calls.styles, 0);
     assert.equal(calls.intervals, 1);
@@ -158,7 +175,16 @@ for (const [buildName, userscript] of userscripts) {
         addEventListener() {},
       },
     });
+    const scheduled = [];
+    const oldTimeout = window.setTimeout;
+    window.setTimeout = (callback) => {
+      scheduled.push(callback);
+      return 0;
+    };
     void event.data;
+    window.setTimeout = oldTimeout;
+    assert.equal(scheduled.length, 1, "native frame queues one plugin task");
+    scheduled[0]();
     for (let index = 0; index < 300; index += 1) await Promise.resolve();
 
     assert.ok(

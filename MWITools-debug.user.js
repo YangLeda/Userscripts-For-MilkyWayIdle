@@ -1,9 +1,7 @@
 // ==UserScript==
 // @name         MWITools
 // @namespace    http://tampermonkey.net/
-// @version      26.4.19
-// @updateURL    https://update.greasyfork.org/scripts/494467/MWITools.meta.js
-// @downloadURL  https://update.greasyfork.org/scripts/494467/MWITools.user.js
+// @version      26.4.19-debug.1
 // @description  Tools for MilkyWayIdle. Includes a feedback center, action projections, market insights, asset history, DPS/HPS statistics, inventory tools, tasks, and guild utilities.
 // @author       bot7420, shykai, Stella
 // @license      CC-BY-NC-SA-4.0
@@ -54,6 +52,8 @@
     the report. Settings and history are preserved. Include browser, manager and
     script versions, and the last working version. Avoid duplicate enabled copies.
 */
+
+globalThis.__MWITOOLS_DEBUG_BUILD__ = true;
 (() => {
   var __create = Object.create;
   var __defProp = Object.defineProperty;

@@ -22,6 +22,35 @@ const cnKey = key.replace(":production:", ":china:");
 const put = (store, value, name = key) =>
   store.setItem(name, JSON.stringify(value));
 const get = (store, name = key) => JSON.parse(store.getItem(name));
+test("import does not synchronously migrate inactive stores; background migration yields and backup includes them", async () => {
+  const inactive = "MWITools_test_inactive_character";
+  localStorage.setItem(
+    inactive,
+    JSON.stringify({ cart: [{ itemHrid: "/items/inactive", quantity: 8 }] }),
+  );
+  const before = gm.size;
+  const fresh = await import("../src/core/shared-storage.js?lazy-startup");
+  assert.equal(gm.size, before, "module evaluation must not write migrations");
+  const run = fresh.scheduleSharedMigration();
+  assert.equal(gm.size, before, "first background work yields to the game");
+  assert.equal(
+    run,
+    fresh.scheduleSharedMigration(),
+    "coalesce background imports",
+  );
+  await run;
+  assert.equal(
+    JSON.parse(fresh.sharedStorage.getItem(inactive)).cart[0].quantity,
+    8,
+  );
+  const backupOnly = "MWITools_test_backup_inactive";
+  localStorage.setItem(backupOnly, "backup-value");
+  assert.ok(
+    Object.keys(fresh.exportSharedBackup().data).some((name) =>
+      name.startsWith(`record:${backupOnly}:`),
+    ),
+  );
+});
 test("live origins merge records once without adding duplicate quantities", () => {
   localStorage.setItem(
     key,

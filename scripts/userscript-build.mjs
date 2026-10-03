@@ -63,7 +63,7 @@ export async function buildUserscript({ banner, outfile }) {
     keepNames: false,
     sourcemap: false,
     legalComments: "inline",
-    treeShaking: false,
+    treeShaking: true,
     plugins: [compressedMarketBackupPlugin()],
     loader: { ".png": "dataurl" },
     banner: { js: banner },

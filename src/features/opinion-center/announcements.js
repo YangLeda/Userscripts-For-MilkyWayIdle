@@ -4,7 +4,7 @@ export const ANNOUNCEMENTS = Object.freeze([
   Object.freeze({
     id: "26.4.19",
     version: "26.4.19",
-    publishedAt: "2026-10-02",
+    publishedAt: "2026-10-03",
     title: Object.freeze({
       zh: "26.4.19 更新公告",
       en: "Version 26.4.19 update",
@@ -14,11 +14,13 @@ export const ANNOUNCEMENTS = Object.freeze([
         "库存：修复分类标签与缓存忽略资产计入设置的问题，牛铃、任务代币和公会／地下城代币统一遵守开关；全部、分类、最爱和搜索结果按同一口径估值，切换标签继续复用快照。",
         "市场：修复市场列表移除后仍保留旧游戏界面的内存占用，列表重建后自动恢复挂单价格填充。合并同时发生的市场数据请求，接口失败或限流时暂停重试并沿用缓存；刷新页面也遵守冷却时间，避免重复请求。",
         "性能：减少重复脚本检测的全页扫描，优化共享历史索引与公会曲线计算，释放成员和榜单不使用的曲线缓存。公会历史采样改为小批处理，连续更新合并执行，减少集中计算对页面操作的阻塞。",
+        "启动：游戏先读取原始网络消息，再分批处理插件消息，插件报错不再中断游戏读取；未使用角色的历史迁移延后分批执行。新增启动诊断与安全启动入口，保留设置和历史，可导出本地阶段、错误及卡顿报告，帮助定位无法进入游戏的问题。",
       ]),
       en: Object.freeze([
         "Inventory: Fixed category tabs and cached values ignoring asset inclusion settings. Cowbells, task tokens and guild/dungeon tokens now consistently follow their switches across All, category, Favorites and search views. Tab changes continue to reuse the snapshot.",
         "Market: Fixed memory retained by the old game interface after market lists are removed; price autofill resumes when a replacement list mounts. Concurrent market-data requests now share one fetch; failures and rate limits pause retries and reuse cached data. Reloads also honor the cooldown to avoid repeated requests.",
         "Performance: Reduced full-page duplicate-script scans, optimized shared-history lookups and guild trend calculations, and released unused member and leaderboard curve caches. Guild history sampling now yields between small batches and coalesces overlapping updates to reduce interference with page input.",
+        "Startup: The game receives original network messages before plugin processing runs in batches; plugin errors no longer interrupt the game's message reads. Inactive-character history migration now runs in deferred batches. Added local startup diagnostics and a safe-start entry that preserves settings and history, with exportable phase, error and stall reports to investigate loading failures.",
       ]),
     }),
   }),

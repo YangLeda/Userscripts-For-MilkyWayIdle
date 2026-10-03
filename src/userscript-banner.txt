@@ -26,6 +26,7 @@
 // @grant        GM_setValue
 // @grant        GM_setValues
 // @grant        GM_info
+// @grant        GM_registerMenuCommand
 // @grant        unsafeWindow
 // @connect      www.milkywayidle.com
 // @connect      test.milkywayidle.com
@@ -43,16 +44,13 @@
 // 特别感谢：ColaCola、Zhulimoon、400badrequest、Q7
 
 /*
-    【遇到MWITools插件有问题时的解决方法】
+    无法进入游戏：从脚本管理器菜单打开“MWITools 启动诊断”，选择“正常加载并记录”。
+    仍卡住时，在同一标签页安全启动并下载诊断报告；安全启动保留设置与历史。
+    请同时提供浏览器、脚本管理器、脚本版本和可正常运行的旧版本号。
+    检查是否重复启用多份 MWITools，更新脚本或切换游戏语言后刷新网页。
 
-    请先务必排查以下问题：
-    1. 你的MWITools插件已更新至最新版（greasyfork网站有可能被墙，请开梯子更新；或者到QQ群文件里下载后手动导入或复制粘贴代码）；
-    2. 你没有重复安装插件（有的人装了新版本插件，但还有个旧版本的没有删除，在同时运行；或者有的人在同一个浏览器里装了两个油猴类浏览器插件）；
-    3. 安装或更新完插件后，以及在游戏设置里切换过语言后，必须刷新游戏网页；
-    4. 请在电脑上、使用最新版本Chrome浏览器、使用最新版本TamperMonkey（油猴）插件尝试（作者精力有限，做不到逐个适配各种环境、为每个人定位环境问题，
-       遇到问题时请优先使用上述主流环境。如果你一定要使用旧版本或其它品牌的浏览器或油猴插件，遇到问题请优先自行摸索如何解决，作者很可能无法解决你的问题。
-       手机使用问题很多，作者不定位手机上问题。问问群友用什么浏览器好使，多换几个浏览器试试。苹果手机建议尝试focus浏览器。）。
-
-    如果仍有问题，请私聊作者具体问题是什么、复现问题的具体步骤、最好附带截图；
-    报错日志是定位问题的快速甚至唯一方法，请打开浏览器开发者工具查看终端，刷新游戏网页，复现遇到的问题，截图发给作者。
+    Loading fails: open MWITools startup debug in the userscript manager menu.
+    Reload with diagnostics; if blocked, use Safe start in the same tab and export
+    the report. Settings and history are preserved. Include browser, manager and
+    script versions, and the last working version. Avoid duplicate enabled copies.
 */

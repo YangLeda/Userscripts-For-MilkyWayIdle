@@ -427,9 +427,9 @@ test("announcement history preserves each release separately through 26.4.19", (
     ],
   );
   assert.equal(release19.version, "26.4.19");
-  assert.equal(release19.publishedAt, "2026-10-02");
-  assert.equal(release19.body.zh.length, 3);
-  assert.equal(release19.body.en.length, 3);
+  assert.equal(release19.publishedAt, "2026-10-03");
+  assert.equal(release19.body.zh.length, 4);
+  assert.equal(release19.body.en.length, 4);
   assert.match(
     release19.body.zh.join("\n"),
     /资产计入设置[\s\S]*内存[\s\S]*曲线缓存/,
