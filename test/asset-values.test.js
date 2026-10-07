@@ -524,6 +524,13 @@ test("live orderbook prices wait for the next asset valuation session", () => {
 
   assert.equal(runtime.api.getFairValue(itemHrid), 250);
   assert.equal(runtime.api.getAssetValue(itemHrid), 100);
+  assert.equal(
+    runtime.api.getAssetValue(itemHrid, 0, {
+      forceAcquisitionValue: true,
+      useLiveMarketValues: true,
+    }),
+    250,
+  );
   assert.equal(runtime.api.isAssetValuationMarketDirty(), true);
 
   runtime.api.invalidateAssetValueCache();
@@ -555,6 +562,43 @@ test("upgrade crafting always adds one base item beyond matching recipe inputs",
   );
 
   delete runtime.state.marketItemValues["/items/upgrade_base"];
+  runtime.state.initData_actionDetailMap = previousActions;
+  runtime.api.invalidateAssetValueCache();
+});
+
+test("live acquisition values propagate through recursive crafting inputs", () => {
+  const previousActions = runtime.state.initData_actionDetailMap;
+  const originalGetAssetFairValue = runtime.api.getAssetFairValue;
+  const originalGetFairValue = runtime.api.getFairValue;
+  runtime.state.initData_actionDetailMap = {
+    ...previousActions,
+    live_acquisition_recipe: {
+      inputItems: [{ itemHrid: "/items/live_acquisition_input", count: 3 }],
+      outputItems: [{ itemHrid: "/items/live_acquisition_output", count: 1 }],
+    },
+  };
+  runtime.api.getAssetFairValue = (hrid) =>
+    hrid === "/items/live_acquisition_input" ? 100 : 0;
+  runtime.api.getFairValue = (hrid) =>
+    hrid === "/items/live_acquisition_input" ? 250 : 0;
+  runtime.api.invalidateAssetValueCache();
+
+  assert.equal(
+    runtime.api.getAssetValue("/items/live_acquisition_output", 0, {
+      forceAcquisitionValue: true,
+    }),
+    300,
+  );
+  assert.equal(
+    runtime.api.getAssetValue("/items/live_acquisition_output", 0, {
+      forceAcquisitionValue: true,
+      useLiveMarketValues: true,
+    }),
+    750,
+  );
+
+  runtime.api.getAssetFairValue = originalGetAssetFairValue;
+  runtime.api.getFairValue = originalGetFairValue;
   runtime.state.initData_actionDetailMap = previousActions;
   runtime.api.invalidateAssetValueCache();
 });

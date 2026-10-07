@@ -14,8 +14,11 @@ const { runtime } = await import("../src/core/runtime.js");
 await import("../src/core/config.js");
 const { registerGameLocaleResources } =
   await import("../src/core/game-localization.js");
-const { getTooltipEnhancementPlanOptions, readEnhancedTooltipItem } =
-  await import("../src/features/enhancement-tooltip.js");
+const {
+  getEnhancedMarketValue,
+  getTooltipEnhancementPlanOptions,
+  readEnhancedTooltipItem,
+} = await import("../src/features/enhancement-tooltip.js");
 
 test("refined tooltip identity comes from its sprite and level marker", () => {
   runtime.state.initData_itemDetailMap = {
@@ -62,18 +65,27 @@ test("enhancement tooltip values every back type with protection mirrors", () =>
     getAssetValue: runtime.api.getAssetValue,
     isBackEquipment: runtime.api.isBackEquipment,
   };
+  let receivedAssetValueOptions = null;
   runtime.api.getFairValue = () => 0;
-  runtime.api.getAssetValue = (hrid) =>
-    ({
-      "/items/chance_cape": 100_000,
-      "/items/labyrinth_refinement_shard": 25_000,
-    })[hrid] ?? 0;
+  runtime.api.getAssetValue = (hrid, _level, options) => {
+    receivedAssetValueOptions = options;
+    return (
+      {
+        "/items/chance_cape": 100_000,
+        "/items/labyrinth_refinement_shard": 25_000,
+      }[hrid] ?? 0
+    );
+  };
   runtime.api.isBackEquipment = (hrid) =>
     hrid.includes("cape") || hrid.includes("quiver");
 
   runtime.settings.settingsMap.valueBackEquipmentWithProtectionMirror.isTrue = false;
   let options = getTooltipEnhancementPlanOptions("/items/chance_cape_refined");
   assert.equal(options.getFairValue("/items/chance_cape", 0), 100_000);
+  assert.deepEqual(receivedAssetValueOptions, {
+    forceAcquisitionValue: true,
+    useLiveMarketValues: true,
+  });
   assert.equal(
     options.getFairValue("/items/labyrinth_refinement_shard", 0),
     25_000,
@@ -109,4 +121,33 @@ test("enhancement tooltip values every back type with protection mirrors", () =>
   runtime.api.getAssetValue = originals.getAssetValue;
   runtime.api.isBackEquipment = originals.isBackEquipment;
   runtime.settings.settingsMap.valueBackEquipmentWithProtectionMirror.isTrue = false;
+});
+
+test("enhanced market value uses completed detail plan cost", () => {
+  const originalGetFairValue = runtime.api.getFairValue;
+  runtime.api.getFairValue = () => 123_456;
+
+  assert.equal(
+    getEnhancedMarketValue("/items/rippling_trident", 7, {
+      status: "complete",
+      totalCost: 987_654,
+    }),
+    987_654,
+  );
+  assert.equal(
+    getEnhancedMarketValue("/items/rippling_trident", 7, {
+      status: "incomplete",
+      totalCost: 987_654,
+    }),
+    123_456,
+  );
+  assert.equal(
+    getEnhancedMarketValue("/items/rippling_trident", 0, {
+      status: "complete",
+      totalCost: 987_654,
+    }),
+    123_456,
+  );
+
+  runtime.api.getFairValue = originalGetFairValue;
 });

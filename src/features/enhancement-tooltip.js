@@ -25,7 +25,29 @@ function clearEnhancementContext(tooltip) {
   }
 }
 
-function appendMarketRows(tooltipContent, itemHrid, enhancementLevel) {
+export function getEnhancedMarketValue(
+  itemHrid,
+  enhancementLevel,
+  plan = null,
+) {
+  const planCost = Number(plan?.totalCost);
+  if (
+    enhancementLevel > 0 &&
+    plan?.status === "complete" &&
+    Number.isFinite(planCost) &&
+    planCost > 0
+  ) {
+    return planCost;
+  }
+  return runtime.api.getFairValue(itemHrid, enhancementLevel);
+}
+
+function appendMarketRows(
+  tooltipContent,
+  itemHrid,
+  enhancementLevel,
+  plan = null,
+) {
   tooltipContent
     .querySelector('[data-mwitools-enhancement-market="true"]')
     ?.remove();
@@ -38,7 +60,7 @@ function appendMarketRows(tooltipContent, itemHrid, enhancementLevel) {
   const wrapper = document.createElement("div");
   wrapper.dataset.mwitoolsEnhancementMarket = "true";
   wrapper.style.color = runtime.config.SCRIPT_COLOR_TOOLTIP;
-  const fairValue = runtime.api.getFairValue(itemHrid, enhancementLevel);
+  const fairValue = getEnhancedMarketValue(itemHrid, enhancementLevel, plan);
   const ask = runtime.api.getAskPrice(itemHrid, enhancementLevel);
   const bid = runtime.api.getBidPrice(itemHrid, enhancementLevel);
   const valueRow = document.createElement("div");
@@ -54,6 +76,7 @@ export function getTooltipEnhancementPlanOptions(itemHrid) {
     runtime.api.isBackEquipment?.(itemHrid),
   );
   return {
+    simulationProfile: runtime.api.getEnhancementSimulationProfile?.(),
     forcedProtectionItemHrid: forceProtectionMirror
       ? "/items/mirror_of_protection"
       : null,
@@ -61,6 +84,7 @@ export function getTooltipEnhancementPlanOptions(itemHrid) {
     getFairValue: (hrid, level = 0) =>
       runtime.api.getAssetValue?.(hrid, level, {
         forceAcquisitionValue: true,
+        useLiveMarketValues: true,
       }) ||
       runtime.api.getFairValue(hrid, level) ||
       0,
@@ -107,7 +131,9 @@ export async function handleEnhancedItemTooltip(tooltip) {
     return;
   }
 
-  if (runtime.settings.settingsMap.enhanceSim.isTrue) {
+  const shouldShowEnhancementPlan =
+    runtime.settings.settingsMap.enhanceSim.isTrue;
+  if (shouldShowEnhancementPlan) {
     setEnhancementContext(tooltip, null);
   } else {
     clearEnhancementContext(tooltip);
@@ -117,18 +143,19 @@ export async function handleEnhancedItemTooltip(tooltip) {
   if (!runtime.api.shouldSuppressMarketFeatures?.()) {
     await runtime.api.fetchMarketJSON();
     if (!tooltip.isConnected) return;
-    appendMarketRows(tooltipContent, itemHrid, enhancementLevel);
-  } else {
-    appendMarketRows(tooltipContent, itemHrid, enhancementLevel);
   }
-  if (!runtime.settings.settingsMap.enhanceSim.isTrue) return;
 
-  const plan = calculateEnhancementPlan({
-    itemHrid,
-    targetLevel: enhancementLevel,
-    ...getTooltipEnhancementPlanOptions(itemHrid),
-  });
-  if (tooltip.isConnected) setEnhancementContext(tooltip, plan);
+  const plan = shouldShowEnhancementPlan
+    ? calculateEnhancementPlan({
+        itemHrid,
+        targetLevel: enhancementLevel,
+        ...getTooltipEnhancementPlanOptions(itemHrid),
+      })
+    : null;
+  appendMarketRows(tooltipContent, itemHrid, enhancementLevel, plan);
+  if (shouldShowEnhancementPlan && tooltip.isConnected) {
+    setEnhancementContext(tooltip, plan);
+  }
 }
 
 runtime.api.handleItemTooltipWithEnhancementLevel = handleEnhancedItemTooltip;

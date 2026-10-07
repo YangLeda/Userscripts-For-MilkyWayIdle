@@ -7476,8 +7476,9 @@
   function getAssetValueInternal(itemHrid, enhancementLevel, context, options = {}) {
     if (!itemHrid) return 0;
     if (itemHrid === "/items/coin") return 1;
-    let level = Number(enhancementLevel) || 0, directFairValue = runtime.api.getAssetFairValue(itemHrid, level), backEquipment = isBackEquipment(itemHrid, options.itemLocationHrid), enhancedEquipment = level > 0 && isEquipment(itemHrid), refinedBackEquipment = backEquipment && String(itemHrid).endsWith("_refined"), ordinaryBackMirrorValue = level === 0 && backEquipment && !refinedBackEquipment && options.forceAcquisitionValue !== !0 && settingEnabled("valueBackEquipmentWithProtectionMirror"), preferAcquisitionValue = options.forceAcquisitionValue === !0 || refinedBackEquipment, cacheKey = `${itemHrid}:${level}:${enhancedEquipment ? backEquipment ? "enhancement-protected-mirror" : "enhancement-protected" : ordinaryBackMirrorValue ? "protection-mirror-value" : preferAcquisitionValue ? "acquisition" : "market"}`;
-    if (assetValueCache.has(cacheKey)) return assetValueCache.get(cacheKey);
+    let level = Number(enhancementLevel) || 0, useLiveMarketValues = options.useLiveMarketValues === !0 || context.useLiveMarketValues === !0, directFairValue = useLiveMarketValues ? runtime.api.getFairValue(itemHrid, level) : runtime.api.getAssetFairValue(itemHrid, level), backEquipment = isBackEquipment(itemHrid, options.itemLocationHrid), enhancedEquipment = level > 0 && isEquipment(itemHrid), refinedBackEquipment = backEquipment && String(itemHrid).endsWith("_refined"), ordinaryBackMirrorValue = level === 0 && backEquipment && !refinedBackEquipment && options.forceAcquisitionValue !== !0 && settingEnabled("valueBackEquipmentWithProtectionMirror"), preferAcquisitionValue = options.forceAcquisitionValue === !0 || refinedBackEquipment, cacheKey = `${itemHrid}:${level}:${enhancedEquipment ? backEquipment ? "enhancement-protected-mirror" : "enhancement-protected" : ordinaryBackMirrorValue ? "protection-mirror-value" : preferAcquisitionValue ? "acquisition" : "market"}`, remember = (value2) => (useLiveMarketValues || assetValueCache.set(cacheKey, value2), value2);
+    if (!useLiveMarketValues && assetValueCache.has(cacheKey))
+      return assetValueCache.get(cacheKey);
     if (context.has(cacheKey)) return 0;
     if (ordinaryBackMirrorValue) {
       context.add(cacheKey);
@@ -7487,7 +7488,7 @@
         context
       );
       if (context.delete(cacheKey), mirrorValue > 0)
-        return assetValueCache.set(cacheKey, mirrorValue), mirrorValue;
+        return remember(mirrorValue);
     }
     if (enhancedEquipment) {
       let enhancementCost = getEnhancedEquipmentCost(
@@ -7498,15 +7499,15 @@
       );
       if (enhancementCost > 0) {
         let deviation = directFairValue > 0 ? Math.abs(directFairValue - enhancementCost) / enhancementCost : Number.POSITIVE_INFINITY, value2 = directFairValue > 0 && deviation <= ENHANCED_EQUIPMENT_MAX_MARKET_DEVIATION ? directFairValue : enhancementCost;
-        return assetValueCache.set(cacheKey, value2), value2;
+        return remember(value2);
       }
       if (directFairValue > 0)
-        return assetValueCache.set(cacheKey, directFairValue), directFairValue;
+        return remember(directFairValue);
     }
     if (!preferAcquisitionValue && directFairValue > 0)
-      return assetValueCache.set(cacheKey, directFairValue), directFairValue;
+      return remember(directFairValue);
     if (directFairValue <= 0 && isPersonalBuffScroll(itemHrid))
-      return assetValueCache.set(cacheKey, 0), 0;
+      return remember(0);
     context.add(cacheKey);
     let value = 0;
     if (itemHrid === "/items/cowbell")
@@ -7532,13 +7533,14 @@
         getOpenableValue(itemHrid, context)
       );
     if (context.delete(cacheKey), !!getItemDetails(itemHrid)?.openKeyItemHrid && getDropRecords(itemHrid).length > 0 && !(value > 0))
-      return assetValueCache.set(cacheKey, 0), 0;
+      return remember(0);
     value > 0 || (value = directFairValue), value > 0 || (value = positiveNumber2(getItemDetails(itemHrid)?.sellPrice));
     let normalizedValue = Number.isFinite(value) && value > 0 ? value : 0;
-    return assetValueCache.set(cacheKey, normalizedValue), normalizedValue;
+    return remember(normalizedValue);
   }
   function getAssetValue(itemHrid, enhancementLevel = 0, options = {}) {
-    return getAssetValueInternal(itemHrid, enhancementLevel, /* @__PURE__ */ new Set(), options);
+    let context = /* @__PURE__ */ new Set();
+    return context.useLiveMarketValues = options.useLiveMarketValues === !0, getAssetValueInternal(itemHrid, enhancementLevel, context, options);
   }
   function directLiquidationValue(itemHrid, enhancementLevel, mode) {
     if (mode === "conservative")
@@ -25771,6 +25773,16 @@ ${locks}` : ""}`, upgradeMount?.mode === "append" ? upgradeMount.host.append(bad
     houseSuccessPerLevel: 5e-4,
     baseActionSeconds: 12,
     teaDurationSeconds: 300
+  }), DEFAULT_ENHANCEMENT_SIMULATION_PROFILE = Object.freeze({
+    baseCostMode: "acquisition_cost",
+    playerLevel: 136,
+    houseLevel: 8,
+    enhancerBonusPercent: 5.26,
+    gearSpeedBonusPercent: 37.22,
+    teaType: "ultra_enhancing_tea",
+    blessedTea: !0,
+    timeFeePerHour: 0,
+    taxRatePercent: 2
   }), DEFAULT_SUCCESS_RATES = [
     0.5,
     0.45,
@@ -25982,8 +25994,31 @@ ${locks}` : ""}`, upgradeMount?.mode === "append" ? upgradeMount.host.append(bad
   function getEnhancementProfileStats({
     itemLevel,
     itemDetailMap = runtime.state.initData_itemDetailMap,
-    bonusMultiplierTable = runtime.state.initData_enhancementLevelTotalBonusMultiplierTable
+    bonusMultiplierTable = runtime.state.initData_enhancementLevelTotalBonusMultiplierTable,
+    simulationProfile = null
   } = {}) {
+    if (simulationProfile) {
+      let targetItemLevel2 = Number(itemLevel);
+      if (!Number.isFinite(targetItemLevel2) || targetItemLevel2 <= 0)
+        return null;
+      let teaLevelBonus = {
+        enhancing_tea: 3,
+        super_enhancing_tea: 6,
+        ultra_enhancing_tea: 8
+      }[simulationProfile.teaType] ?? 0, playerLevel = Number(simulationProfile.playerLevel) || 0, houseLevel = Number(simulationProfile.houseLevel) || 0, effectiveLevel2 = playerLevel + teaLevelBonus, successBonus2 = (effectiveLevel2 >= targetItemLevel2 ? (effectiveLevel2 + houseLevel - targetItemLevel2) * 5e-4 : -0.5 * (1 - effectiveLevel2 / targetItemLevel2) + houseLevel * 5e-4) + (Number(simulationProfile.enhancerBonusPercent) || 0) / 100, speedBonus2 = (houseLevel + (Number(simulationProfile.gearSpeedBonusPercent) || 0) + (effectiveLevel2 > targetItemLevel2 ? effectiveLevel2 - targetItemLevel2 : 0)) / 100;
+      return {
+        effectiveLevel: effectiveLevel2,
+        toolSuccess: (Number(simulationProfile.enhancerBonusPercent) || 0) / 100,
+        gloveSpeed: (Number(simulationProfile.gearSpeedBonusPercent) || 0) / 100,
+        topSpeed: 0,
+        bottomsSpeed: 0,
+        capeSpeed: 0,
+        successBonus: successBonus2,
+        speedBonus: speedBonus2,
+        blessedChance: simulationProfile.blessedTea ? 0.01 : 0,
+        secondsPerAction: ENHANCEMENT_PROFILE.baseActionSeconds / (1 + speedBonus2)
+      };
+    }
     let bonusTable = normalizedTable(
       bonusMultiplierTable,
       DEFAULT_BONUS_MULTIPLIERS
@@ -26291,7 +26326,8 @@ ${locks}` : ""}`, upgradeMount?.mode === "append" ? upgradeMount.host.append(bad
     getMarketValue = getFairValue2,
     projectAction: projectAction2 = runtime.api.projectAction,
     forcedProtectionItemHrid = null,
-    allowPhilosopherMirror = !0
+    allowPhilosopherMirror = !0,
+    simulationProfile = null
   } = {}) {
     let target = Math.max(0, Math.floor(Number(targetLevel) || 0)), baseItemHrid = itemHrid.endsWith("_refined") ? itemHrid.replace("_refined", "") : itemHrid, item = itemDetailMap?.[baseItemHrid], refiningRecipe = refinementRecipe(
       itemHrid,
@@ -26302,7 +26338,8 @@ ${locks}` : ""}`, upgradeMount?.mode === "append" ? upgradeMount.host.append(bad
     let stats = getEnhancementProfileStats({
       itemLevel: item.itemLevel,
       itemDetailMap,
-      bonusMultiplierTable
+      bonusMultiplierTable,
+      simulationProfile
     });
     if (!stats) return unavailableResult();
     let missing = /* @__PURE__ */ new Set(), resolvePrice = (resolver, hrid, level = 0) => {
@@ -26312,13 +26349,13 @@ ${locks}` : ""}`, upgradeMount?.mode === "append" ? upgradeMount.host.append(bad
     }, acquisitionPrice = (hrid, level = 0) => resolvePrice(getFairValue2, hrid, level), marketPrice = (hrid, level = 0) => resolvePrice(getMarketValue, hrid, level), optionalMarketPrice = (hrid, level = 0) => hrid === "/items/coin" ? 1 : finitePositive(getMarketValue?.(hrid, level)), resolveCharmLeafPrice = (hrid) => {
       let value = optionalMarketPrice(hrid, 0) || nonTradableCoinShopPrice(hrid, itemDetailMap, shopItemDetailMap);
       return value || missing.add(hrid), value;
-    }, basePrice = baseItemHrid.endsWith("_charm") ? charmBaseCost({
+    }, useFairValueBase = simulationProfile?.baseCostMode === "fair_value", basePrice = useFairValueBase ? marketPrice(baseItemHrid, 0) : baseItemHrid.endsWith("_charm") ? charmBaseCost({
       itemHrid: baseItemHrid,
       actionDetailMap,
       projectAction: projectAction2,
       resolveLeafPrice: resolveCharmLeafPrice
     }) : acquisitionPrice(baseItemHrid, 0);
-    !basePrice && baseItemHrid.endsWith("_charm") && missing.add(baseItemHrid);
+    !basePrice && baseItemHrid.endsWith("_charm") && !useFairValueBase && missing.add(baseItemHrid);
     let materialCostPerAction = 0, hasMissingRequiredPrice = !basePrice;
     for (let cost of item.enhancementCosts) {
       let unitPrice = optionalMarketPrice(cost.itemHrid, 0) || nonTradableCoinShopPrice(cost.itemHrid, itemDetailMap, shopItemDetailMap);
@@ -26329,8 +26366,8 @@ ${locks}` : ""}`, upgradeMount?.mode === "append" ? upgradeMount.host.append(bad
       let unitPrice = acquisitionPrice(cost.itemHrid, 0);
       unitPrice || (hasMissingRequiredPrice = !0), refinementCost += unitPrice * Number(cost.count || 0);
     }
-    let ultraTeaPrice = marketPrice("/items/ultra_enhancing_tea", 0), blessedTeaPrice = marketPrice("/items/blessed_tea", 0);
-    if ((!ultraTeaPrice || !blessedTeaPrice) && (hasMissingRequiredPrice = !0), hasMissingRequiredPrice) return unavailableResult([...missing]);
+    let teaType = simulationProfile?.teaType ?? "ultra_enhancing_tea", enhancingTeaHrid = teaType === "none" ? null : `/items/${teaType}`, enhancingTeaPrice = enhancingTeaHrid ? marketPrice(enhancingTeaHrid, 0) : 0, useBlessedTea = simulationProfile ? !!simulationProfile.blessedTea : !0, blessedTeaPrice = useBlessedTea ? marketPrice("/items/blessed_tea", 0) : 0;
+    if ((enhancingTeaHrid && !enhancingTeaPrice || useBlessedTea && !blessedTeaPrice) && (hasMissingRequiredPrice = !0), hasMissingRequiredPrice) return unavailableResult([...missing]);
     let protectionChoice = null, considerProtection = (hrid, value) => {
       hrid && value > 0 && (!protectionChoice || value < protectionChoice.value) && (protectionChoice = { hrid, value });
     };
@@ -26348,7 +26385,7 @@ ${locks}` : ""}`, upgradeMount?.mode === "append" ? upgradeMount.host.append(bad
         optionalMarketPrice("/items/mirror_of_protection", 0)
       );
     }
-    let protectionPrice = protectionChoice?.value ?? 0, philosopherMirrorPrice = marketPrice("/items/philosophers_mirror", 0), successRates = normalizedTable(successRateTable, DEFAULT_SUCCESS_RATES), ultraTeaCostPerAction = stats.secondsPerAction / ENHANCEMENT_PROFILE.teaDurationSeconds * ultraTeaPrice, blessedTeaCostPerNormalAction = stats.secondsPerAction / ENHANCEMENT_PROFILE.teaDurationSeconds * blessedTeaPrice, normalActionCost = materialCostPerAction + ultraTeaCostPerAction + blessedTeaCostPerNormalAction, best = null, flowTable = getCachedEnhancementFlowTable({
+    let protectionPrice = protectionChoice?.value ?? 0, philosopherMirrorPrice = marketPrice("/items/philosophers_mirror", 0), successRates = normalizedTable(successRateTable, DEFAULT_SUCCESS_RATES), enhancingTeaCostPerAction = stats.secondsPerAction / ENHANCEMENT_PROFILE.teaDurationSeconds * enhancingTeaPrice, blessedTeaCostPerNormalAction = stats.secondsPerAction / ENHANCEMENT_PROFILE.teaDurationSeconds * blessedTeaPrice, timeFeePerAction = stats.secondsPerAction / 3600 * (Number(simulationProfile?.timeFeePerHour) || 0), normalActionCost = materialCostPerAction + enhancingTeaCostPerAction + blessedTeaCostPerNormalAction + timeFeePerAction, best = null, flowTable = getCachedEnhancementFlowTable({
       targetLevel: target,
       successRates,
       successBonus: stats.successBonus,
@@ -26375,7 +26412,7 @@ ${locks}` : ""}`, upgradeMount?.mode === "append" ? upgradeMount.host.append(bad
         for (let protectLevel = 1; protectLevel <= philosopherStartLevel; protectLevel++) {
           let flow = flowTable.philosopher[philosopherStartLevel][protectLevel];
           if (!flow || flow.baseItemCount < -EPSILON2 || flow.protectionCount > EPSILON2 && !protectionPrice) continue;
-          let totalCost = flow.baseItemCount * basePrice + flow.totalActions * (materialCostPerAction + ultraTeaCostPerAction) + (flow.totalActions - flow.mirrorCount) * blessedTeaCostPerNormalAction + flow.protectionCount * protectionPrice + flow.mirrorCount * philosopherMirrorPrice;
+          let totalCost = flow.baseItemCount * basePrice + flow.totalActions * (materialCostPerAction + enhancingTeaCostPerAction + timeFeePerAction) + (flow.totalActions - flow.mirrorCount) * blessedTeaCostPerNormalAction + flow.protectionCount * protectionPrice + flow.mirrorCount * philosopherMirrorPrice;
           (!best || totalCost < best.totalCost) && (best = {
             mode: "philosopher",
             totalCost,
@@ -26388,9 +26425,14 @@ ${locks}` : ""}`, upgradeMount?.mode === "append" ? upgradeMount.host.append(bad
             bCount: flow.bCount
           });
         }
-    return best ? {
+    if (!best) return unavailableResult([...missing]);
+    let taxMultiplier = simulationProfile && Number(simulationProfile.taxRatePercent) > 0 ? 1 / (1 - Number(simulationProfile.taxRatePercent) / 100) : 1, totalCostBeforeTax = best.totalCost + refinementCost;
+    return {
       status: "complete",
-      totalCost: best.totalCost + refinementCost,
+      totalCost: totalCostBeforeTax * taxMultiplier,
+      totalCostBeforeTax,
+      taxRatePercent: simulationProfile && Number(simulationProfile.taxRatePercent) || 0,
+      simulationProfile: simulationProfile ? { ...simulationProfile } : null,
       baseCost: basePrice,
       refinementCost,
       totalSeconds: best.totalActions * stats.secondsPerAction,
@@ -26406,7 +26448,7 @@ ${locks}` : ""}`, upgradeMount?.mode === "append" ? upgradeMount.host.append(bad
       bLevel: best.philosopherStartLevel === null ? null : best.philosopherStartLevel - 1,
       bCount: best.bCount,
       missingMarketValues: [...missing]
-    } : unavailableResult([...missing]);
+    };
   }
   Object.assign(runtime.api, {
     calculateEnhancementPlan,
@@ -26452,6 +26494,34 @@ ${locks}` : ""}`, upgradeMount?.mode === "append" ? upgradeMount.host.append(bad
     let rounded = Math.round(number3), digits = Math.abs(number3 - rounded) < 1e-8 ? 0 : 1;
     return `${compactNumber(number3, digits)} ${t18("个", "pcs")}`;
   }
+  function teaName(teaType) {
+    return {
+      none: t18("无茶", "no tea"),
+      enhancing_tea: t18("强化茶", "Enhancing Tea"),
+      super_enhancing_tea: t18("超级强化茶", "Super Enhancing Tea"),
+      ultra_enhancing_tea: t18("究极强化茶", "Ultra Enhancing Tea")
+    }[teaType] ?? teaType;
+  }
+  function profileSummary(plan) {
+    let profile = plan?.simulationProfile;
+    if (!profile) return null;
+    let tea = teaName(profile.teaType), blessed = profile.blessedTea ? t18("幸运茶", "Blessed Tea") : "";
+    return [
+      t18(`强化 ${profile.playerLevel}`, `Enh ${profile.playerLevel}`),
+      t18(`房子 ${profile.houseLevel}`, `House ${profile.houseLevel}`),
+      t18(
+        `强化器 ${profile.enhancerBonusPercent}%`,
+        `Enhancer ${profile.enhancerBonusPercent}%`
+      ),
+      t18(
+        `装备 ${profile.gearSpeedBonusPercent}%`,
+        `Gear ${profile.gearSpeedBonusPercent}%`
+      ),
+      tea,
+      blessed,
+      t18(`${profile.taxRatePercent}% 税`, `${profile.taxRatePercent}% tax`)
+    ].filter(Boolean).join(", ");
+  }
   function metric3(label, value, exactValue = null, titleText = "") {
     let row = document.createElement("div");
     row.className = "mwi-enhancement-metric";
@@ -26479,7 +26549,15 @@ ${locks}` : ""}`, upgradeMount?.mode === "append" ? upgradeMount.host.append(bad
     let complete = plan?.status === "complete", protection = complete ? protectionUsage(plan) : { text: "—", title: "" }, normalStart = complete ? plan.normalProtectStart === null ? t18("不用", "None") : `+${plan.normalProtectStart}` : "—", philosopherStart = complete ? plan.philosopherStart === null ? t18("不用", "None") : `+${plan.philosopherStart}` : "—", aLabel = complete && plan.aLevel !== null ? t18(`需要 +${plan.aLevel}`, `Need +${plan.aLevel}`) : t18("需要", "Need"), bLabel = complete && plan.bLevel !== null ? t18(`需要 +${plan.bLevel}`, `Need +${plan.bLevel}`) : t18("需要", "Need"), grid = document.createElement("div");
     grid.className = "mwi-enhancement-grid";
     let protectionMetric = metric3("", protection.text, null, protection.title);
-    protectionMetric.classList.add("mwi-enhancement-protection"), grid.append(
+    protectionMetric.classList.add("mwi-enhancement-protection");
+    let summary = profileSummary(plan);
+    grid.append(
+      ...summary ? [
+        (() => {
+          let row = metric3("", summary, null, summary);
+          return row.classList.add("mwi-enhancement-protection"), row;
+        })()
+      ] : [],
       metric3(
         t18("总成本", "Total cost"),
         complete ? compactNumber(plan.totalCost, 1) : "—",
@@ -26592,22 +26670,29 @@ ${locks}` : ""}`, upgradeMount?.mode === "append" ? upgradeMount.host.append(bad
   function clearEnhancementContext(tooltip) {
     runtime.api.clearEnhancementHoverPanelContext ? runtime.api.clearEnhancementHoverPanelContext(tooltip) : hideEnhancementCostPanel();
   }
-  function appendMarketRows(tooltipContent, itemHrid, enhancementLevel) {
+  function getEnhancedMarketValue(itemHrid, enhancementLevel, plan = null) {
+    let planCost = Number(plan?.totalCost);
+    return enhancementLevel > 0 && plan?.status === "complete" && Number.isFinite(planCost) && planCost > 0 ? planCost : runtime.api.getFairValue(itemHrid, enhancementLevel);
+  }
+  function appendMarketRows(tooltipContent, itemHrid, enhancementLevel, plan = null) {
     if (tooltipContent.querySelector('[data-mwitools-enhancement-market="true"]')?.remove(), !runtime.settings.settingsMap.itemTooltip_prices.isTrue || runtime.api.shouldSuppressMarketFeatures?.())
       return;
     let wrapper = document.createElement("div");
     wrapper.dataset.mwitoolsEnhancementMarket = "true", wrapper.style.color = runtime.config.SCRIPT_COLOR_TOOLTIP;
-    let fairValue = runtime.api.getFairValue(itemHrid, enhancementLevel), ask = runtime.api.getAskPrice(itemHrid, enhancementLevel), bid = runtime.api.getBidPrice(itemHrid, enhancementLevel), valueRow = document.createElement("div");
+    let fairValue = getEnhancedMarketValue(itemHrid, enhancementLevel, plan), ask = runtime.api.getAskPrice(itemHrid, enhancementLevel), bid = runtime.api.getBidPrice(itemHrid, enhancementLevel), valueRow = document.createElement("div");
     valueRow.textContent = `${runtime.config.isZH ? "市场价值: " : "Market value: "}${fairValue > 0 ? runtime.api.numberFormatter(fairValue) : "-"}`;
     let priceRow = document.createElement("div");
     priceRow.textContent = `${runtime.config.isZH ? "价格: " : "Price: "}${runtime.api.numberFormatter(ask)} / ${runtime.api.numberFormatter(bid)}`, wrapper.append(valueRow, priceRow), tooltipContent.append(wrapper);
   }
   function getTooltipEnhancementPlanOptions(itemHrid) {
+    let forceProtectionMirror = !!runtime.api.isBackEquipment?.(itemHrid);
     return {
-      forcedProtectionItemHrid: !!runtime.api.isBackEquipment?.(itemHrid) ? "/items/mirror_of_protection" : null,
+      simulationProfile: runtime.api.getEnhancementSimulationProfile?.(),
+      forcedProtectionItemHrid: forceProtectionMirror ? "/items/mirror_of_protection" : null,
       allowPhilosopherMirror: !0,
       getFairValue: (hrid, level = 0) => runtime.api.getAssetValue?.(hrid, level, {
-        forceAcquisitionValue: !0
+        forceAcquisitionValue: !0,
+        useLiveMarketValues: !0
       }) || runtime.api.getFairValue(hrid, level) || 0,
       getMarketValue: (hrid, level = 0) => runtime.api.getFairValue(hrid, level) || 0
     };
@@ -26641,19 +26726,15 @@ ${locks}` : ""}`, upgradeMount?.mode === "append" ? upgradeMount.host.append(bad
       clearEnhancementContext(tooltip), hideEnhancementCostPanel();
       return;
     }
-    if (runtime.settings.settingsMap.enhanceSim.isTrue ? setEnhancementContext(tooltip, null) : (clearEnhancementContext(tooltip), hideEnhancementCostPanel()), runtime.api.shouldSuppressMarketFeatures?.())
-      appendMarketRows(tooltipContent, itemHrid, enhancementLevel);
-    else {
-      if (await runtime.api.fetchMarketJSON(), !tooltip.isConnected) return;
-      appendMarketRows(tooltipContent, itemHrid, enhancementLevel);
-    }
-    if (!runtime.settings.settingsMap.enhanceSim.isTrue) return;
-    let plan = calculateEnhancementPlan({
+    let shouldShowEnhancementPlan = runtime.settings.settingsMap.enhanceSim.isTrue;
+    if (shouldShowEnhancementPlan ? setEnhancementContext(tooltip, null) : (clearEnhancementContext(tooltip), hideEnhancementCostPanel()), !runtime.api.shouldSuppressMarketFeatures?.() && (await runtime.api.fetchMarketJSON(), !tooltip.isConnected))
+      return;
+    let plan = shouldShowEnhancementPlan ? calculateEnhancementPlan({
       itemHrid,
       targetLevel: enhancementLevel,
       ...getTooltipEnhancementPlanOptions(itemHrid)
-    });
-    tooltip.isConnected && setEnhancementContext(tooltip, plan);
+    }) : null;
+    appendMarketRows(tooltipContent, itemHrid, enhancementLevel, plan), shouldShowEnhancementPlan && tooltip.isConnected && setEnhancementContext(tooltip, plan);
   }
   runtime.api.handleItemTooltipWithEnhancementLevel = handleEnhancedItemTooltip, runtime.onMessage("init_character_data", () => {
     runtime.api.shouldSuppressMarketFeatures?.() && document.querySelectorAll('[data-mwitools-enhancement-market="true"]').forEach((row) => row.remove());
@@ -26662,7 +26743,147 @@ ${locks}` : ""}`, upgradeMount?.mode === "append" ? upgradeMount.host.append(bad
   });
 
   // src/features/settings-and-notifications.js
-  var SETTINGS_V2_KEY = "MWITools_settings_v2", BACK_MIRROR_DEFAULT_CORRECTION_KEY = "MWITools_back_mirror_default_disabled_v2", SETTINGS_STYLE_ID = "mwitools-settings-style", EQUIPMENT_WARNING_STYLE_ID = "mwitools-equipment-warning-style", SETTINGS_TAB_ATTRIBUTE = "data-mwitools-settings-tab", SETTINGS_PANEL_ATTRIBUTE = "data-mwitools-settings-panel", SETTINGS_ROOT_ATTRIBUTE = "data-mwitools-settings-root", SETTINGS_BUTTON_ID = "mwitools-settings-button", SETTINGS_POPOVER_ID = "mwitools-settings-popover", SETTINGS_POPOVER_SCROLL_KEY = "MWITools_settings_popover_scroll_v1", TOOLTIP_PROFIT_SHORTCUT_KEY = "MWITools_tooltip_profit_key_v1", GUILD_CREDIT_RECOMMENDATION_COUNT_KEY = "MWITools_guild_credit_recommendation_count_v1";
+  var SETTINGS_V2_KEY = "MWITools_settings_v2", BACK_MIRROR_DEFAULT_CORRECTION_KEY = "MWITools_back_mirror_default_disabled_v2", SETTINGS_STYLE_ID = "mwitools-settings-style", EQUIPMENT_WARNING_STYLE_ID = "mwitools-equipment-warning-style", SETTINGS_TAB_ATTRIBUTE = "data-mwitools-settings-tab", SETTINGS_PANEL_ATTRIBUTE = "data-mwitools-settings-panel", SETTINGS_ROOT_ATTRIBUTE = "data-mwitools-settings-root", SETTINGS_BUTTON_ID = "mwitools-settings-button", SETTINGS_POPOVER_ID = "mwitools-settings-popover", SETTINGS_POPOVER_SCROLL_KEY = "MWITools_settings_popover_scroll_v1", TOOLTIP_PROFIT_SHORTCUT_KEY = "MWITools_tooltip_profit_key_v1", GUILD_CREDIT_RECOMMENDATION_COUNT_KEY = "MWITools_guild_credit_recommendation_count_v1", ENHANCEMENT_SIMULATION_PROFILE_KEY = "MWITools_enhancement_simulation_profile_v1", DEFAULT_ENHANCEMENT_SIMULATION_PROFILE2 = Object.freeze({
+    baseCostMode: "acquisition_cost",
+    playerLevel: 136,
+    houseLevel: 8,
+    enhancerBonusPercent: 5.26,
+    gearSpeedBonusPercent: 37.22,
+    teaType: "ultra_enhancing_tea",
+    blessedTea: !0,
+    timeFeePerHour: 0,
+    taxRatePercent: 2
+  }), ENHANCEMENT_SIMULATION_FIELDS = Object.freeze([
+    {
+      key: "baseCostMode",
+      type: "select",
+      label: { zh: "基础物品成本", en: "Base item cost" },
+      options: [
+        ["fair_value", { zh: "公允价值", en: "Fair value" }],
+        ["acquisition_cost", { zh: "原始基础成本", en: "Original base cost" }]
+      ]
+    },
+    {
+      key: "playerLevel",
+      type: "number",
+      min: 1,
+      step: 1,
+      label: { zh: "强化等级", en: "Enhancing level" }
+    },
+    {
+      key: "houseLevel",
+      type: "number",
+      min: 0,
+      step: 1,
+      label: { zh: "房子等级", en: "House level" }
+    },
+    {
+      key: "enhancerBonusPercent",
+      type: "number",
+      min: 0,
+      step: 0.01,
+      label: { zh: "强化器成功率加成", en: "Enhancer success bonus" },
+      suffix: "%"
+    },
+    {
+      key: "gearSpeedBonusPercent",
+      type: "number",
+      min: 0,
+      step: 0.01,
+      label: { zh: "装备速度加成", en: "Gear speed bonus" },
+      suffix: "%"
+    },
+    {
+      key: "teaType",
+      type: "select",
+      label: { zh: "强化茶", en: "Enhancing tea" },
+      options: [
+        ["none", { zh: "无", en: "None" }],
+        ["enhancing_tea", { zh: "强化茶", en: "Enhancing Tea" }],
+        ["super_enhancing_tea", { zh: "超级强化茶", en: "Super Enhancing Tea" }],
+        ["ultra_enhancing_tea", { zh: "究极强化茶", en: "Ultra Enhancing Tea" }]
+      ]
+    },
+    {
+      key: "blessedTea",
+      type: "checkbox",
+      label: { zh: "幸运茶", en: "Blessed Tea" }
+    },
+    {
+      key: "timeFeePerHour",
+      type: "number",
+      min: 0,
+      step: 1,
+      label: { zh: "工时费/小时", en: "Hourly time fee" }
+    },
+    {
+      key: "taxRatePercent",
+      type: "number",
+      min: 0,
+      max: 99,
+      step: 0.1,
+      label: { zh: "市场税率", en: "Market tax" },
+      suffix: "%"
+    }
+  ]);
+  function normalizeEnhancementSimulationProfile(value = {}) {
+    let source = value && typeof value == "object" ? value : {}, profile = { ...DEFAULT_ENHANCEMENT_SIMULATION_PROFILE2 };
+    for (let field of ENHANCEMENT_SIMULATION_FIELDS)
+      if (Object.hasOwn(source, field.key))
+        if (field.type === "checkbox")
+          profile[field.key] = !!source[field.key];
+        else if (field.type === "select") {
+          let allowed = field.options.map(([option]) => option);
+          profile[field.key] = allowed.includes(source[field.key]) ? source[field.key] : profile[field.key];
+        } else {
+          let number3 = Number(source[field.key]);
+          if (!Number.isFinite(number3)) continue;
+          profile[field.key] = Math.min(
+            field.max ?? Number.POSITIVE_INFINITY,
+            Math.max(field.min ?? Number.NEGATIVE_INFINITY, number3)
+          );
+        }
+    return profile;
+  }
+  function loadEnhancementSimulationProfile() {
+    try {
+      let storedRaw = localStorage.getItem(ENHANCEMENT_SIMULATION_PROFILE_KEY);
+      if (storedRaw)
+        return normalizeEnhancementSimulationProfile(JSON.parse(storedRaw));
+      let legacy = JSON.parse(
+        localStorage.getItem("script_settingsMap") || "null"
+      ), mapped = {}, legacyMap = {
+        enhancing_level: "playerLevel",
+        laboratory_level: "houseLevel",
+        enhancer_bonus: "enhancerBonusPercent",
+        enhance_gear_speed_bonus: "gearSpeedBonusPercent",
+        tea_type: "teaType",
+        tea_blessed: "blessedTea",
+        time_fee: "timeFeePerHour",
+        tax_rate: "taxRatePercent"
+      };
+      for (let [legacyKey, nextKey] of Object.entries(legacyMap)) {
+        let entry = legacy?.[legacyKey];
+        entry && (mapped[nextKey] = Object.hasOwn(entry, "value") ? entry.value : entry.isTrue);
+      }
+      return normalizeEnhancementSimulationProfile(mapped);
+    } catch {
+      return normalizeEnhancementSimulationProfile();
+    }
+  }
+  var enhancementSimulationProfile = loadEnhancementSimulationProfile();
+  function getEnhancementSimulationProfile() {
+    return { ...enhancementSimulationProfile };
+  }
+  function setEnhancementSimulationProfile(patch = {}) {
+    return enhancementSimulationProfile = normalizeEnhancementSimulationProfile({
+      ...enhancementSimulationProfile,
+      ...patch
+    }), localStorage.setItem(
+      ENHANCEMENT_SIMULATION_PROFILE_KEY,
+      JSON.stringify(enhancementSimulationProfile)
+    ), getEnhancementSimulationProfile();
+  }
   function normalizeGuildCreditRecommendationCount(value) {
     let count = Math.floor(Number(value));
     return Number.isFinite(count) ? Math.min(8, Math.max(1, count)) : 3;
@@ -26870,7 +27091,12 @@ ${locks}` : ""}`, upgradeMount?.mode === "append" ? upgradeMount.host.append(bad
     .mwi-setting-select { min-width:92px; border:1px solid rgba(255,255,255,.16); border-radius:5px; padding:4px 24px 4px 8px; color:inherit; background:var(--color-background-secondary,#292929); font:inherit; }
     .mwi-setting-primary-select { grid-column:4; grid-row:1; justify-self:end; }
     .mwi-setting-select:disabled { cursor:not-allowed; opacity:.5; }
-    @media (max-width:700px) { #${SETTINGS_POPOVER_ID} { padding:8px; } .mwi-settings-hero { align-items:stretch; flex-direction:column; } .mwi-settings-hero-actions { width:100%; } .mwi-settings-hero-actions .mwi-settings-search { flex:1; } .mwi-settings-search { width:100%; } .mwi-performance-settings-card { align-items:flex-start; } .mwi-performance-settings-open { max-width:118px; } .mwi-setting-row { grid-template-columns:minmax(0,1fr) auto; gap:3px 10px; padding:3px 0; } .mwi-setting-title-line { grid-column:1;grid-row:1; } .mwi-setting-summary { grid-column:1;grid-row:2;white-space:normal; } .mwi-setting-more { grid-column:1;grid-row:3; } .mwi-setting-more[open] { grid-column:1 / 3;grid-row:3; } .mwi-setting-toggle { grid-column:2;grid-row:1 / 4; } .mwi-setting-primary-select { grid-column:2;grid-row:1 / 3; } }
+    .mwi-enhancement-settings-grid { display:grid; grid-template-columns:repeat(2,minmax(190px,1fr)); gap:7px 12px; margin:7px 44px 2px 0; padding:8px; border:1px solid rgba(255,255,255,.075); border-radius:6px; background:rgba(0,0,0,.12); }
+    .mwi-enhancement-setting-field { display:grid; grid-template-columns:minmax(0,1fr) minmax(88px,auto) auto; align-items:center; gap:5px; color:var(--color-text-secondary,#aaa); font-size:calc(.7rem * var(--mwi-ui-font-scale,1)); }
+    .mwi-enhancement-setting-field input[type="number"],.mwi-enhancement-setting-field select { min-width:88px; width:100%; box-sizing:border-box; border:1px solid rgba(255,255,255,.16); border-radius:5px; padding:4px 6px; color:inherit; background:var(--color-background-secondary,#292929); font:inherit; }
+    .mwi-enhancement-setting-field input[type="checkbox"] { justify-self:end; }
+    .mwi-enhancement-setting-field input:disabled,.mwi-enhancement-setting-field select:disabled { cursor:not-allowed; opacity:.5; }
+    @media (max-width:700px) { #${SETTINGS_POPOVER_ID} { padding:8px; } .mwi-settings-hero { align-items:stretch; flex-direction:column; } .mwi-settings-hero-actions { width:100%; } .mwi-settings-hero-actions .mwi-settings-search { flex:1; } .mwi-settings-search { width:100%; } .mwi-performance-settings-card { align-items:flex-start; } .mwi-performance-settings-open { max-width:118px; } .mwi-setting-row { grid-template-columns:minmax(0,1fr) auto; gap:3px 10px; padding:3px 0; } .mwi-setting-title-line { grid-column:1;grid-row:1; } .mwi-setting-summary { grid-column:1;grid-row:2;white-space:normal; } .mwi-setting-more { grid-column:1;grid-row:3; } .mwi-setting-more[open] { grid-column:1 / 3;grid-row:3; } .mwi-setting-toggle { grid-column:2;grid-row:1 / 4; } .mwi-setting-primary-select { grid-column:2;grid-row:1 / 3; } .mwi-enhancement-settings-grid { grid-template-columns:1fr; margin-right:0; } }
   `, styleHost.appendChild(style);
   }
   function localizedText2(value) {
@@ -27083,6 +27309,35 @@ ${locks}` : ""}`, upgradeMount?.mode === "append" ? upgradeMount.host.append(bad
           setGuildCreditRecommendationCount(countSelect.value)
         );
       }), countRow.append(countLabel, countSelect), card.append(countRow), auxiliaryControls.push(countSelect);
+    }
+    if (definition.id === "enhanceSim") {
+      let profileGrid = document.createElement("div");
+      profileGrid.className = "mwi-enhancement-settings-grid";
+      let profile = getEnhancementSimulationProfile();
+      for (let field of ENHANCEMENT_SIMULATION_FIELDS) {
+        let wrapper = document.createElement("label");
+        wrapper.className = "mwi-enhancement-setting-field";
+        let label = document.createElement("span");
+        label.textContent = localizedText2(field.label);
+        let control;
+        if (field.type === "select") {
+          control = document.createElement("select");
+          for (let [value, optionLabel] of field.options) {
+            let option = document.createElement("option");
+            option.value = value, option.textContent = localizedText2(optionLabel), control.append(option);
+          }
+          control.value = profile[field.key];
+        } else field.type === "checkbox" ? (control = document.createElement("input"), control.type = "checkbox", control.checked = !!profile[field.key]) : (control = document.createElement("input"), control.type = "number", field.min !== void 0 && (control.min = String(field.min)), field.max !== void 0 && (control.max = String(field.max)), field.step !== void 0 && (control.step = String(field.step)), control.value = String(profile[field.key]));
+        control.dataset.enhancementProfileKey = field.key, control.disabled = !checkbox.checked, control.addEventListener("change", () => {
+          let value = field.type === "checkbox" ? control.checked : field.type === "number" ? Number(control.value) : control.value, next = setEnhancementSimulationProfile({
+            [field.key]: value
+          });
+          field.type === "number" && (control.value = String(next[field.key]));
+        }), auxiliaryControls.push(control);
+        let suffix = document.createElement("span");
+        suffix.textContent = field.suffix ?? "", wrapper.append(label, control, suffix), profileGrid.append(wrapper);
+      }
+      card.append(profileGrid);
     }
     if (definition.id === "actionPanel_totalTime_quickInputs") {
       let presets = [
@@ -27543,6 +27798,8 @@ ${locks}` : ""}`, upgradeMount?.mode === "append" ? upgradeMount.host.append(bad
     getTooltipProfitShortcut,
     setTooltipProfitShortcut,
     matchesTooltipProfitShortcut,
+    getEnhancementSimulationProfile,
+    setEnhancementSimulationProfile,
     getGuildCreditRecommendationCount,
     setGuildCreditRecommendationCount,
     getEquipmentWarning,
