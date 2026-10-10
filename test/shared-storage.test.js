@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { JSDOM } from "jsdom";
 const gm = new Map();
+globalThis.GM_deleteValue = (key) => gm.delete(key);
 globalThis.GM_getValue = (key, fallback) =>
   gm.has(key) ? globalThis.structuredClone(gm.get(key)) : fallback;
 globalThis.GM_setValue = (key, value) =>
@@ -22,6 +23,35 @@ const cnKey = key.replace(":production:", ":china:");
 const put = (store, value, name = key) =>
   store.setItem(name, JSON.stringify(value));
 const get = (store, name = key) => JSON.parse(store.getItem(name));
+test("import does not synchronously migrate inactive stores; background migration yields and backup includes them", async () => {
+  const inactive = "MWITools_test_inactive_character";
+  localStorage.setItem(
+    inactive,
+    JSON.stringify({ cart: [{ itemHrid: "/items/inactive", quantity: 8 }] }),
+  );
+  const before = gm.size;
+  const fresh = await import("../src/core/shared-storage.js?lazy-startup");
+  assert.equal(gm.size, before, "module evaluation must not write migrations");
+  const run = fresh.scheduleSharedMigration();
+  assert.equal(gm.size, before, "first background work yields to the game");
+  assert.equal(
+    run,
+    fresh.scheduleSharedMigration(),
+    "coalesce background imports",
+  );
+  await run;
+  assert.equal(
+    JSON.parse(fresh.sharedStorage.getItem(inactive)).cart[0].quantity,
+    8,
+  );
+  const backupOnly = "MWITools_test_backup_inactive";
+  localStorage.setItem(backupOnly, "backup-value");
+  assert.ok(
+    Object.keys(fresh.exportSharedBackup().data).some((name) =>
+      name.startsWith(`record:${backupOnly}:`),
+    ),
+  );
+});
 test("live origins merge records once without adding duplicate quantities", () => {
   localStorage.setItem(
     key,
@@ -146,11 +176,7 @@ test("large shared stores batch writes and reuse unchanged reads without scannin
   );
   try {
     a.sharedStorage.setItem(name, raw);
-    assert.equal(
-      batches,
-      1,
-      "all changed records cross the manager bridge in one batch",
-    );
+    assert.ok(batches > 1 && batches < 30, "large writes use bounded batches");
     assert.equal(a.sharedStorage.getItem(name), raw);
     reads = lists = writes = batches = 0;
     for (let i = 0; i < 30; i++)
@@ -233,7 +259,7 @@ test("XP samples remain whole records and bulk restore rolls back failed writes"
   assert.equal(
     [...gm.keys()].filter((key) => key.startsWith(prefix)).length,
     2,
-    "one order node and one complete sample, with no per-field GM keys",
+    "one compressed page and manifest, with no per-sample GM keys",
   );
   const backup = a.exportSharedBackup();
   a.sharedStorage.setItem(

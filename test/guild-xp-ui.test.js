@@ -661,3 +661,71 @@ test("guild trend shows an explicit sparse-sample message without axes", async (
   assert.equal(svg.querySelector(".mwi-guild-axis-x"), null);
   assert.equal(svg.querySelector(".mwi-guild-axis-y"), null);
 });
+
+test("bulk guild sampling yields to input timers and coalesces overlapping updates", async () => {
+  const original = {
+    record: runtime.api.recordXpSnapshot,
+    history: runtime.api.getXpHistory,
+    rates: runtime.api.calculateXpRates,
+    guild: runtime.state.guild,
+    members: runtime.state.guildCharacters,
+    leaderboard: runtime.state.guildLeaderboard,
+  };
+  let writes = 0;
+  let timerObservedWrites = null;
+  const lastXp = new Map();
+  runtime.state.guild = null;
+  runtime.state.guildCharacters = Array.from({ length: 60 }, (_, index) => ({
+    id: `bulk-${index}`,
+    guildExperience: 10,
+  }));
+  runtime.state.guildLeaderboard = [
+    { id: "bulk-ranking", guildExperience: 20 },
+  ];
+  runtime.api.recordXpSnapshot = async (key, xp) => {
+    writes++;
+    lastXp.set(key, xp);
+  };
+  runtime.api.getXpHistory = async () => [];
+  runtime.api.calculateXpRates = () => ({ points: [], day: 1 });
+  const timer = setTimeout(() => {
+    timerObservedWrites = writes;
+  }, 0);
+  try {
+    const runs = [runtime.api.sampleGuildState(false)];
+    runtime.state.guildCharacters = runtime.state.guildCharacters.map(
+      (member) => ({ ...member, guildExperience: 30 }),
+    );
+    for (let index = 0; index < 9; index++)
+      runs.push(runtime.api.sampleGuildState(index === 8));
+    await Promise.all(runs);
+    assert.notEqual(
+      timerObservedWrites,
+      null,
+      "a browser input/render task must run before the history batch finishes",
+    );
+    assert.ok(timerObservedWrites < writes);
+    assert.ok(
+      writes <= 122,
+      `repeated updates should collapse to at most two passes, got ${writes}`,
+    );
+    assert.equal(
+      lastXp.get("member:bulk-59"),
+      30,
+      "the final member update must be sampled",
+    );
+    assert.equal(
+      lastXp.get("leaderboard:bulk-ranking"),
+      20,
+      "a queued leaderboard update must not be lost",
+    );
+  } finally {
+    clearTimeout(timer);
+    runtime.api.recordXpSnapshot = original.record;
+    runtime.api.getXpHistory = original.history;
+    runtime.api.calculateXpRates = original.rates;
+    runtime.state.guild = original.guild;
+    runtime.state.guildCharacters = original.members;
+    runtime.state.guildLeaderboard = original.leaderboard;
+  }
+});

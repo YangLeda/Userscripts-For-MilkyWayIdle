@@ -13,6 +13,42 @@ const MARKET_FALLBACK_URL =
 let assetValuationMarketSnapshot = null;
 let assetValuationMarketDirty = false;
 let decodedLocalMarketBackup;
+const marketFetchInFlight = new Map();
+const MARKET_REQUEST_GAP_MS = 30_000;
+const MARKET_FAILURE_RETRY_MS = 60_000;
+const MARKET_RATE_LIMIT_RETRY_MS = 5 * 60_000;
+
+function marketRetryKey(hostname) {
+  return `MWITools_marketAPI_retry_after_${getMarketEnvironment(hostname)}`;
+}
+
+function marketRetryAt(hostname) {
+  const value = Number(localStorage.getItem(marketRetryKey(hostname)));
+  return Number.isFinite(value) ? value : 0;
+}
+
+function deferMarketRetry(hostname, until) {
+  localStorage.setItem(
+    marketRetryKey(hostname),
+    String(Math.max(marketRetryAt(hostname), until)),
+  );
+}
+
+function marketFailureRetryDelay(response) {
+  const header = String(response?.responseHeaders ?? "")
+    .match(/^retry-after:\s*(.+)$/im)?.[1]
+    ?.trim();
+  const seconds = Number(header);
+  const retryAfter = header
+    ? Number.isFinite(seconds)
+      ? Math.max(0, seconds * 1000)
+      : Math.max(0, Date.parse(header) - Date.now())
+    : 0;
+  const minimum = [403, 429].includes(response?.status)
+    ? MARKET_RATE_LIMIT_RETRY_MS
+    : MARKET_FAILURE_RETRY_MS;
+  return Number.isFinite(retryAfter) ? Math.max(minimum, retryAfter) : minimum;
+}
 
 function getLocalMarketBackup() {
   const backup = runtime.data.MARKET_JSON_LOCAL_BACKUP;
@@ -581,10 +617,25 @@ async function ensureMarketValueSource() {
   return Boolean(await fetchMarketJSON());
 }
 
+function marketCacheFallback(cachedJson, hostname) {
+  if (cachedJson) {
+    const cached = validateMarketJsonFetch(cachedJson, false);
+    if (cached) return cached;
+  }
+  if (getMarketEnvironment(hostname) === "test") return null;
+  return validateMarketJsonFetch(getLocalMarketBackup(), false);
+}
+
 async function fetchMarketJSON(
   forceFetch = false,
   hostname = globalThis.location?.hostname ?? "",
 ) {
+  const environment = getMarketEnvironment(hostname);
+  // Check the pending request first: startup, inventory and tooltips can all
+  // ask for prices before the first response has populated the cache.
+  if (marketFetchInFlight.has(environment)) {
+    return marketFetchInFlight.get(environment);
+  }
   const cacheTimestamp = Number(
     localStorage.getItem("MWITools_marketAPI_timestamp"),
   );
@@ -595,41 +646,53 @@ async function fetchMarketJSON(
     cacheTimestamp &&
     Date.now() - cacheTimestamp < getMarketRefreshInterval(hostname)
   ) {
-    return validateMarketJsonFetch(cachedJson, false);
-  }
-
-  const response = await requestMarketJson(getMarketApiUrl(hostname));
-  const jsonObj = validateMarketJsonFetch(
-    response?.status >= 200 && response?.status < 300
-      ? response.responseText
-      : null,
-    true,
-  );
-  if (jsonObj) {
-    return jsonObj;
-  }
-
-  if (getMarketEnvironment(hostname) !== "test") {
-    const fallbackResponse = await requestMarketJson(MARKET_FALLBACK_URL);
-    const fallbackJson = validateMarketJsonFetch(
-      fallbackResponse?.status >= 200 && fallbackResponse?.status < 300
-        ? fallbackResponse.responseText
-        : null,
-      true,
-    );
-    if (fallbackJson) return fallbackJson;
-  }
-
-  setMarketFetchFailure(
-    "市场主接口和备用接口请求失败",
-    "Primary and fallback market API requests failed",
-  );
-  if (cachedJson) {
     const cached = validateMarketJsonFetch(cachedJson, false);
     if (cached) return cached;
   }
-  if (getMarketEnvironment(hostname) === "test") return null;
-  return validateMarketJsonFetch(getLocalMarketBackup(), false);
+  // A forced startup refresh must also respect server backoff. Persist the
+  // deadline locally so reloads cannot immediately repeat a rejected request.
+  if (Date.now() < marketRetryAt(hostname)) {
+    return marketCacheFallback(cachedJson, hostname);
+  }
+  deferMarketRetry(hostname, Date.now() + MARKET_REQUEST_GAP_MS);
+  const pending = (async () => {
+    const response = await requestMarketJson(getMarketApiUrl(hostname));
+    const jsonObj = validateMarketJsonFetch(
+      response?.status >= 200 && response?.status < 300
+        ? response.responseText
+        : null,
+      true,
+    );
+    if (jsonObj) return jsonObj;
+    deferMarketRetry(hostname, Date.now() + marketFailureRetryDelay(response));
+
+    if (environment !== "test") {
+      const fallbackResponse = await requestMarketJson(MARKET_FALLBACK_URL);
+      const fallbackJson = validateMarketJsonFetch(
+        fallbackResponse?.status >= 200 && fallbackResponse?.status < 300
+          ? fallbackResponse.responseText
+          : null,
+        true,
+      );
+      if (fallbackJson) return fallbackJson;
+      deferMarketRetry(
+        hostname,
+        Date.now() + marketFailureRetryDelay(fallbackResponse),
+      );
+    }
+
+    setMarketFetchFailure(
+      "市场接口请求失败，已暂停重试",
+      "Market API request failed; retries are paused",
+    );
+    return marketCacheFallback(cachedJson, hostname);
+  })();
+  marketFetchInFlight.set(environment, pending);
+  try {
+    return await pending;
+  } finally {
+    marketFetchInFlight.delete(environment);
+  }
 }
 
 function applyMarketItemValues(payload) {

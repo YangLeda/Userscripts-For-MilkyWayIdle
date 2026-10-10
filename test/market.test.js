@@ -281,3 +281,160 @@ test("official market increment boundaries distinguish enhanced equipment", () =
   }
   assert.equal(runtime.api.normalizeMarketPrice(1234, 1, 1e12, 1), 1225);
 });
+
+test("expired market cache coalesces callers and honors rate limits across forced refreshes", async () => {
+  const originalRequest = globalThis.GM_xmlhttpRequest;
+  const originalNow = Date.now;
+  let now = 2_000_000_000_000;
+  Date.now = () => now;
+  const retryKey = "MWITools_marketAPI_retry_after_china";
+  const keys = [
+    retryKey,
+    "MWITools_marketAPI_json",
+    "MWITools_marketAPI_timestamp",
+  ];
+  const saved = keys.map((key) => localStorage.getItem(key));
+  const cached = {
+    timestamp: 42,
+    marketData: { "/items/milk": { 0: { a: 12, b: 10 } } },
+  };
+  const requests = [];
+  try {
+    localStorage.removeItem(retryKey);
+    localStorage.setItem("MWITools_marketAPI_json", JSON.stringify(cached));
+    localStorage.setItem(
+      "MWITools_marketAPI_timestamp",
+      String(now - 7 * 60 * 60 * 1000),
+    );
+    globalThis.GM_xmlhttpRequest = ({ url, onload }) => {
+      requests.push(url);
+      globalThis.queueMicrotask(() =>
+        onload({
+          status: 429,
+          responseText: "",
+          responseHeaders: "Retry-After: 600\r\n",
+        }),
+      );
+    };
+    const results = await Promise.all(
+      Array.from({ length: 50 }, (_, index) =>
+        runtime.api.fetchMarketJSON(index % 2 === 0, "www.milkywayidlecn.com"),
+      ),
+    );
+    assert.equal(
+      requests.length,
+      2,
+      "one primary and one fallback request for all callers",
+    );
+    assert.ok(results.every((result) => result.timestamp === cached.timestamp));
+    assert.equal(Number(localStorage.getItem(retryKey)), now + 600_000);
+    for (let index = 0; index < 10; index++) {
+      assert.equal(
+        (await runtime.api.fetchMarketJSON(true, "milkywayidlecn.com"))
+          .timestamp,
+        42,
+      );
+    }
+    now += 599_999;
+    await runtime.api.fetchMarketJSON(true, "milkywayidlecn.com");
+    assert.equal(
+      requests.length,
+      2,
+      "forced refresh must not bypass Retry-After",
+    );
+    now += 1;
+    globalThis.GM_xmlhttpRequest = ({ url, onload }) => {
+      requests.push(url);
+      globalThis.queueMicrotask(() =>
+        onload({
+          status: 200,
+          responseText: JSON.stringify({ ...cached, timestamp: 43 }),
+        }),
+      );
+    };
+    assert.equal(
+      (await runtime.api.fetchMarketJSON(true, "milkywayidlecn.com")).timestamp,
+      43,
+    );
+    assert.equal(
+      requests.length,
+      3,
+      "requests recover once the server deadline expires",
+    );
+    await runtime.api.fetchMarketJSON(true, "milkywayidlecn.com");
+    assert.equal(
+      requests.length,
+      3,
+      "rapid forced refreshes also reuse a successful response",
+    );
+  } finally {
+    Date.now = originalNow;
+    globalThis.GM_xmlhttpRequest = originalRequest;
+    keys.forEach((key, index) =>
+      saved[index] === null
+        ? localStorage.removeItem(key)
+        : localStorage.setItem(key, saved[index]),
+    );
+  }
+});
+
+test("market backoff survives a fresh module and test failures stay isolated", async () => {
+  const originalRequest = globalThis.GM_xmlhttpRequest;
+  const originalNow = Date.now;
+  let now = 2_100_000_000_000;
+  Date.now = () => now;
+  const keys = [
+    "MWITools_marketAPI_retry_after_china",
+    "MWITools_marketAPI_retry_after_test",
+    "MWITools_marketAPI_json",
+    "MWITools_marketAPI_timestamp",
+  ];
+  const saved = keys.map((key) => localStorage.getItem(key));
+  const requests = [];
+  try {
+    keys.forEach((key) => localStorage.removeItem(key));
+    localStorage.setItem(keys[0], String(now + 60_000));
+    await import("../src/core/market.js?backoff-reload");
+    globalThis.GM_xmlhttpRequest = ({ url, onload }) => {
+      requests.push(url);
+      globalThis.queueMicrotask(() =>
+        onload({
+          status: 503,
+          responseText: "",
+          responseHeaders: `Retry-After: ${new Date(now + 120_000).toUTCString()}`,
+        }),
+      );
+    };
+    await runtime.api.fetchMarketJSON(true, "milkywayidlecn.com");
+    assert.equal(
+      requests.length,
+      0,
+      "a new page must honor the stored retry deadline",
+    );
+    assert.equal(
+      await runtime.api.fetchMarketJSON(true, "test.milkywayidle.com"),
+      null,
+    );
+    assert.deepEqual(requests, [
+      "https://test.milkywayidle.com/game_data/marketplace.json",
+    ]);
+    now += 119_999;
+    await runtime.api.fetchMarketJSON(true, "test.milkywayidle.com");
+    assert.equal(
+      requests.length,
+      1,
+      "HTTP-date Retry-After must also be honored",
+    );
+    now += 1;
+    await runtime.api.fetchMarketJSON(true, "test.milkywayidle.com");
+    assert.equal(requests.length, 2);
+  } finally {
+    Date.now = originalNow;
+    globalThis.GM_xmlhttpRequest = originalRequest;
+    keys.forEach((key, index) =>
+      saved[index] === null
+        ? localStorage.removeItem(key)
+        : localStorage.setItem(key, saved[index]),
+    );
+  }
+});

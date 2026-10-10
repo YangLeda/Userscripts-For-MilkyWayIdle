@@ -5,6 +5,9 @@ import { subscribeMutationChannel } from "../core/mutation-channel.js";
 const STYLE_ID = "mwitools-guild-xp-style";
 const rateCache = new Map();
 let rateCacheGeneration = 0;
+let samplingRun = null;
+const SAMPLE_BATCH_SIZE = 4;
+const yieldSampling = () => new Promise((resolve) => setTimeout(resolve, 0));
 const HOUR_MS = 60 * 60 * 1000;
 const TREND_WINDOW_MS = 7 * 24 * HOUR_MS;
 const TREND_RATE_WINDOW_MS = 6 * HOUR_MS;
@@ -247,25 +250,59 @@ async function sampleEntity(kind, entity, parentId = "", at = Date.now()) {
   return refreshRate(key);
 }
 
-async function sampleGuildState(includeLeaderboard = false) {
-  const generation = rateCacheGeneration;
+async function sampleGuildBatch(includeLeaderboard, generation) {
   const now = Date.now();
   const guild = runtime.state.guild;
   const guildId = entityId(guild);
-  if (guild) await sampleEntity("guild", guild, "", now);
-  if (generation !== rateCacheGeneration) return;
-  await Promise.all(
-    (runtime.state.guildCharacters ?? []).map((member) =>
-      sampleEntity("member", member, guildId, now),
-    ),
-  );
-  if (includeLeaderboard && generation === rateCacheGeneration) {
-    await Promise.all(
-      (runtime.state.guildLeaderboard ?? []).map((row) =>
-        sampleEntity("leaderboard", row, "", now),
-      ),
-    );
+  const jobs = [
+    ...(guild ? [["guild", guild, ""]] : []),
+    ...(runtime.state.guildCharacters ?? []).map((member) => [
+      "member",
+      member,
+      guildId,
+    ]),
+    ...(includeLeaderboard
+      ? (runtime.state.guildLeaderboard ?? []).map((row) => [
+          "leaderboard",
+          row,
+          "",
+        ])
+      : []),
+  ];
+  // Awaiting resolved history promises alone drains the entire microtask queue
+  // before the browser can process input. Yield between small batches instead.
+  for (let index = 0; index < jobs.length; index++) {
+    if (generation !== rateCacheGeneration) return;
+    await sampleEntity(...jobs[index], now);
+    if ((index + 1) % SAMPLE_BATCH_SIZE === 0 && index + 1 < jobs.length) {
+      await yieldSampling();
+    }
   }
+}
+
+function sampleGuildState(includeLeaderboard = false) {
+  const generation = rateCacheGeneration;
+  if (samplingRun?.generation === generation) {
+    samplingRun.requested = true;
+    samplingRun.includeLeaderboard ||= includeLeaderboard;
+    return samplingRun.promise;
+  }
+  const run = { generation, requested: true, includeLeaderboard };
+  samplingRun = run;
+  run.promise = (async () => {
+    while (run.requested && generation === rateCacheGeneration) {
+      const withLeaderboard = run.includeLeaderboard;
+      run.requested = false;
+      run.includeLeaderboard = false;
+      await sampleGuildBatch(withLeaderboard, generation);
+      if (run.requested && generation === rateCacheGeneration) {
+        await yieldSampling();
+      }
+    }
+  })().finally(() => {
+    if (samplingRun === run) samplingRun = null;
+  });
+  return run.promise;
 }
 
 function addStyles() {

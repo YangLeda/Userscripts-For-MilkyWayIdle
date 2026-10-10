@@ -26,7 +26,7 @@ test("wildcard message consumers receive each typed or non-JSON frame once", () 
   ]);
 });
 
-test("the websocket hook accepts a cross-realm socket-shaped wrapper", () => {
+test("the websocket hook accepts a cross-realm socket-shaped wrapper", async () => {
   const rawMessage = JSON.stringify({ type: "bridged_socket_message" });
   let deliveries = 0;
   const unsubscribe = runtime.onMessage("bridged_socket_message", () => {
@@ -43,8 +43,85 @@ test("the websocket hook accepts a cross-realm socket-shaped wrapper", () => {
   });
 
   assert.equal(event.data, rawMessage);
+  assert.equal(
+    deliveries,
+    0,
+    "native game listener runs before plugin processing",
+  );
+  await new Promise((resolve) => setTimeout(resolve, 20));
   assert.equal(deliveries, 1);
+  assert.equal(event.data, rawMessage);
+  assert.equal(
+    deliveries,
+    1,
+    "reading the same event cannot duplicate delivery",
+  );
   unsubscribe();
+});
+
+test("a plugin state failure cannot interrupt the game's getter or later frames", async () => {
+  const original = runtime.api.applyGameMessage;
+  const oldError = console.error;
+  const received = [];
+  runtime.api.applyGameMessage = (payload) => {
+    if (payload.type === "broken_frame")
+      throw new Error("simulated storage failure");
+    received.push(payload.type);
+  };
+  console.error = () => {};
+  try {
+    for (const type of ["broken_frame", "next_frame"]) {
+      const event = new MessageEvent("message", {
+        data: JSON.stringify({ type }),
+      });
+      Object.defineProperty(event, "currentTarget", {
+        value: { url: "wss://api.milkywayidle.com/ws", send() {} },
+      });
+      assert.doesNotThrow(() =>
+        assert.equal(event.data, JSON.stringify({ type })),
+      );
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.deepEqual(received, ["next_frame"]);
+  } finally {
+    runtime.api.applyGameMessage = original;
+    console.error = oldError;
+  }
+});
+
+test("bursts preserve frame order and yield between batches", async () => {
+  const received = [];
+  let halfway = 0;
+  let resolveComplete;
+  const complete = new Promise((resolve) => {
+    resolveComplete = resolve;
+  });
+  const unsubscribe = runtime.onMessage("ordered_frame", (payload) => {
+    received.push(payload.index);
+    if (received.length === 40) resolveComplete();
+  });
+  for (let index = 0; index < 40; index++) {
+    const event = new MessageEvent("message", {
+      data: JSON.stringify({ type: "ordered_frame", index }),
+    });
+    Object.defineProperty(event, "currentTarget", {
+      value: { url: "wss://api.milkywayidle.com/ws", send() {} },
+    });
+    void event.data;
+  }
+  setTimeout(() => {
+    halfway = received.length;
+  }, 0);
+  await complete;
+  unsubscribe();
+  assert.ok(
+    halfway > 0 && halfway < 40,
+    `heartbeat ran after ${halfway} frames`,
+  );
+  assert.deepEqual(
+    received,
+    Array.from({ length: 40 }, (_, index) => index),
+  );
 });
 
 test("client data is available before message effects run", () => {

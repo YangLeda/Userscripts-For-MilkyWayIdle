@@ -1,4 +1,4 @@
-import { sharedStorage } from "./shared-storage.js";
+import { sharedStorage, prepareSharedHistory } from "./shared-storage.js";
 import { runtime } from "./runtime.js";
 
 const DB_NAME = "MWIToolsHistory";
@@ -49,6 +49,7 @@ async function migrateObjectHistory(objectKey) {
   const marker = `MWITools_xp_object_migrated_v2:${objectKey}`;
   if (globalThis.localStorage?.getItem(marker)) return;
   // Import each origin once, retaining both shared legacy samples and its IndexedDB.
+  await prepareSharedHistory(FALLBACK_KEY);
   const legacy = legacyHistory(objectKey);
   const indexed = await readIndexed(objectKey);
   const current = readObjectHistory(objectKey);
@@ -148,6 +149,7 @@ async function replaceIndexed(objectKey, records) {
 
 async function getXpHistory(objectKey) {
   if (sharedAvailable()) {
+    await prepareSharedHistory(OBJECT_KEY_PREFIX + objectKey);
     const migrationKey = `${globalThis.location?.origin ?? "local"}:${objectKey}`;
     if (!migrations.has(migrationKey)) {
       const marker = `MWITools_xp_object_migrated_v2:${objectKey}`;
