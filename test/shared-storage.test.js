@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { JSDOM } from "jsdom";
 const gm = new Map();
+globalThis.GM_deleteValue = (key) => gm.delete(key);
 globalThis.GM_getValue = (key, fallback) =>
   gm.has(key) ? globalThis.structuredClone(gm.get(key)) : fallback;
 globalThis.GM_setValue = (key, value) =>
@@ -175,11 +176,7 @@ test("large shared stores batch writes and reuse unchanged reads without scannin
   );
   try {
     a.sharedStorage.setItem(name, raw);
-    assert.equal(
-      batches,
-      1,
-      "all changed records cross the manager bridge in one batch",
-    );
+    assert.ok(batches > 1 && batches < 30, "large writes use bounded batches");
     assert.equal(a.sharedStorage.getItem(name), raw);
     reads = lists = writes = batches = 0;
     for (let i = 0; i < 30; i++)
@@ -262,7 +259,7 @@ test("XP samples remain whole records and bulk restore rolls back failed writes"
   assert.equal(
     [...gm.keys()].filter((key) => key.startsWith(prefix)).length,
     2,
-    "one order node and one complete sample, with no per-field GM keys",
+    "one compressed page and manifest, with no per-sample GM keys",
   );
   const backup = a.exportSharedBackup();
   a.sharedStorage.setItem(

@@ -1,9 +1,10 @@
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 import { build } from "esbuild";
 import LZString from "lz-string";
+import { format } from "prettier";
 
 export const projectRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -68,4 +69,14 @@ export async function buildUserscript({ banner, outfile }) {
     loader: { ".png": "dataurl" },
     banner: { js: banner },
   });
+  // Tabs keep the standalone source readable while leaving room below the
+  // hosting size limit. Parse-aware formatting preserves literals and licenses.
+  await writeFile(
+    outfile,
+    await format(await readFile(outfile, "utf8"), {
+      parser: "babel",
+      useTabs: true,
+      printWidth: 120,
+    }),
+  );
 }

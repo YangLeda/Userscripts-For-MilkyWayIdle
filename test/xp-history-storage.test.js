@@ -4,6 +4,7 @@ import { JSDOM } from "jsdom";
 
 const dom = new JSDOM("", { url: "https://www.milkywayidle.com" });
 const gm = new Map();
+globalThis.GM_deleteValue = (key) => gm.delete(key);
 const changed = [];
 Object.assign(globalThis, {
   localStorage: dom.window.localStorage,

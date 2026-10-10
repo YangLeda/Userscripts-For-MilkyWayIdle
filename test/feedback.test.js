@@ -394,23 +394,24 @@ test("the shared Ctrl tooltip announcement is red, bold, and underlined", () => 
   scope.cleanup();
 });
 
-test("announcement history preserves each release separately through 26.4.19", () => {
-  const release19 = ANNOUNCEMENTS[0];
-  const release18 = ANNOUNCEMENTS[1];
-  const release17 = ANNOUNCEMENTS[2];
-  const release16 = ANNOUNCEMENTS[3];
-  const release15 = ANNOUNCEMENTS[4];
-  const latest = ANNOUNCEMENTS[5];
-  const newest = ANNOUNCEMENTS[6];
-  const current = ANNOUNCEMENTS[7];
-  const previous = ANNOUNCEMENTS[8];
-  const prior = ANNOUNCEMENTS[9];
-  const older = ANNOUNCEMENTS[10];
-  const oldest = ANNOUNCEMENTS[11];
-  const earliest = ANNOUNCEMENTS[12];
+test("announcement history preserves each release separately through 26.4.20", () => {
+  const release19 = ANNOUNCEMENTS[1];
+  const release18 = ANNOUNCEMENTS[2];
+  const release17 = ANNOUNCEMENTS[3];
+  const release16 = ANNOUNCEMENTS[4];
+  const release15 = ANNOUNCEMENTS[5];
+  const latest = ANNOUNCEMENTS[6];
+  const newest = ANNOUNCEMENTS[7];
+  const current = ANNOUNCEMENTS[8];
+  const previous = ANNOUNCEMENTS[9];
+  const prior = ANNOUNCEMENTS[10];
+  const older = ANNOUNCEMENTS[11];
+  const oldest = ANNOUNCEMENTS[12];
+  const earliest = ANNOUNCEMENTS[13];
   assert.deepEqual(
     ANNOUNCEMENTS.map(({ version }) => version),
     [
+      "26.4.20",
       "26.4.19",
       "26.4.18",
       "26.4.17",
@@ -426,6 +427,10 @@ test("announcement history preserves each release separately through 26.4.19", (
       "26.4.6",
     ],
   );
+  assert.equal(ANNOUNCEMENTS[0].publishedAt, "2026-10-10");
+  assert.equal(ANNOUNCEMENTS[0].body.zh.length, 2);
+  assert.equal(ANNOUNCEMENTS[0].body.en.length, 2);
+  assert.match(ANNOUNCEMENTS[0].body.zh.join("\n"), /压缩分页.*旧存储/);
   assert.equal(release19.version, "26.4.19");
   assert.equal(release19.publishedAt, "2026-10-03");
   assert.equal(release19.body.zh.length, 4);

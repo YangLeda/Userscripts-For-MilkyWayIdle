@@ -2,6 +2,25 @@ const STORAGE_KEY = "MWITools_opinion_center_seen_announcements_v1";
 
 export const ANNOUNCEMENTS = Object.freeze([
   Object.freeze({
+    id: "26.4.20",
+    version: "26.4.20",
+    publishedAt: "2026-10-10",
+    title: Object.freeze({
+      zh: "26.4.20 更新公告",
+      en: "Version 26.4.20 update",
+    }),
+    body: Object.freeze({
+      zh: Object.freeze([
+        "存储与启动：修复经验历史与删除标记持续堆积、增加脚本管理器消息超限风险的问题。历史改为压缩分页保存，校验后清理旧存储；过期删除标记不再无限增长，旧标签页不能恢复已过期的样本。迁移分批执行，保留设置、有效历史、跨站同步和旧备份导入能力。",
+        "备份与恢复：大量共享记录分批读写，避免整库一次传输；历史保存失败时保留上一份数据，旧版本按字段保存的经验记录也会自动整理。",
+      ]),
+      en: Object.freeze([
+        "Storage and startup: Fixed accumulating XP history keys and deletion markers that increased the risk of exceeding userscript-manager message limits. History now uses compressed pages; legacy storage is removed after verification. Expired deletion markers no longer grow indefinitely and stale tabs cannot restore expired samples. Migration yields between stores and preserves settings, valid history, cross-site synchronization and old-backup imports.",
+        "Backup and recovery: Large shared stores are read and written in batches rather than transferred at once. Failed history writes preserve the previous data, and older per-field XP records are automatically consolidated.",
+      ]),
+    }),
+  }),
+  Object.freeze({
     id: "26.4.19",
     version: "26.4.19",
     publishedAt: "2026-10-03",
