@@ -13,12 +13,7 @@ const EXISTING_SETTINGS_AT_LOAD = Boolean(
   sharedStorage?.getItem("script_settingsMap"),
 );
 
-const GUILD_SETTINGS = Object.freeze([
-  "guildXpTracking",
-  "guildOverview",
-  "guildMemberXp",
-  "guildLeaderboardXp",
-  "guildIdleMembers",
+const LEADERBOARD_SETTINGS = Object.freeze([
   "leaderboardOverlay",
   "leaderboardXpRate",
 ]);
@@ -188,7 +183,7 @@ function configurationFromChoices(choices) {
   for (const id of COMPLEX_CALCULATION_SETTINGS) {
     values[id] = normalized.complexCalculations;
   }
-  for (const id of GUILD_SETTINGS) {
+  for (const id of LEADERBOARD_SETTINGS) {
     values[id] = normalized.guildEnhancements;
   }
   return {
@@ -221,7 +216,7 @@ function currentChoices() {
     totalAssetsAndSort: get("invWorth") && get("invSort"),
     productionSummary: get("productionSummary") && summaryMode !== "off",
     complexCalculations: COMPLEX_CALCULATION_SETTINGS.every(get),
-    guildEnhancements: GUILD_SETTINGS.every(get),
+    guildEnhancements: LEADERBOARD_SETTINGS.every(get),
     decorativeAnimations:
       decorativeMotion === "on" ||
       (decorativeMotion !== "off" && get("leaderboardBadgeGlint")),

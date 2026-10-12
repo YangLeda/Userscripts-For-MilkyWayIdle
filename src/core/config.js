@@ -463,35 +463,6 @@ let settingsMap = {
     desc: isZH ? "合并相同动作任务数量" : "Merge matching task quantities.",
     isTrue: true,
   },
-  guildXpTracking: {
-    id: "guildXpTracking",
-    desc: isZH ? "在本机记录公会经验" : "Track guild XP locally.",
-    isTrue: true,
-  },
-  guildOverview: {
-    id: "guildOverview",
-    desc: isZH ? "公会总览显示经验趋势" : "Show guild XP trends.",
-    isTrue: true,
-  },
-  guildMemberXp: {
-    id: "guildMemberXp",
-    desc: isZH
-      ? "成员表显示 24 小时经验速率"
-      : "Show the 24-hour XP rate for guild members.",
-    isTrue: true,
-  },
-  guildLeaderboardXp: {
-    id: "guildLeaderboardXp",
-    desc: isZH
-      ? "公会榜显示每小时经验"
-      : "Show XP rates on the guild leaderboard.",
-    isTrue: true,
-  },
-  guildIdleMembers: {
-    id: "guildIdleMembers",
-    desc: isZH ? "公会总览显示闲置成员" : "Show idle guild members.",
-    isTrue: true,
-  },
   leaderboardOverlay: {
     id: "leaderboardOverlay",
     desc: isZH
@@ -1098,46 +1069,6 @@ const catalogRows = [
     "Estimate attempts, protection strategy, and total cost for enhanced equipment.",
   ],
   [
-    "guildXpTracking",
-    "guild",
-    "本地记录公会经验",
-    "Local guild XP tracking",
-    "被动保存服务器发来的经验快照；数据只留在本机，保留 30 天。",
-    "Passively store server XP snapshots on this device for 30 days.",
-  ],
-  [
-    "guildOverview",
-    "guild",
-    "公会经验总览",
-    "Guild XP overview",
-    "显示 24 小时速率、升级时间与 6 小时滚动平均的 7 天趋势。",
-    "Show the 24-hour rate, time to level, and a seven-day trend using a 6-hour rolling average.",
-  ],
-  [
-    "guildMemberXp",
-    "guild",
-    "成员经验速率",
-    "Member XP rates",
-    "在成员表增加可排序的 24 小时 XP/h 与相对速率条，可在设置中关闭。",
-    "Add a sortable 24-hour XP/h column with relative bars to the member table; it can be disabled in settings.",
-  ],
-  [
-    "guildLeaderboardXp",
-    "guild",
-    "公会榜经验速率",
-    "Guild leaderboard XP rates",
-    "在全服公会榜显示本机采样得到的近 6 小时和 24 小时 XP/h。",
-    "Show locally sampled 6-hour and 24-hour XP/h on the guild leaderboard.",
-  ],
-  [
-    "guildIdleMembers",
-    "guild",
-    "闲置成员",
-    "Idle members",
-    "在公会总览常显当前未进行动作的可见成员。",
-    "Always show visible guild members who are not currently performing an action.",
-  ],
-  [
     "leaderboardOverlay",
     "leaderboard",
     "排行榜名次徽章",
@@ -1302,10 +1233,6 @@ const settingParents = {
   taskMergeActions: "taskInsights",
   taskNewBadge: "taskInsights",
   taskTrainPlanner: "semiAutoTrain",
-  guildOverview: "guildXpTracking",
-  guildMemberXp: "guildXpTracking",
-  guildLeaderboardXp: "guildXpTracking",
-  guildIdleMembers: "guildOverview",
   leaderboardBadgeGlint: "leaderboardOverlay",
 };
 

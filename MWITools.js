@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWITools
 // @namespace    http://tampermonkey.net/
-// @version      26.4.20
+// @version      26.4.21
 // @updateURL    https://update.greasyfork.org/scripts/494467/MWITools.meta.js
 // @downloadURL  https://update.greasyfork.org/scripts/494467/MWITools.user.js
 // @description  Tools for MilkyWayIdle. Includes a feedback center, action projections, market insights, asset history, DPS/HPS statistics, inventory tools, tasks, and guild utilities.
@@ -1582,67 +1582,19 @@
 					globalThis.dispatchEvent?.(new CustomEvent("mwitools-shared-storage", { detail })));
 		}
 	}
-	function prepareSharedHistory(key) {
-		if (!available() || !isPackedHistory(key)) return Promise.resolve();
-		let prefix = recordPrefix(key);
-		if (historyPreparations.has(prefix)) return historyPreparations.get(prefix);
-		let work = (async () => {
-			migrate(key);
-			let prepared;
-			for (let attempt = 0; attempt < 3; attempt++) {
-				let revision = globalThis.GM_getValue(revisionKey(key), null),
-					names = [...(listNames().get(prefix) ?? [])].filter((name) => name.slice(prefix.length).startsWith("%5B"));
-				if (!names.length) return;
-				prepared = { values: {}, deletes: [] };
-				for (let index = 0; index < names.length; index += 256)
-					(await new Promise((resolve) => setTimeout(resolve, 0)),
-						Object.assign(
-							prepared.values,
-							startupDiagnostics.measure("storage:legacy-read", () => getValues(names.slice(index, index + 256))),
-						));
-				if (globalThis.GM_getValue(revisionKey(key), null) === revision) break;
-				if (((indexedNames = null), attempt === 2)) return;
-			}
-			(startupDiagnostics.measure("storage:history-pack", () => entriesFor(key, prepared)),
-				cleanupApiTraced ||
-					((cleanupApiTraced = !0),
-					startupDiagnostics.mark(
-						"storage:delete-api",
-						typeof globalThis.GM_deleteValues == "function" ? "bulk" : "individual",
-					)));
-			let chunkSize = typeof globalThis.GM_deleteValues == "function" ? 4096 : 32;
-			for (let index = 0; index < prepared.deletes.length; index += chunkSize) {
-				await new Promise((resolve) => setTimeout(resolve, 0));
-				let batch = prepared.deletes.slice(index, index + chunkSize),
-					current = getValues(batch),
-					unchanged = batch.filter((name) => equal(current[name], prepared.values[name]));
-				(startupDiagnostics.measure("storage:legacy-delete", () => deleteStorageNames(unchanged)),
-					indexedNames && unchanged.forEach((name) => indexedNames.get(prefix)?.delete(name)));
-			}
-		})().finally(() => historyPreparations.delete(prefix));
-		return (historyPreparations.set(prefix, work), work);
-	}
 	function localKeys() {
 		return Array.from({ length: native()?.length ?? 0 }, (_, index) => native().key(index)).filter(shared);
 	}
 	function scheduleSharedMigration() {
 		if (!available()) return Promise.resolve();
 		if (migrationRun) return migrationRun;
-		let keys = [
-			.../* @__PURE__ */ new Set([
-				...localKeys(),
-				...[...listNames().keys()]
-					.filter((prefix) => prefix.startsWith(root()))
-					.map((prefix) => decodeURIComponent(prefix.slice((root() + "record:").length, -1)))
-					.filter(isPackedHistory),
-			]),
-		];
+		let keys = localKeys().filter((key) => !isPackedHistory(key));
 		return (
 			(migrationRun = (async () => {
 				for (let key of keys) {
 					await new Promise((resolve) => setTimeout(resolve, 0));
 					try {
-						isPackedHistory(key) ? await prepareSharedHistory(key) : migrate(key);
+						migrate(key);
 					} catch (error) {
 						startupDiagnostics.error("storage:migration-failed", error);
 					}
@@ -1671,8 +1623,6 @@
 		parse,
 		identity,
 		sharedStorage,
-		historyPreparations,
-		cleanupApiTraced,
 		migrationRun,
 		init_shared_storage = __esm({
 			"src/core/shared-storage.js"() {
@@ -1754,7 +1704,6 @@
 							observed.has(value?.key) &&
 								globalThis.dispatchEvent?.(new CustomEvent("mwitools-shared-storage", { detail: value })));
 					});
-				((historyPreparations = /* @__PURE__ */ new Map()), (cleanupApiTraced = !1));
 				migrationRun = null;
 			},
 		});
@@ -2524,31 +2473,6 @@
 							desc: isZH ? "合并相同动作任务数量" : "Merge matching task quantities.",
 							isTrue: !0,
 						},
-						guildXpTracking: {
-							id: "guildXpTracking",
-							desc: isZH ? "在本机记录公会经验" : "Track guild XP locally.",
-							isTrue: !0,
-						},
-						guildOverview: {
-							id: "guildOverview",
-							desc: isZH ? "公会总览显示经验趋势" : "Show guild XP trends.",
-							isTrue: !0,
-						},
-						guildMemberXp: {
-							id: "guildMemberXp",
-							desc: isZH ? "成员表显示 24 小时经验速率" : "Show the 24-hour XP rate for guild members.",
-							isTrue: !0,
-						},
-						guildLeaderboardXp: {
-							id: "guildLeaderboardXp",
-							desc: isZH ? "公会榜显示每小时经验" : "Show XP rates on the guild leaderboard.",
-							isTrue: !0,
-						},
-						guildIdleMembers: {
-							id: "guildIdleMembers",
-							desc: isZH ? "公会总览显示闲置成员" : "Show idle guild members.",
-							isTrue: !0,
-						},
 						leaderboardOverlay: {
 							id: "leaderboardOverlay",
 							desc: isZH ? "角色名字旁显示排行榜名次徽章" : "Show leaderboard rank badges beside character names.",
@@ -3149,46 +3073,6 @@
 							"Estimate attempts, protection strategy, and total cost for enhanced equipment.",
 						],
 						[
-							"guildXpTracking",
-							"guild",
-							"本地记录公会经验",
-							"Local guild XP tracking",
-							"被动保存服务器发来的经验快照；数据只留在本机，保留 30 天。",
-							"Passively store server XP snapshots on this device for 30 days.",
-						],
-						[
-							"guildOverview",
-							"guild",
-							"公会经验总览",
-							"Guild XP overview",
-							"显示 24 小时速率、升级时间与 6 小时滚动平均的 7 天趋势。",
-							"Show the 24-hour rate, time to level, and a seven-day trend using a 6-hour rolling average.",
-						],
-						[
-							"guildMemberXp",
-							"guild",
-							"成员经验速率",
-							"Member XP rates",
-							"在成员表增加可排序的 24 小时 XP/h 与相对速率条，可在设置中关闭。",
-							"Add a sortable 24-hour XP/h column with relative bars to the member table; it can be disabled in settings.",
-						],
-						[
-							"guildLeaderboardXp",
-							"guild",
-							"公会榜经验速率",
-							"Guild leaderboard XP rates",
-							"在全服公会榜显示本机采样得到的近 6 小时和 24 小时 XP/h。",
-							"Show locally sampled 6-hour and 24-hour XP/h on the guild leaderboard.",
-						],
-						[
-							"guildIdleMembers",
-							"guild",
-							"闲置成员",
-							"Idle members",
-							"在公会总览常显当前未进行动作的可见成员。",
-							"Always show visible guild members who are not currently performing an action.",
-						],
-						[
 							"leaderboardOverlay",
 							"leaderboard",
 							"排行榜名次徽章",
@@ -3349,10 +3233,6 @@
 					taskMergeActions: "taskInsights",
 					taskNewBadge: "taskInsights",
 					taskTrainPlanner: "semiAutoTrain",
-					guildOverview: "guildXpTracking",
-					guildMemberXp: "guildXpTracking",
-					guildLeaderboardXp: "guildXpTracking",
-					guildIdleMembers: "guildOverview",
 					leaderboardBadgeGlint: "leaderboardOverlay",
 				};
 				for (let [id, parent] of Object.entries(settingParents))
@@ -8669,235 +8549,6 @@
 			},
 		});
 
-	// src/core/xp-history.js
-	function legacyHistory(objectKey2) {
-		let raw = sharedStorage.getItem(FALLBACK_KEY);
-		if (raw !== legacyRaw) {
-			((legacyRaw = raw), (legacyByObject = /* @__PURE__ */ new Map()));
-			let records;
-			try {
-				records = JSON.parse(raw || "[]");
-			} catch {
-				records = [];
-			}
-			for (let record of Array.isArray(records) ? records : [])
-				(legacyByObject.has(record.objectKey) || legacyByObject.set(record.objectKey, []),
-					legacyByObject.get(record.objectKey).push(record));
-		}
-		return legacyByObject.get(objectKey2) ?? [];
-	}
-	function readObjectHistory(objectKey2) {
-		let value = JSON.parse(sharedStorage.getItem(OBJECT_KEY_PREFIX + objectKey2) || "[]");
-		return Array.isArray(value) ? value : [];
-	}
-	function writeObjectHistory(objectKey2, records) {
-		sharedStorage.setItem(
-			OBJECT_KEY_PREFIX + objectKey2,
-			JSON.stringify(records.map(({ at, xp }) => ({ objectKey: objectKey2, at, xp }))),
-		);
-	}
-	async function migrateObjectHistory(objectKey2) {
-		let marker = `MWITools_xp_object_migrated_v2:${objectKey2}`;
-		if (globalThis.localStorage?.getItem(marker)) return;
-		await prepareSharedHistory(FALLBACK_KEY);
-		let legacy = legacyHistory(objectKey2),
-			indexed = await readIndexed(objectKey2),
-			current = readObjectHistory(objectKey2),
-			records = [
-				...new Map(
-					[...legacy, ...(indexed ?? []), ...current]
-						.filter((record) => Number.isFinite(record.at) && Number.isFinite(record.xp))
-						.map((record) => [record.at, record]),
-				).values(),
-			].sort((a, b) => a.at - b.at);
-		(records.length && writeObjectHistory(objectKey2, records), globalThis.localStorage?.setItem(marker, "true"));
-	}
-	function openDatabase() {
-		return globalThis.indexedDB
-			? new Promise((resolve) => {
-					let request2 = globalThis.indexedDB.open(DB_NAME, 1);
-					((request2.onupgradeneeded = () => {
-						let database = request2.result;
-						database.objectStoreNames.contains(STORE_NAME) ||
-							database
-								.createObjectStore(STORE_NAME, {
-									keyPath: "key",
-									autoIncrement: !0,
-								})
-								.createIndex("objectKey", "objectKey", { unique: !1 });
-					}),
-						(request2.onsuccess = () => resolve(request2.result)),
-						(request2.onerror = () => resolve(null)));
-				})
-			: Promise.resolve(null);
-	}
-	function readFallback() {
-		try {
-			let value = JSON.parse(sharedStorage?.getItem(FALLBACK_KEY) || "[]");
-			return Array.isArray(value) ? value : [];
-		} catch {
-			return [];
-		}
-	}
-	function writeFallback(records) {
-		try {
-			sharedStorage?.setItem(FALLBACK_KEY, JSON.stringify(records));
-		} catch (error) {
-			console.warn(
-				runtime.config.isZH ? "[MWITools] 无法保存经验历史备用数据" : "[MWITools] Unable to save XP history fallback",
-				error,
-			);
-		}
-	}
-	async function readIndexed(objectKey2) {
-		let database = await openDatabase();
-		return database
-			? new Promise((resolve) => {
-					let request2 = database
-						.transaction(STORE_NAME, "readonly")
-						.objectStore(STORE_NAME)
-						.index("objectKey")
-						.getAll(objectKey2);
-					((request2.onsuccess = () => resolve(request2.result ?? [])), (request2.onerror = () => resolve(null)));
-				})
-			: null;
-	}
-	async function replaceIndexed(objectKey2, records) {
-		let database = await openDatabase();
-		return database
-			? new Promise((resolve) => {
-					let transaction = database.transaction(STORE_NAME, "readwrite"),
-						store = transaction.objectStore(STORE_NAME),
-						request2 = store.index("objectKey").openKeyCursor(globalThis.IDBKeyRange.only(objectKey2));
-					((request2.onsuccess = () => {
-						let cursor = request2.result;
-						if (cursor) {
-							(store.delete(cursor.primaryKey), cursor.continue());
-							return;
-						}
-						for (let record of records) store.add({ ...record, objectKey: objectKey2 });
-					}),
-						(transaction.oncomplete = () => resolve(!0)),
-						(transaction.onerror = () => resolve(!1)));
-				})
-			: !1;
-	}
-	async function getXpHistory(objectKey2) {
-		if (sharedAvailable()) {
-			await prepareSharedHistory(OBJECT_KEY_PREFIX + objectKey2);
-			let migrationKey = `${globalThis.location?.origin ?? "local"}:${objectKey2}`;
-			if (!migrations.has(migrationKey)) {
-				let marker = `MWITools_xp_object_migrated_v2:${objectKey2}`,
-					work = globalThis.localStorage?.getItem(marker)
-						? Promise.resolve()
-						: migrationQueue
-								.then(() => new Promise((resolve) => setTimeout(resolve, 0)))
-								.then(() => migrateObjectHistory(objectKey2));
-				globalThis.localStorage?.getItem(marker) || (migrationQueue = work.catch(() => {}));
-				let pending = work.finally(() => migrations.delete(migrationKey));
-				migrations.set(migrationKey, pending);
-			}
-			return (await migrations.get(migrationKey), readObjectHistory(objectKey2).sort((a, b) => a.at - b.at));
-		}
-		let indexed = await readIndexed(objectKey2);
-		return indexed !== null
-			? indexed.sort((a, b) => a.at - b.at)
-			: readFallback()
-					.filter((record) => record.objectKey === objectKey2)
-					.sort((a, b) => a.at - b.at);
-	}
-	function compactHistory(records, now = Date.now()) {
-		let cutoff = now - RETENTION_MS,
-			recentCutoff = now - 24 * HOUR_MS,
-			hourly = /* @__PURE__ */ new Map(),
-			recent = [];
-		for (let record of records)
-			record.at < cutoff ||
-				(record.at >= recentCutoff ? recent.push(record) : hourly.set(Math.floor(record.at / HOUR_MS), record));
-		return [...hourly.values(), ...recent].sort((a, b) => a.at - b.at);
-	}
-	async function saveHistory(objectKey2, records) {
-		if (sharedAvailable()) {
-			writeObjectHistory(objectKey2, records);
-			return;
-		}
-		if (await replaceIndexed(objectKey2, records)) return;
-		let retained = readFallback().filter((record) => record.objectKey !== objectKey2);
-		writeFallback([...retained, ...records.map((record) => ({ ...record, objectKey: objectKey2 }))]);
-	}
-	async function recordXpSnapshot(objectKey2, xp, at = Date.now()) {
-		let numericXp = Number(xp),
-			numericAt = Number(at);
-		if (!objectKey2 || !Number.isFinite(numericXp) || !Number.isFinite(numericAt)) return !1;
-		let records = await getXpHistory(objectKey2),
-			last = records.at(-1);
-		return last && (last.xp === numericXp || last.at >= numericAt || last.xp > numericXp)
-			? !1
-			: (records.push({ xp: numericXp, at: numericAt }),
-				await saveHistory(objectKey2, compactHistory(records, numericAt)),
-				!0);
-	}
-	function calculateWindowRate(records, windowMs, minimumCoverageMs, now) {
-		let latest = records.at(-1);
-		if (!latest) return null;
-		let first = records.filter((record) => record.at >= now - windowMs && record.at <= latest.at)[0];
-		return !first || latest.at - first.at < minimumCoverageMs || latest.xp < first.xp
-			? null
-			: ((latest.xp - first.xp) / (latest.at - first.at)) * HOUR_MS;
-	}
-	function calculateXpRates(records, now = Date.now()) {
-		let sorted = [...records].sort((a, b) => a.at - b.at),
-			latest = sorted.at(-1);
-		return {
-			recent: calculateWindowRate(sorted, RECENT_WINDOW_MS, RECENT_MINIMUM_COVERAGE_MS, now),
-			hour: calculateWindowRate(sorted, HOUR_MS, 1800 * 1e3, now),
-			day: calculateWindowRate(sorted, 24 * HOUR_MS, 12 * HOUR_MS, now),
-			lastSampleAt: latest?.at ?? null,
-			points: sorted,
-		};
-	}
-	var DB_NAME,
-		STORE_NAME,
-		FALLBACK_KEY,
-		OBJECT_KEY_PREFIX,
-		migrations,
-		migrationQueue,
-		legacyRaw,
-		legacyByObject,
-		sharedAvailable,
-		RETENTION_MS,
-		HOUR_MS,
-		RECENT_WINDOW_MS,
-		RECENT_MINIMUM_COVERAGE_MS,
-		init_xp_history = __esm({
-			"src/core/xp-history.js"() {
-				init_shared_storage();
-				init_runtime();
-				((DB_NAME = "MWIToolsHistory"),
-					(STORE_NAME = "xpSnapshots"),
-					(FALLBACK_KEY = "MWITools_xp_history_v1"),
-					(OBJECT_KEY_PREFIX = "MWITools_xp_history_v2:"),
-					(migrations = /* @__PURE__ */ new Map()),
-					(migrationQueue = Promise.resolve()),
-					(legacyRaw = null),
-					(legacyByObject = /* @__PURE__ */ new Map()),
-					(sharedAvailable = () =>
-						typeof globalThis.GM_getValue == "function" &&
-						typeof globalThis.GM_setValue == "function" &&
-						typeof globalThis.GM_listValues == "function"));
-				((RETENTION_MS = 720 * 60 * 60 * 1e3),
-					(HOUR_MS = 3600 * 1e3),
-					(RECENT_WINDOW_MS = 6 * HOUR_MS),
-					(RECENT_MINIMUM_COVERAGE_MS = HOUR_MS));
-				Object.assign(runtime.api, {
-					getXpHistory,
-					compactXpHistory: compactHistory,
-					recordXpSnapshot,
-					calculateXpRates,
-				});
-			},
-		});
-
 	// src/core/asset-values.js
 	function positiveNumber2(value) {
 		let number3 = Number(value);
@@ -13288,14 +12939,14 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 					}
 					updateChartSummary() {
 						for (let [key, value, className] of this.chartSummaryValues()) {
-							let metric4 = this.root.querySelector(`[data-live-metric="${key}"]`);
-							if (!metric4) continue;
-							(metric4.classList.toggle("pos", className === "pos"),
-								metric4.classList.toggle("neg", className === "neg"));
+							let metric3 = this.root.querySelector(`[data-live-metric="${key}"]`);
+							if (!metric3) continue;
+							(metric3.classList.toggle("pos", className === "pos"),
+								metric3.classList.toggle("neg", className === "neg"));
 							let title = Number.isFinite(value) ? String(runtime.api.formatExactNumber?.(value, 0) ?? value) : "",
 								text = this.format(value, className !== "");
-							(metric4.title !== title && (metric4.title = title),
-								metric4.textContent !== text && (metric4.textContent = text));
+							(metric3.title !== title && (metric3.title = title),
+								metric3.textContent !== text && (metric3.textContent = text));
 						}
 					}
 					renderChartPage(page) {
@@ -15679,23 +15330,23 @@ ${preview}`,
 				summary.append(icon, name, missing));
 			let grid = document.createElement("div");
 			grid.className = "planning-material-grid";
-			let metric4 = (label, value, sub = "") => {
+			let metric3 = (label, value, sub = "") => {
 				let cell = document.createElement("div");
 				return ((cell.innerHTML = `<span>${label}</span><b>${value}</b>${sub ? `<small>${sub}</small>` : ""}`), cell);
 			};
 			grid.append(
-				metric4(t4("规划需求", "Required"), wholeNumber(material.required)),
-				metric4(
+				metric3(t4("规划需求", "Required"), wholeNumber(material.required)),
+				metric3(
 					t4("库存", "Inventory"),
 					wholeNumber(material.owned),
 					`${t4("项目占用", "Project")} ${wholeNumber(material.projectInventory)} · ${t4("规划使用", "Planning")} ${wholeNumber(material.inventoryUsed)}`,
 				),
-				metric4(
+				metric3(
 					t4("购物车", "Cart"),
 					wholeNumber(material.cart.total),
 					`${t4("项目", "Project")} ${wholeNumber(material.cart.project)} · ${t4("规划", "Planning")} ${wholeNumber(material.cart.planning)} · ${t4("手工", "Manual")} ${wholeNumber(material.cart.manual)}`,
 				),
-				metric4(t4("材料缺口", "Shortage"), wholeNumber(material.remainingShortage)),
+				metric3(t4("材料缺口", "Shortage"), wholeNumber(material.remainingShortage)),
 			);
 			let actions = document.createElement("div");
 			actions.className = "planning-material-actions";
@@ -17716,11 +17367,11 @@ ${preview}`,
 				text = `${mode.toUpperCase()} ${formatCombatRate(value)}`,
 				signature = `metric:${mode}:${text}`;
 			if (state.renderSignature !== signature) {
-				let metric4 = document.createElement("div");
-				((metric4.className = "mwi-buff-metric"),
-					(metric4.dataset.mode = mode),
-					(metric4.textContent = text),
-					bar.replaceChildren(metric4),
+				let metric3 = document.createElement("div");
+				((metric3.className = "mwi-buff-metric"),
+					(metric3.dataset.mode = mode),
+					(metric3.textContent = text),
+					bar.replaceChildren(metric3),
 					(state.renderSignature = signature));
 			}
 			((bar.dataset.displayMode = mode),
@@ -29907,6 +29558,25 @@ ${locks}`
 				((STORAGE_KEY = "MWITools_opinion_center_seen_announcements_v1"),
 					(ANNOUNCEMENTS = Object.freeze([
 						Object.freeze({
+							id: "26.4.21",
+							version: "26.4.21",
+							publishedAt: "2026-10-12",
+							title: Object.freeze({
+								zh: "26.4.21 更新公告",
+								en: "Version 26.4.21 update",
+							}),
+							body: Object.freeze({
+								zh: Object.freeze([
+									"公会：移除本地公会经验采样、经验总览、成员与公会榜经验速率、闲置成员显示及相关设置。公会信用点兑换、建筑提示和技能排行榜增强继续保留。",
+									"性能与存储：停止公会经验历史的自动读写和登录后台整理，消除该模块反复压缩历史造成的主线程阻塞。已有经验历史保留供统一备份与恢复使用。",
+								]),
+								en: Object.freeze([
+									"Guild: Removed local guild XP sampling, XP overview, member and guild leaderboard XP rates, idle-member display and their settings. Guild credit exchange, building hints and skill leaderboard enhancements remain available.",
+									"Performance and storage: Stopped automatic guild XP history reads, writes and login-time archive processing, eliminating main-thread stalls from repeated history compression in this module. Existing XP archives remain available through unified backup and restore.",
+								]),
+							}),
+						}),
+						Object.freeze({
 							id: "26.4.20",
 							version: "26.4.20",
 							publishedAt: "2026-10-10",
@@ -31336,757 +31006,8 @@ ${locks}`
 			},
 		});
 
-	// src/features/guild-xp.js
-	function observeGuildSurface(scope, render) {
-		let scheduler = createFrameScheduler(render);
-		(subscribeMutationChannel(
-			{
-				name: "guild-surface",
-				target: document.body,
-				options: { childList: !0, subtree: !0 },
-				scope,
-			},
-			(records) => {
-				records.some((record) => {
-					let target = record.target?.nodeType === 1 ? record.target : record.target?.parentElement,
-						changed = [...record.addedNodes, ...record.removedNodes].filter((node) => node?.nodeType === 1);
-					return target?.closest?.(OWNED_GUILD_SELECTOR) ||
-						(changed.length &&
-							changed.every((node) => node.matches?.(OWNED_GUILD_SELECTOR) || node.closest?.(OWNED_GUILD_SELECTOR)))
-						? !1
-						: target?.closest?.(GUILD_SURFACE_SELECTOR)
-							? !0
-							: changed.some(
-									(node) => node.matches?.(GUILD_SURFACE_SELECTOR) || node.querySelector?.(GUILD_SURFACE_SELECTOR),
-								);
-				}) && scheduler.schedule();
-			},
-		),
-			scope.add(() => scheduler.cancel()));
-	}
-	function t16(zh, en) {
-		return runtime.config.isZH ? zh : en;
-	}
-	function findField(object, keys, maxDepth = 4) {
-		let pending = [{ value: object, depth: 0 }],
-			visited = /* @__PURE__ */ new Set();
-		for (; pending.length;) {
-			let { value, depth } = pending.shift();
-			if (!(!value || typeof value != "object" || visited.has(value) || depth > maxDepth)) {
-				visited.add(value);
-				for (let key of keys) if (value[key] !== void 0 && value[key] !== null) return value[key];
-				for (let child of Object.values(value))
-					child && typeof child == "object" && pending.push({ value: child, depth: depth + 1 });
-			}
-		}
-		return null;
-	}
-	function findOwnField(object, keys) {
-		if (!object || typeof object != "object") return { found: !1, value: void 0 };
-		for (let key of keys)
-			if (Object.prototype.hasOwnProperty.call(object, key)) return { found: !0, value: object[key] };
-		return { found: !1, value: void 0 };
-	}
-	function findOwnFieldDeep(object, keys, maxDepth = 4) {
-		let pending = [{ value: object, depth: 0 }],
-			visited = /* @__PURE__ */ new Set();
-		for (; pending.length;) {
-			let { value, depth } = pending.shift();
-			if (!value || typeof value != "object" || visited.has(value) || depth > maxDepth) continue;
-			visited.add(value);
-			let own = findOwnField(value, keys);
-			if (own.found) return own;
-			for (let child of Object.values(value))
-				child && typeof child == "object" && pending.push({ value: child, depth: depth + 1 });
-		}
-		return { found: !1, value: void 0 };
-	}
-	function isGuildMemberIdle(member) {
-		let hidden = findOwnFieldDeep(member, ["hideOnlineStatus", "isOnlineHidden", "onlineStatusHidden"]),
-			online = findOwnFieldDeep(member, ["isOnline", "online"]);
-		if (
-			(hidden.found &&
-				(hidden.value === !0 || hidden.value === 1 || /^(?:true|hidden)$/i.test(String(hidden.value ?? "").trim()))) ||
-			(online.found &&
-				(online.value === !1 || online.value === 0 || /^(?:false|offline)$/i.test(String(online.value ?? "").trim())))
-		)
-			return !1;
-		let action = findOwnFieldDeep(member, ["actionType", "currentActionType", "currentActionHrid", "actionHrid"]);
-		if (!action.found) {
-			let currentAction = findOwnFieldDeep(member, ["currentAction"]);
-			currentAction.found && (currentAction.value === null || currentAction.value === !1) && (action = currentAction);
-		}
-		if (!action.found) return !1;
-		if (action.value === null || action.value === !1) return !0;
-		if (typeof action.value == "string") {
-			let value = action.value.trim();
-			return value === "" || /(?:^|\/)idle$/i.test(value);
-		}
-		return !1;
-	}
-	function entityId(entity) {
-		return String(findField(entity, ["id", "characterID", "characterId", "guildID", "guildId", "name"]) ?? "");
-	}
-	function entityName2(entity) {
-		return String(findField(entity, ["name", "guildName", "characterName"]) ?? "—");
-	}
-	function entityXp(entity) {
-		let value = findField(entity, [
-			"guildExperience",
-			"totalGuildExperience",
-			"cumulativeGuildExperience",
-			"experience",
-			"totalExperience",
-			"xp",
-		]);
-		return Number.isFinite(Number(value)) ? Number(value) : null;
-	}
-	function entityWeeklyXpRate(entity, now = Date.now()) {
-		let weeklyValue = findField(entity, ["weeklyGuildExperience"]),
-			weeklyXp = weeklyValue === null ? NaN : Number(weeklyValue),
-			weekStartedAt = Date.parse(findField(entity, ["weeklyGuildExperienceWeekStartAt"]) ?? ""),
-			elapsed = now - weekStartedAt;
-		return !Number.isFinite(weeklyXp) || weeklyXp < 0 || !Number.isFinite(weekStartedAt) || elapsed <= 0
-			? null
-			: (weeklyXp / elapsed) * HOUR_MS2;
-	}
-	function objectKey(kind, entity, parentId = "") {
-		let id = entityId(entity);
-		return id ? `${kind}:${parentId ? `${parentId}:` : ""}${id}` : "";
-	}
-	async function refreshRate(key) {
-		if (!key) return null;
-		let generation = rateCacheGeneration,
-			history = await runtime.api.getXpHistory(key),
-			rates = runtime.api.calculateXpRates(history);
-		return (
-			key.startsWith("guild:") || (rates.points = []),
-			generation === rateCacheGeneration && rateCache.set(key, rates),
-			rates
-		);
-	}
-	async function sampleEntity(kind, entity, parentId = "", at = Date.now()) {
-		let generation = rateCacheGeneration,
-			key = objectKey(kind, entity, parentId),
-			xp = entityXp(entity);
-		return !key || xp === null || (await runtime.api.recordXpSnapshot(key, xp, at), generation !== rateCacheGeneration)
-			? null
-			: refreshRate(key);
-	}
-	async function sampleGuildBatch(includeLeaderboard, generation) {
-		let now = Date.now(),
-			guild2 = runtime.state.guild,
-			guildId = entityId(guild2),
-			jobs = [
-				...(guild2 ? [["guild", guild2, ""]] : []),
-				...(runtime.state.guildCharacters ?? []).map((member) => ["member", member, guildId]),
-				...(includeLeaderboard ? (runtime.state.guildLeaderboard ?? []).map((row) => ["leaderboard", row, ""]) : []),
-			];
-		for (let index = 0; index < jobs.length; index++) {
-			if (generation !== rateCacheGeneration) return;
-			(await sampleEntity(...jobs[index], now),
-				(index + 1) % SAMPLE_BATCH_SIZE === 0 && index + 1 < jobs.length && (await yieldSampling()));
-		}
-	}
-	function sampleGuildState(includeLeaderboard = !1) {
-		let generation = rateCacheGeneration;
-		if (samplingRun?.generation === generation)
-			return (
-				(samplingRun.requested = !0),
-				(samplingRun.includeLeaderboard ||= includeLeaderboard),
-				samplingRun.promise
-			);
-		let run = { generation, requested: !0, includeLeaderboard };
-		return (
-			(samplingRun = run),
-			(run.promise = (async () => {
-				for (; run.requested && generation === rateCacheGeneration;) {
-					let withLeaderboard = run.includeLeaderboard;
-					((run.requested = !1),
-						(run.includeLeaderboard = !1),
-						await sampleGuildBatch(withLeaderboard, generation),
-						run.requested && generation === rateCacheGeneration && (await yieldSampling()));
-				}
-			})().finally(() => {
-				samplingRun === run && (samplingRun = null);
-			})),
-			run.promise
-		);
-	}
-	function addStyles14() {
-		if (document.getElementById(STYLE_ID16)) return;
-		let style = document.createElement("style");
-		((style.id = STYLE_ID16),
-			(style.textContent = `
-    .mwi-guild-xp-card { margin:10px 0; padding:11px 12px; border:1px solid rgba(255,255,255,.13); border-radius:8px; background:linear-gradient(135deg,rgba(255,255,255,.05),rgba(0,0,0,.17)); color:var(--color-text-primary,#eee); }
-    .mwi-guild-xp-head { display:flex; justify-content:space-between; gap:12px; align-items:baseline; }
-    .mwi-guild-xp-title { font-weight:700; font-size:.95rem; }
-    .mwi-guild-xp-sampled { color:var(--color-text-secondary,#999); font-size:.66rem; }
-    .mwi-guild-xp-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(125px,1fr)); gap:7px; margin-top:8px; }
-    .mwi-guild-xp-metric { padding:7px 8px; border-radius:5px; background:rgba(0,0,0,.18); }
-    .mwi-guild-xp-metric small { display:block; color:var(--color-text-secondary,#aaa); }
-    .mwi-guild-xp-metric strong { display:block; margin-top:2px; color:#ffa500; }
-    .mwi-guild-trend-label { margin-top:8px; color:var(--color-text-secondary,#aaa); font-size:.68rem; }
-    .mwi-guild-trend { width:100%; height:180px; margin-top:8px; overflow:visible; }
-    .mwi-guild-trend-axis { stroke:rgba(255,255,255,.38); stroke-width:1; vector-effect:non-scaling-stroke; }
-    .mwi-guild-trend-grid { stroke:rgba(255,255,255,.1); stroke-width:1; vector-effect:non-scaling-stroke; }
-    .mwi-guild-trend-tick { fill:var(--color-text-secondary,#aaa); font-size:10px; }
-    .mwi-guild-trend-empty { fill:var(--color-text-secondary,#aaa); font-size:13px; text-anchor:middle; }
-    .mwi-guild-trend polyline { fill:none; stroke:#ffa500; stroke-width:2; vector-effect:non-scaling-stroke; }
-    .mwi-guild-idle { display:flex; flex-wrap:wrap; gap:5px; align-items:center; margin-top:8px; }
-    .mwi-guild-idle span { padding:2px 7px; border-radius:999px; background:rgba(255,255,255,.07); font-size:.68rem; }
-    .mwi-guild-members-wide { box-sizing:border-box; width:min(100%,960px) !important; max-width:960px !important; min-width:0 !important; margin-inline:0 auto; }
-    .mwi-guild-member-table-wrap { box-sizing:border-box; width:min(100%,960px); max-width:960px; margin-inline:0 auto; overflow-x:hidden; }
-    .mwi-guild-member-table-wrap .mwi-guild-member-table { width:100% !important; min-width:0 !important; table-layout:fixed !important; }
-    .mwi-guild-member-table > thead > tr > th,
-    .mwi-guild-member-table > tbody > tr > td { box-sizing:border-box; vertical-align:middle; }
-    .mwi-guild-member-table > thead > tr > th { white-space:nowrap; word-break:keep-all; }
-    .mwi-guild-member-table > tbody > tr > td:not(:first-child) { white-space:nowrap; word-break:keep-all; }
-    .mwi-guild-member-table > thead > tr > th:first-child,
-    .mwi-guild-member-table > tbody > tr > td:first-child { text-align:left; }
-    .mwi-guild-member-table > thead > tr > th:nth-child(2),
-    .mwi-guild-member-table > tbody > tr > td:nth-child(2) { width:90px; }
-    .mwi-guild-member-table > thead > tr > th:nth-child(3),
-    .mwi-guild-member-table > tbody > tr > td:nth-child(3) { width:84px; }
-    .mwi-guild-member-table > thead > tr > th:nth-child(4),
-    .mwi-guild-member-table > tbody > tr > td:nth-child(4) { width:100px; }
-    .mwi-guild-member-table > thead > tr > th:not(:first-child):not(.mwi-guild-day-head),
-    .mwi-guild-member-table > tbody > tr > td:not(:first-child):not(.mwi-guild-rate-cell) { text-align:center; }
-    .mwi-guild-member-table .mwi-guild-day-head,
-    .mwi-guild-member-table .mwi-guild-rate-cell { width:190px; min-width:190px; text-align:center; }
-    .mwi-guild-rate-cell { color:#ffa500; white-space:nowrap; }
-    .mwi-guild-rate-content { display:grid; grid-template-columns:86px 72px; align-items:center; justify-content:center; gap:8px; }
-    .mwi-guild-rate-value { min-width:0; text-align:right; font-variant-numeric:tabular-nums; }
-    .mwi-guild-rate-track { display:block; width:72px; height:5px; overflow:hidden; border-radius:999px; background:rgba(255,255,255,.08); }
-    .mwi-guild-rate-fill { display:block; height:100%; min-width:2px; border-radius:inherit; background:rgba(91,134,255,.58); }
-    .mwi-guild-rate-sort { margin-left:4px; color:var(--color-text-secondary,#aaa); font-size:.62rem; }
-    .mwi-guild-div-rate-head,.mwi-guild-div-rates { display:grid; grid-template-columns:repeat(2,minmax(92px,1fr)); gap:8px; margin-left:auto; text-align:right; }
-    .mwi-guild-div-rate-head { padding:5px 8px; color:var(--color-text-secondary,#aaa); font-size:.68rem; }
-    .mwi-guild-div-rates { padding-left:10px; color:#ffa500; font-size:.7rem; }
-    @media(max-width:760px) {
-      .mwi-guild-member-table-wrap { overflow-x:auto; overscroll-behavior-x:contain; }
-      .mwi-guild-member-table-wrap .mwi-guild-member-table { min-width:720px !important; }
-    }
-  `),
-			(document.head ?? document.documentElement).appendChild(style));
-	}
-	function rateText(value, waiting = !1) {
-		return Number.isFinite(value)
-			? `${runtime.api.numberFormatter(value)}/h`
-			: waiting
-				? t16("待再次采样", "Awaiting another sample")
-				: t16("样本不足", "Not enough data");
-	}
-	function metric2(label, value, title = "") {
-		let box = document.createElement("div");
-		box.className = "mwi-guild-xp-metric";
-		let caption = document.createElement("small");
-		caption.textContent = label;
-		let strong = document.createElement("strong");
-		return (
-			value?.nodeType ? strong.append(value) : (strong.textContent = value),
-			(strong.title = title),
-			box.append(caption, strong),
-			box
-		);
-	}
-	function guildXpRatePoints(points, now = Date.now()) {
-		let cutoff = now - TREND_WINDOW_MS,
-			sorted = [...points]
-				.map((point) => ({ at: Number(point?.at), xp: Number(point?.xp) }))
-				.filter((point) => Number.isFinite(point.at) && Number.isFinite(point.xp))
-				.sort((left, right) => left.at - right.at),
-			rates = [],
-			baselineIndex = 0,
-			coverageIndex = -1;
-		for (let index = 1; index < sorted.length; index += 1) {
-			let current = sorted[index];
-			if (current.at < cutoff) continue;
-			for (; baselineIndex < index - 1 && current.at - sorted[baselineIndex].at > TREND_RATE_WINDOW_MS;)
-				baselineIndex += 1;
-			for (; coverageIndex + 1 < index && current.at - sorted[coverageIndex + 1].at >= TREND_MINIMUM_COVERAGE_MS;)
-				coverageIndex += 1;
-			let baseline = sorted[baselineIndex];
-			if ((current.at - baseline.at < TREND_MINIMUM_COVERAGE_MS && (baseline = sorted[coverageIndex]), !baseline))
-				continue;
-			let elapsed = current.at - baseline.at,
-				gained = current.xp - baseline.xp;
-			elapsed <= 0 || gained < 0 || rates.push({ at: current.at, rate: (gained / elapsed) * HOUR_MS2 });
-		}
-		return rates;
-	}
-	function svgElement(name, className = "") {
-		let element = document.createElementNS("http://www.w3.org/2000/svg", name);
-		return (className && element.setAttribute("class", className), element);
-	}
-	function niceRateCeiling(value) {
-		if (!(value > 0)) return 1;
-		let rawStep = value / 4,
-			magnitude = 10 ** Math.floor(Math.log10(rawStep)),
-			normalized = rawStep / magnitude;
-		return (normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10) * magnitude * 4;
-	}
-	function trendTimeLabel(timestamp, longSpan) {
-		return new Intl.DateTimeFormat(runtime.config.isZH ? "zh-CN" : "en-US", {
-			...(longSpan ? { month: "numeric", day: "numeric" } : { hour: "2-digit", minute: "2-digit", hour12: !1 }),
-		}).format(new Date(timestamp));
-	}
-	function trendSvg(points) {
-		let plot = { left: 58, right: 12, top: 10, bottom: 30 },
-			plotWidth = 520 - plot.left - plot.right,
-			plotHeight = 180 - plot.top - plot.bottom,
-			svg = svgElement("svg");
-		(svg.classList.add("mwi-guild-trend"),
-			svg.setAttribute("viewBox", "0 0 520 180"),
-			svg.setAttribute("preserveAspectRatio", "xMidYMid meet"));
-		let label = t16(
-			"公会经验获取速度（6 小时滚动平均，XP/小时）",
-			"Guild XP gain rate (6-hour rolling average, XP/hour)",
-		);
-		(svg.setAttribute("role", "img"), svg.setAttribute("aria-label", label));
-		let title = svgElement("title");
-		((title.textContent = label), svg.append(title));
-		let recent = guildXpRatePoints(points);
-		if (recent.length < 2) {
-			let empty = svgElement("text", "mwi-guild-trend-empty");
-			return (
-				empty.setAttribute("x", String(520 / 2)),
-				empty.setAttribute("y", String(180 / 2)),
-				(empty.textContent = t16("样本不足", "Not enough data")),
-				svg.append(empty),
-				svg
-			);
-		}
-		let yMax = niceRateCeiling(Math.max(...recent.map((point) => point.rate))),
-			minAt = recent[0].at,
-			maxAt = recent.at(-1).at,
-			yAxis = svgElement("line", "mwi-guild-trend-axis mwi-guild-axis-y");
-		(yAxis.setAttribute("x1", String(plot.left)),
-			yAxis.setAttribute("x2", String(plot.left)),
-			yAxis.setAttribute("y1", String(plot.top)),
-			yAxis.setAttribute("y2", String(plot.top + plotHeight)));
-		let xAxis = svgElement("line", "mwi-guild-trend-axis mwi-guild-axis-x");
-		(xAxis.setAttribute("x1", String(plot.left)),
-			xAxis.setAttribute("x2", String(plot.left + plotWidth)),
-			xAxis.setAttribute("y1", String(plot.top + plotHeight)),
-			xAxis.setAttribute("y2", String(plot.top + plotHeight)));
-		for (let index = 0; index < 5; index += 1) {
-			let ratio = index / 4,
-				y = plot.top + plotHeight - ratio * plotHeight,
-				grid = svgElement("line", "mwi-guild-trend-grid");
-			(grid.setAttribute("x1", String(plot.left)),
-				grid.setAttribute("x2", String(plot.left + plotWidth)),
-				grid.setAttribute("y1", String(y)),
-				grid.setAttribute("y2", String(y)));
-			let tick = svgElement("text", "mwi-guild-trend-tick mwi-guild-y-tick");
-			(tick.setAttribute("x", String(plot.left - 7)),
-				tick.setAttribute("y", String(y + 3)),
-				tick.setAttribute("text-anchor", "end"),
-				(tick.textContent = runtime.api.numberFormatter(yMax * ratio)),
-				svg.append(grid, tick));
-		}
-		let longSpan = maxAt - minAt > 24 * HOUR_MS2;
-		for (let index = 0; index < 4; index += 1) {
-			let ratio = index / 3,
-				x = plot.left + ratio * plotWidth,
-				tick = svgElement("text", "mwi-guild-trend-tick mwi-guild-x-tick");
-			(tick.setAttribute("x", String(x)),
-				tick.setAttribute("y", String(plot.top + plotHeight + 19)),
-				tick.setAttribute("text-anchor", index === 0 ? "start" : index === 3 ? "end" : "middle"),
-				(tick.textContent = trendTimeLabel(minAt + ratio * (maxAt - minAt), longSpan)),
-				svg.append(tick));
-		}
-		svg.append(yAxis, xAxis);
-		let polyline = svgElement("polyline");
-		return (
-			polyline.setAttribute(
-				"points",
-				recent
-					.map((point) => {
-						let x = plot.left + ((point.at - minAt) / Math.max(1, maxAt - minAt)) * plotWidth,
-							y = plot.top + plotHeight - (point.rate / yMax) * plotHeight;
-						return `${x},${y}`;
-					})
-					.join(" "),
-			),
-			svg.append(polyline),
-			svg
-		);
-	}
-	function removeGuildOverviewCards(keep = null) {
-		document.querySelectorAll(".mwi-guild-xp-card").forEach((card) => {
-			card !== keep && card.remove();
-		});
-	}
-	function findGuildOverviewHost() {
-		let guildPanel = document.querySelector('div[class*="GuildPanel_guildPanel"]');
-		if (!guildPanel) return null;
-		let host = guildPanel.querySelector('[class*="GuildPanel_overviewTab"]'),
-			tabPanel = host?.closest('[class*="TabPanel_tabPanel"]'),
-			tabPanels = [...guildPanel.querySelectorAll('[class*="TabPanel_tabPanel"]')],
-			tabs = [...guildPanel.querySelectorAll('[role="tablist"] [role="tab"]')],
-			panelIndex = tabPanels.indexOf(tabPanel),
-			overviewTab = panelIndex >= 0 ? tabs[panelIndex] : null,
-			ariaSelected = overviewTab?.getAttribute("aria-selected"),
-			overviewSelected = overviewTab
-				? ariaSelected !== null
-					? ariaSelected === "true"
-					: overviewTab.classList.contains("Mui-selected") || overviewTab.getAttribute("tabindex") === "0"
-				: !0;
-		return !host || !overviewSelected || tabPanel?.hidden || tabPanel?.className.includes("TabPanel_hidden")
-			? null
-			: host;
-	}
-	async function renderGuildOverview() {
-		let host = findGuildOverviewHost(),
-			guild2 = runtime.state.guild;
-		if (!host || !guild2) {
-			removeGuildOverviewCards();
-			return;
-		}
-		let key = objectKey("guild", guild2),
-			rates = rateCache.get(key) ?? (await refreshRate(key)),
-			currentHost = findGuildOverviewHost();
-		if (!currentHost || currentHost !== host) {
-			removeGuildOverviewCards();
-			return;
-		}
-		host = currentHost;
-		let card = host.querySelector(":scope > .mwi-guild-xp-card");
-		(removeGuildOverviewCards(card),
-			card || ((card = document.createElement("section")), (card.className = "mwi-guild-xp-card"), host.prepend(card)),
-			card.replaceChildren());
-		let head = document.createElement("div");
-		head.className = "mwi-guild-xp-head";
-		let title = document.createElement("div");
-		((title.className = "mwi-guild-xp-title"), (title.textContent = t16("公会经验进度", "Guild XP progress")));
-		let sampled = document.createElement("div");
-		((sampled.className = "mwi-guild-xp-sampled"),
-			(sampled.textContent = rates?.lastSampleAt
-				? `${t16("最后采样", "Last sample")} ${new Date(rates.lastSampleAt).toLocaleString()}`
-				: t16("待采样", "Awaiting samples")),
-			head.append(title, sampled));
-		let grid = document.createElement("div");
-		grid.className = "mwi-guild-xp-grid";
-		let xp = entityXp(guild2),
-			level = Number(findField(guild2, ["level", "guildLevel"])),
-			nextXp = Number.isInteger(level) ? Number(runtime.state.initData_levelExperienceTable?.[level + 1]) : NaN,
-			remaining = Number.isFinite(nextXp) && xp !== null && nextXp > xp ? nextXp - xp : null,
-			dayRate = Number(rates?.day),
-			recentRate = Number(rates?.recent),
-			estimateRate =
-				Number.isFinite(dayRate) && dayRate > 0
-					? dayRate
-					: Number.isFinite(recentRate) && recentRate > 0
-						? recentRate
-						: null,
-			etaHours = remaining !== null && estimateRate !== null ? remaining / estimateRate : null;
-		grid.append(
-			metric2(
-				t16("预计升级", "Level ETA"),
-				Number.isFinite(etaHours) ? runtime.api.timeReadable(etaHours * 3600) : t16("样本不足", "Not enough data"),
-			),
-			metric2(t16("24 小时平均", "24-hour average"), rateText(rates?.day)),
-		);
-		let trendLabel = document.createElement("div");
-		if (
-			((trendLabel.className = "mwi-guild-trend-label"),
-			(trendLabel.textContent = t16(
-				"最近 7 天经验获取速度（6 小时滚动平均）",
-				"XP gain rate over the last 7 days (6-hour rolling average)",
-			)),
-			card.append(head, grid, trendLabel, trendSvg(rates?.points ?? [])),
-			runtime.settings.get("guildIdleMembers"))
-		) {
-			let idle = (runtime.state.guildCharacters ?? []).filter(isGuildMemberIdle),
-				idleRow = document.createElement("div");
-			idleRow.className = "mwi-guild-idle";
-			let label = document.createElement("b");
-			((label.textContent = `${t16("当前闲置", "Idle now")} (${idle.length}) · ${t16(
-				"状态更新",
-				"Updated",
-			)} ${new Date(runtime.state.guildStateUpdatedAt).toLocaleTimeString()}`),
-				idleRow.append(label));
-			for (let member of idle) {
-				let tag = document.createElement("span");
-				((tag.textContent = entityName2(member)), idleRow.append(tag));
-			}
-			card.append(idleRow);
-		}
-	}
-	function appendRateColumns(table, rows2, kind, parentId = "") {
-		if (!table?.tHead?.rows?.[0] || !rows2.length) return;
-		(table.classList.add(`mwi-guild-${kind}-table`),
-			kind === "member" &&
-				(table.closest('[class*="GuildPanel_membersTab"]')?.classList.add("mwi-guild-members-wide"),
-				table.parentElement?.classList.add("mwi-guild-member-table-wrap")));
-		let header = table.tHead.rows[0];
-		if (
-			(kind === "member" &&
-				header.querySelectorAll(".mwi-guild-recent-head,.mwi-guild-week-head").forEach((cell) => cell.remove()),
-			!header.querySelector(kind === "member" ? ".mwi-guild-day-head" : ".mwi-guild-recent-head"))
-		) {
-			let sortable = kind === "member",
-				columns =
-					kind === "member"
-						? [["mwi-guild-day-head", t16("24 小时 XP/h", "24h XP/h")]]
-						: [
-								["mwi-guild-recent-head", t16("近 6 小时 XP/h", "6h XP/h")],
-								["mwi-guild-day-head", t16("24 小时 XP/h", "24h XP/h")],
-							];
-			for (let [rateIndex, [className, label]] of columns.entries()) {
-				let cell = document.createElement("th");
-				cell.className = className;
-				let labelNode = document.createElement("span");
-				if (((labelNode.textContent = label), cell.append(labelNode), !sortable)) {
-					header.append(cell);
-					continue;
-				}
-				let sortIndicator = document.createElement("span");
-				((sortIndicator.className = "mwi-guild-rate-sort"),
-					(sortIndicator.textContent = "↕"),
-					cell.append(sortIndicator),
-					(cell.tabIndex = 0),
-					(cell.style.cursor = "pointer"),
-					(cell.title = t16("点击按经验速率排序", "Click to sort by XP rate")));
-				let sortRows = () => {
-					let body = table.tBodies[0];
-					if (!body) return;
-					let direction = cell.dataset.direction === "desc" ? 1 : -1;
-					((cell.dataset.direction = direction === -1 ? "desc" : "asc"),
-						header
-							.querySelectorAll(".mwi-guild-recent-head,.mwi-guild-day-head,.mwi-guild-week-head")
-							.forEach((head) => {
-								if (head !== cell) {
-									(delete head.dataset.direction, head.setAttribute("aria-sort", "none"));
-									let indicator = head.querySelector(".mwi-guild-rate-sort");
-									indicator && (indicator.textContent = "↕");
-								}
-							}),
-						cell.setAttribute("aria-sort", direction === -1 ? "descending" : "ascending"),
-						(sortIndicator.textContent = direction === -1 ? "▼" : "▲"));
-					let tableRows = [...body.rows];
-					(tableRows.sort((left, right) => {
-						let leftCell = left.querySelectorAll(".mwi-guild-rate-cell")[rateIndex],
-							rightCell = right.querySelectorAll(".mwi-guild-rate-cell")[rateIndex],
-							leftValue = Number(leftCell?.dataset.sortValue ?? -1),
-							rightValue = Number(rightCell?.dataset.sortValue ?? -1);
-						return leftValue < 0 && rightValue < 0
-							? 0
-							: leftValue < 0
-								? 1
-								: rightValue < 0
-									? -1
-									: direction === -1
-										? rightValue - leftValue
-										: leftValue - rightValue;
-					}),
-						tableRows.forEach((row) => body.append(row)));
-				};
-				(cell.addEventListener("click", sortRows),
-					cell.addEventListener("keydown", (event) => {
-						(event.key !== "Enter" && event.key !== " ") || (event.preventDefault(), sortRows());
-					}),
-					header.append(cell));
-			}
-		}
-		for (let selector of [...(kind === "member" ? [] : [".mwi-guild-recent-head"]), ".mwi-guild-day-head"]) {
-			let rateHeader = header.querySelector(selector);
-			rateHeader && header.append(rateHeader);
-		}
-		let sourceByKey = new Map(rows2.map((source) => [objectKey(kind, source, parentId), source])),
-			rowEntries = [...(table.tBodies[0]?.rows ?? [])].map((row, index) => {
-				let key = row.dataset.mwiGuildEntityKey ?? "",
-					source = sourceByKey.get(key);
-				source ||
-					((source = rows2[index]),
-					(key = objectKey(kind, source, parentId)),
-					key && (row.dataset.mwiGuildEntityKey = key));
-				let rates = rateCache.get(key);
-				return {
-					row,
-					key,
-					rates,
-					values: kind === "member" ? [rates?.day] : [rates?.recent, rates?.day],
-				};
-			}),
-			maxima = Array.from({ length: kind === "member" ? 1 : 2 }, (_, index) =>
-				Math.max(0, ...rowEntries.map(({ values }) => (Number.isFinite(values[index]) ? values[index] : 0))),
-			);
-		rowEntries.forEach(({ row, rates, values }) => {
-			row.querySelectorAll(".mwi-guild-rate-cell").forEach((cell) => cell.remove());
-			for (let [rateIndex, value] of values.entries()) {
-				let cell = document.createElement("td");
-				((cell.className = "mwi-guild-rate-cell"),
-					(cell.dataset.sortValue = Number.isFinite(value) ? String(value) : "-1"));
-				let content = document.createElement("div");
-				content.className = "mwi-guild-rate-content";
-				let valueNode = document.createElement("span");
-				if (
-					((valueNode.className = "mwi-guild-rate-value"),
-					(valueNode.textContent = rateText(value, !rates?.lastSampleAt)),
-					content.append(valueNode),
-					Number.isFinite(value) && maxima[rateIndex] > 0)
-				) {
-					let track = document.createElement("span");
-					((track.className = "mwi-guild-rate-track"), track.setAttribute("aria-hidden", "true"));
-					let fill = document.createElement("span");
-					fill.className = "mwi-guild-rate-fill";
-					let percentage = Math.max(0, Math.min(100, (value / maxima[rateIndex]) * 100));
-					((fill.style.width = `${Math.round(percentage * 1e3) / 1e3}%`), track.append(fill), content.append(track));
-				}
-				(cell.append(content), row.append(cell));
-			}
-		});
-	}
-	function appendLeaderboardDivRates(rows2) {
-		let leaderboard = document.querySelector('div[class*="LeaderboardPanel_leaderboardTable"]');
-		if (!leaderboard || !rows2.length) return;
-		let head = leaderboard.parentElement.querySelector(":scope > .mwi-guild-div-rate-head");
-		(head ||
-			((head = document.createElement("div")),
-			(head.className = "mwi-guild-div-rate-head"),
-			head.append(
-				Object.assign(document.createElement("span"), {
-					textContent: t16("近 6 小时 XP/h", "6h XP/h"),
-				}),
-				Object.assign(document.createElement("span"), {
-					textContent: t16("24 小时 XP/h", "24h XP/h"),
-				}),
-			),
-			leaderboard.before(head)),
-			[...leaderboard.querySelectorAll('[class*="LeaderboardPanel_guildName"]')].forEach((name, index) => {
-				let row = name;
-				for (; row.parentElement && row.parentElement !== leaderboard;) row = row.parentElement;
-				row.querySelector(":scope > .mwi-guild-div-rates")?.remove();
-				let rates = rateCache.get(objectKey("leaderboard", rows2[index])),
-					cells = document.createElement("div");
-				cells.className = "mwi-guild-div-rates";
-				for (let value of [rates?.recent, rates?.day]) {
-					let cell = document.createElement("span");
-					((cell.dataset.sortValue = Number.isFinite(value) ? String(value) : "-1"),
-						(cell.textContent = rateText(value, !rates?.lastSampleAt)),
-						cells.append(cell));
-				}
-				row.append(cells);
-			}));
-	}
-	function renderGuildTables() {
-		if ((addStyles14(), runtime.settings.get("guildMemberXp"))) {
-			let memberTable = document.querySelector('div[class*="GuildPanel_membersTab"] table');
-			appendRateColumns(memberTable, runtime.state.guildCharacters, "member", entityId(runtime.state.guild));
-		}
-		if (runtime.settings.get("guildLeaderboardXp")) {
-			let leaderboardTable = document.querySelector('div[class*="Leaderboard"] table');
-			(appendRateColumns(leaderboardTable, runtime.state.guildLeaderboard, "leaderboard"),
-				leaderboardTable || appendLeaderboardDivRates(runtime.state.guildLeaderboard));
-		}
-	}
-	var STYLE_ID16,
-		rateCache,
-		rateCacheGeneration,
-		samplingRun,
-		SAMPLE_BATCH_SIZE,
-		yieldSampling,
-		HOUR_MS2,
-		TREND_WINDOW_MS,
-		TREND_RATE_WINDOW_MS,
-		TREND_MINIMUM_COVERAGE_MS,
-		GUILD_SURFACE_SELECTOR,
-		OWNED_GUILD_SELECTOR,
-		init_guild_xp = __esm({
-			"src/features/guild-xp.js"() {
-				init_runtime();
-				init_frame_scheduler();
-				init_mutation_channel();
-				((STYLE_ID16 = "mwitools-guild-xp-style"),
-					(rateCache = /* @__PURE__ */ new Map()),
-					(rateCacheGeneration = 0),
-					(samplingRun = null),
-					(SAMPLE_BATCH_SIZE = 4),
-					(yieldSampling = () => new Promise((resolve) => setTimeout(resolve, 0))),
-					(HOUR_MS2 = 3600 * 1e3),
-					(TREND_WINDOW_MS = 168 * HOUR_MS2),
-					(TREND_RATE_WINDOW_MS = 6 * HOUR_MS2),
-					(TREND_MINIMUM_COVERAGE_MS = HOUR_MS2),
-					(GUILD_SURFACE_SELECTOR = '[class*="Guild"],[class*="Leaderboard"]'),
-					(OWNED_GUILD_SELECTOR =
-						".mwi-guild-xp-card,.mwi-guild-rate-cell,.mwi-guild-div-rates,.mwi-guild-div-rate-head,.mwi-guild-idle"));
-				runtime.features.register({
-					id: "guildXpTracking",
-					setting: "guildXpTracking",
-					scope: "character",
-					initialize({ scope }) {
-						(scope.add(() => {
-							((rateCacheGeneration += 1), rateCache.clear());
-						}),
-							sampleGuildState(!1),
-							scope.add(runtime.onMessage("guild_updated", () => sampleGuildState(!1))),
-							scope.add(runtime.onMessage("guild_characters_updated", () => sampleGuildState(!1))),
-							scope.add(runtime.onMessage("leaderboard_updated", () => sampleGuildState(!0))));
-					},
-				});
-				runtime.features.register({
-					id: "guildOverview",
-					setting: "guildOverview",
-					scope: "character",
-					dependsOn: ["guildXpTracking"],
-					initialize({ scope }) {
-						(addStyles14(),
-							renderGuildOverview(),
-							observeGuildSurface(scope, renderGuildOverview),
-							scope.add(() => document.querySelectorAll(".mwi-guild-xp-card").forEach((node) => node.remove())));
-					},
-				});
-				for (let id of ["guildMemberXp", "guildLeaderboardXp", "guildIdleMembers"])
-					runtime.features.register({
-						id,
-						setting: id,
-						scope: "character",
-						dependsOn: id === "guildIdleMembers" ? ["guildXpTracking", "guildOverview"] : ["guildXpTracking"],
-						initialize({ scope }) {
-							(addStyles14(),
-								renderGuildTables(),
-								id === "guildIdleMembers" && renderGuildOverview(),
-								id !== "guildIdleMembers" && observeGuildSurface(scope, renderGuildTables),
-								scope.add(() => {
-									if (id === "guildIdleMembers") {
-										document.querySelectorAll(".mwi-guild-idle").forEach((node) => node.remove());
-										return;
-									}
-									let kind = id === "guildMemberXp" ? "member" : "leaderboard";
-									(document.querySelectorAll(`table.mwi-guild-${kind}-table`).forEach((table) => {
-										(kind === "member" &&
-											(table.closest(".mwi-guild-members-wide")?.classList.remove("mwi-guild-members-wide"),
-											table.parentElement?.classList.remove("mwi-guild-member-table-wrap")),
-											table
-												.querySelectorAll(
-													".mwi-guild-rate-cell,.mwi-guild-recent-head,.mwi-guild-day-head,.mwi-guild-week-head",
-												)
-												.forEach((node) => node.remove()),
-											table.classList.remove(`mwi-guild-${kind}-table`));
-									}),
-										kind === "leaderboard" &&
-											document
-												.querySelectorAll(".mwi-guild-div-rate-head,.mwi-guild-div-rates")
-												.forEach((node) => node.remove()));
-								}));
-						},
-					});
-				Object.assign(runtime.api, {
-					sampleGuildState,
-					renderGuildOverview,
-					renderGuildTables,
-					getGuildEntityXp: entityXp,
-					getGuildWeeklyXpRate: entityWeeklyXpRate,
-					getGuildXpRatePoints: guildXpRatePoints,
-					isGuildMemberIdle,
-				});
-			},
-		});
-
 	// src/features/game-widgets.js
-	function t17(zh, en) {
+	function t16(zh, en) {
 		return runtime.config.isZH ? zh : en;
 	}
 	function escapeRegularExpression2(value) {
@@ -32380,7 +31301,7 @@ ${locks}`
 					"beforeend",
 					`<span id="script_filter_level" style="float: left; color: ${runtime.config.SCRIPT_COLOR_MAIN};">${runtime.config.isZH ? "等级: 大于等于 " : "Equipment level: >= "}
             <select name="script_filter_level_select" id="script_filter_level_select">
-            <option value="1">${t17("全部", "All")}</option>
+            <option value="1">${t16("全部", "All")}</option>
             <option value="10">10</option>
             <option value="20">20</option>
             <option value="30">30</option>
@@ -32401,7 +31322,7 @@ ${locks}`
 					"beforeend",
 					`<span id="script_filter_level_to" style="float: left; color: ${runtime.config.SCRIPT_COLOR_MAIN};">${runtime.config.isZH ? "小于 " : "< "}
             <select name="script_filter_level_select_to" id="script_filter_level_select_to">
-            <option value="1000">${t17("全部", "All")}</option>
+            <option value="1000">${t16("全部", "All")}</option>
             <option value="10">10</option>
             <option value="20">20</option>
             <option value="30">30</option>
@@ -32422,33 +31343,33 @@ ${locks}`
 					"beforeend",
 					`<span id="script_filter_skill" style="float: left; color: ${runtime.config.SCRIPT_COLOR_MAIN};">${runtime.config.isZH ? "职业: " : "Class: "}
             <select name="script_filter_skill_select" id="script_filter_skill_select">
-                <option value="all">${t17("全部", "All")}</option>
-                <option value="attack">${t17("攻击", "Attack")}</option>
-                <option value="melee">${t17("近战", "Melee")}</option>
-                <option value="defense">${t17("防御", "Defense")}</option>
-                <option value="ranged">${t17("远程", "Ranged")}</option>
-                <option value="magic">${t17("魔法", "Magic")}</option>
-                <option value="others">${t17("其他", "Others")}</option>
+                <option value="all">${t16("全部", "All")}</option>
+                <option value="attack">${t16("攻击", "Attack")}</option>
+                <option value="melee">${t16("近战", "Melee")}</option>
+                <option value="defense">${t16("防御", "Defense")}</option>
+                <option value="ranged">${t16("远程", "Ranged")}</option>
+                <option value="magic">${t16("魔法", "Magic")}</option>
+                <option value="others">${t16("其他", "Others")}</option>
             </select>&emsp;</span>`,
 				),
 				filters.insertAdjacentHTML(
 					"beforeend",
 					`<span id="script_filter_location" style="float: left; color: ${runtime.config.SCRIPT_COLOR_MAIN};">${runtime.config.isZH ? "部位: " : "Slot: "}
             <select name="script_filter_location_select" id="script_filter_location_select">
-                <option value="all">${t17("全部", "All")}</option>
-                <option value="main_hand">${t17("主手", "Main Hand")}</option>
-                <option value="off_hand">${t17("副手", "Off Hand")}</option>
-                <option value="two_hand">${t17("双手", "Two Hand")}</option>
-                <option value="head">${t17("头部", "Head")}</option>
-                <option value="body">${t17("身体", "Body")}</option>
-                <option value="hands">${t17("手部", "Hands")}</option>
-                <option value="legs">${t17("腿部", "Legs")}</option>
-                <option value="feet">${t17("脚部", "Feet")}</option>
-                <option value="neck">${t17("项链", "Neck")}</option>
-                <option value="earrings">${t17("耳饰", "Earrings")}</option>
-                <option value="ring">${t17("戒指", "Ring")}</option>
-                <option value="pouch">${t17("袋子", "Pouch")}</option>
-                <option value="back">${t17("背部", "Back")}</option>
+                <option value="all">${t16("全部", "All")}</option>
+                <option value="main_hand">${t16("主手", "Main Hand")}</option>
+                <option value="off_hand">${t16("副手", "Off Hand")}</option>
+                <option value="two_hand">${t16("双手", "Two Hand")}</option>
+                <option value="head">${t16("头部", "Head")}</option>
+                <option value="body">${t16("身体", "Body")}</option>
+                <option value="hands">${t16("手部", "Hands")}</option>
+                <option value="legs">${t16("腿部", "Legs")}</option>
+                <option value="feet">${t16("脚部", "Feet")}</option>
+                <option value="neck">${t16("项链", "Neck")}</option>
+                <option value="earrings">${t16("耳饰", "Earrings")}</option>
+                <option value="ring">${t16("戒指", "Ring")}</option>
+                <option value="pouch">${t16("袋子", "Pouch")}</option>
+                <option value="back">${t16("背部", "Back")}</option>
             </select>&emsp;</span>`,
 				));
 			let levelFilter = document.querySelector("#script_filter_level_select");
@@ -33677,13 +32598,13 @@ ${locks}`
 		});
 
 	// src/features/enhancement-cost-panel.js
-	function t18(zh, en) {
+	function t17(zh, en) {
 		return runtime.config.isZH ? zh : en;
 	}
-	function addStyles15() {
-		if (document.getElementById(STYLE_ID17)) return;
+	function addStyles14() {
+		if (document.getElementById(STYLE_ID16)) return;
 		let style = document.createElement("style");
-		((style.id = STYLE_ID17),
+		((style.id = STYLE_ID16),
 			(style.textContent = `
     #${PANEL_ID4} { position:fixed; z-index:2147483000; width:min(252px,calc(100vw - 24px)); box-sizing:border-box; overflow:hidden; pointer-events:none; color:var(--color-text-primary,#eef1f6); border:1px solid rgba(255,255,255,.16); border-radius:8px; background:linear-gradient(145deg,rgba(34,38,47,.985),rgba(18,21,27,.985)); box-shadow:0 12px 34px rgba(0,0,0,.44),0 2px 7px rgba(0,0,0,.28); font-family:inherit; font-size:calc(11px * var(--mwi-hover-font-scale,1)); line-height:1.25; }
     #${PANEL_ID4}.mwi-enhancement-sticky { pointer-events:auto; }
@@ -33717,9 +32638,9 @@ ${locks}`
 		if (!Number.isFinite(number3)) return "—";
 		let rounded = Math.round(number3),
 			digits = Math.abs(number3 - rounded) < 1e-8 ? 0 : 1;
-		return `${compactNumber(number3, digits)} ${t18("个", "pcs")}`;
+		return `${compactNumber(number3, digits)} ${t17("个", "pcs")}`;
 	}
-	function metric3(label, value, exactValue = null, titleText = "") {
+	function metric2(label, value, exactValue = null, titleText = "") {
 		let row = document.createElement("div");
 		row.className = "mwi-enhancement-metric";
 		let caption = document.createElement("div");
@@ -33735,11 +32656,11 @@ ${locks}`
 		return !Number.isFinite(normal) || !Number.isFinite(mirror)
 			? { text: "—", title: "" }
 			: {
-					text: t18(
+					text: t17(
 						`普通保护 ${compactNumber(normal, 1)} 次，贤者之镜 ${compactNumber(mirror, 1)} 次`,
 						`Regular protection: ${compactNumber(normal, 1)} uses; Philosopher's Mirror: ${compactNumber(mirror, 1)} uses`,
 					),
-					title: t18(
+					title: t17(
 						`普通保护：${exactTitle(normal)} 次；贤者之镜：${exactTitle(mirror)} 次`,
 						`Regular protection: ${exactTitle(normal)} uses; Philosopher's Mirror: ${exactTitle(mirror)} uses`,
 					),
@@ -33750,34 +32671,34 @@ ${locks}`
 			protection = complete ? protectionUsage(plan) : { text: "—", title: "" },
 			normalStart = complete
 				? plan.normalProtectStart === null
-					? t18("不用", "None")
+					? t17("不用", "None")
 					: `+${plan.normalProtectStart}`
 				: "—",
 			philosopherStart = complete
 				? plan.philosopherStart === null
-					? t18("不用", "None")
+					? t17("不用", "None")
 					: `+${plan.philosopherStart}`
 				: "—",
 			aLabel =
-				complete && plan.aLevel !== null ? t18(`需要 +${plan.aLevel}`, `Need +${plan.aLevel}`) : t18("需要", "Need"),
+				complete && plan.aLevel !== null ? t17(`需要 +${plan.aLevel}`, `Need +${plan.aLevel}`) : t17("需要", "Need"),
 			bLabel =
-				complete && plan.bLevel !== null ? t18(`需要 +${plan.bLevel}`, `Need +${plan.bLevel}`) : t18("需要", "Need"),
+				complete && plan.bLevel !== null ? t17(`需要 +${plan.bLevel}`, `Need +${plan.bLevel}`) : t17("需要", "Need"),
 			grid = document.createElement("div");
 		grid.className = "mwi-enhancement-grid";
-		let protectionMetric = metric3("", protection.text, null, protection.title);
+		let protectionMetric = metric2("", protection.text, null, protection.title);
 		(protectionMetric.classList.add("mwi-enhancement-protection"),
 			grid.append(
-				metric3(t18("总成本", "Total cost"), complete ? compactNumber(plan.totalCost, 1) : "—", plan?.totalCost),
-				metric3(t18("底子成本", "Base cost"), complete ? compactNumber(plan.baseCost, 1) : "—", plan?.baseCost),
+				metric2(t17("总成本", "Total cost"), complete ? compactNumber(plan.totalCost, 1) : "—", plan?.totalCost),
+				metric2(t17("底子成本", "Base cost"), complete ? compactNumber(plan.baseCost, 1) : "—", plan?.baseCost),
 				...(complete && Number(plan.refinementCost) > 0
-					? [metric3(t18("其中精炼", "Includes refining"), compactNumber(plan.refinementCost, 1), plan.refinementCost)]
+					? [metric2(t17("其中精炼", "Includes refining"), compactNumber(plan.refinementCost, 1), plan.refinementCost)]
 					: []),
-				metric3(t18("耗时", "Time"), complete ? runtime.api.timeReadable(plan.totalSeconds) : "—", plan?.totalSeconds),
-				metric3(t18("开始保护", "Protect from"), normalStart),
+				metric2(t17("耗时", "Time"), complete ? runtime.api.timeReadable(plan.totalSeconds) : "—", plan?.totalSeconds),
+				metric2(t17("开始保护", "Protect from"), normalStart),
 				protectionMetric,
-				metric3(t18("开始贤者保护", "Philosopher's Mirror from"), philosopherStart),
-				metric3(aLabel, complete ? countWithUnit(plan.aCount) : "—", plan?.aCount),
-				metric3(bLabel, complete ? countWithUnit(plan.bCount) : "—", plan?.bCount),
+				metric2(t17("开始贤者保护", "Philosopher's Mirror from"), philosopherStart),
+				metric2(aLabel, complete ? countWithUnit(plan.aCount) : "—", plan?.aCount),
+				metric2(bLabel, complete ? countWithUnit(plan.bCount) : "—", plan?.bCount),
 			),
 			panel.replaceChildren(grid),
 			(panel.dataset.status = complete ? "complete" : "unavailable"));
@@ -33853,7 +32774,7 @@ ${locks}`
 		let sticky = !!(options.sticky || (activePanel2?.anchor === anchor && activePanel2?.sticky));
 		if (activePanel2?.anchor === anchor && activePanel2.panel?.isConnected && activePanel2.sticky === sticky)
 			return (renderPanel2(activePanel2.panel, plan), activePanel2.position(), activePanel2.panel);
-		(hideEnhancementCostPanel(), addStyles15());
+		(hideEnhancementCostPanel(), addStyles14());
 		let panel = document.createElement("aside");
 		((panel.id = PANEL_ID4),
 			panel.classList.toggle("mwi-enhancement-sticky", sticky),
@@ -33892,7 +32813,7 @@ ${locks}`
 		);
 	}
 	var PANEL_ID4,
-		STYLE_ID17,
+		STYLE_ID16,
 		VIEWPORT_MARGIN3,
 		PANEL_GAP3,
 		activePanel2,
@@ -33901,7 +32822,7 @@ ${locks}`
 			"src/features/enhancement-cost-panel.js"() {
 				init_runtime();
 				((PANEL_ID4 = "mwitools-enhancement-cost-panel"),
-					(STYLE_ID17 = "mwitools-enhancement-cost-panel-style"),
+					(STYLE_ID16 = "mwitools-enhancement-cost-panel-style"),
 					(VIEWPORT_MARGIN3 = 12),
 					(PANEL_GAP3 = 8),
 					(activePanel2 = null));
@@ -34672,8 +33593,8 @@ ${locks}`
 		let subtitle = document.createElement("div");
 		((subtitle.className = "mwi-settings-subtitle"),
 			(subtitle.textContent = runtime.config.isZH
-				? "所有设置会立即生效。功能数据与公会经验只保存在当前设备。"
-				: "Settings apply immediately. Feature data and guild XP stay on this device."),
+				? "所有设置会立即生效。持久化插件数据在同一脚本管理器内共享，测试服独立。"
+				: "Settings apply immediately. Persistent plugin data is shared within the same userscript manager; the test server stays separate."),
 			heroCopy.append(heading, subtitle));
 		let search = document.createElement("input");
 		((search.className = "mwi-settings-search"),
@@ -35362,7 +34283,7 @@ ${locks}`
 				leaderboardBadgeGlint: normalized.guildEnhancements && normalized.decorativeAnimations,
 			};
 		for (let id of COMPLEX_CALCULATION_SETTINGS) values[id] = normalized.complexCalculations;
-		for (let id of GUILD_SETTINGS) values[id] = normalized.guildEnhancements;
+		for (let id of LEADERBOARD_SETTINGS) values[id] = normalized.guildEnhancements;
 		return {
 			values,
 			preferences: {
@@ -35390,7 +34311,7 @@ ${locks}`
 			totalAssetsAndSort: get("invWorth") && get("invSort"),
 			productionSummary: get("productionSummary") && summaryMode !== "off",
 			complexCalculations: COMPLEX_CALCULATION_SETTINGS.every(get),
-			guildEnhancements: GUILD_SETTINGS.every(get),
+			guildEnhancements: LEADERBOARD_SETTINGS.every(get),
 			decorativeAnimations: decorativeMotion === "on" || (decorativeMotion !== "off" && get("leaderboardBadgeGlint")),
 			dpsGraph: !!(dps.showGraph && dps.recountShowGraph),
 			refreshIntervalMs: dps.refreshIntervalMs,
@@ -35485,7 +34406,7 @@ ${locks}`
 		TIERS,
 		REFRESH_INTERVALS,
 		EXISTING_SETTINGS_AT_LOAD,
-		GUILD_SETTINGS,
+		LEADERBOARD_SETTINGS,
 		COMPLEX_CALCULATION_SETTINGS,
 		DEFAULT_CHOICES,
 		storedProfile,
@@ -35501,15 +34422,7 @@ ${locks}`
 					(EXISTING_SETTINGS_AT_LOAD = !!(
 						sharedStorage?.getItem("MWITools_settings_v2") || sharedStorage?.getItem("script_settingsMap")
 					)),
-					(GUILD_SETTINGS = Object.freeze([
-						"guildXpTracking",
-						"guildOverview",
-						"guildMemberXp",
-						"guildLeaderboardXp",
-						"guildIdleMembers",
-						"leaderboardOverlay",
-						"leaderboardXpRate",
-					])),
+					(LEADERBOARD_SETTINGS = Object.freeze(["leaderboardOverlay", "leaderboardXpRate"])),
 					(COMPLEX_CALCULATION_SETTINGS = Object.freeze([
 						"actionBarProfit",
 						"productionProfit",
@@ -35553,10 +34466,10 @@ ${locks}`
 	function isZH2() {
 		return !!runtime.config.isZH;
 	}
-	function t19(value) {
+	function t18(value) {
 		return typeof value == "string" ? value : (value?.[isZH2() ? "zh" : "en"] ?? "");
 	}
-	function addStyles16() {
+	function addStyles15() {
 		if (document.getElementById(PERFORMANCE_STYLE_ID)) return;
 		let style = document.createElement("style");
 		((style.id = PERFORMANCE_STYLE_ID),
@@ -35658,7 +34571,7 @@ ${locks}`
 		);
 	}
 	function optionCopy(kind, id) {
-		return t19(
+		return t18(
 			{
 				usage: {
 					life: {
@@ -35772,7 +34685,7 @@ ${locks}`
 						},
 						{
 							id: "guild-visual",
-							title: { zh: "公会与视觉", en: "Guild & visuals" },
+							title: { zh: "排行榜与视觉", en: "Leaderboards & visuals" },
 							fields: ["guildEnhancements", "decorativeAnimations"],
 						},
 					])),
@@ -35838,12 +34751,12 @@ ${locks}`
 						},
 						guildEnhancements: {
 							title: {
-								zh: "公会趋势与排行榜增强",
-								en: "Guild trends & leaderboard enhancements",
+								zh: "排行榜增强",
+								en: "Leaderboard enhancements",
 							},
 							summary: {
-								zh: "显示公会经验趋势、成员速率、名次徽章与排行榜速率。",
-								en: "Show guild trends, member rates, rank badges, and leaderboard rates.",
+								zh: "显示名次徽章与服务器提供的技能排行榜速率。",
+								en: "Show rank badges and server-provided skill leaderboard rates.",
 							},
 						},
 						decorativeAnimations: {
@@ -35887,7 +34800,7 @@ ${locks}`
 							(this.handleKeydown = this.handleKeydown.bind(this)));
 					}
 					open() {
-						(addStyles16(),
+						(addStyles15(),
 							document.getElementById(PERFORMANCE_ONBOARDING_ID)?.remove(),
 							(this.root = document.createElement("div")),
 							(this.root.id = PERFORMANCE_ONBOARDING_ID),
@@ -35968,7 +34881,7 @@ ${locks}`
 						if (this.stage.startsWith("custom:")) {
 							let index = Number(this.stage.split(":")[1]);
 							return {
-								title: t19(CUSTOM_GROUPS[index].title),
+								title: t18(CUSTOM_GROUPS[index].title),
 							};
 						}
 						return {
@@ -36057,7 +34970,7 @@ ${locks}`
 								button.setAttribute("aria-checked", String(selected === id)),
 								(button.dataset.value = id));
 							let heading = document.createElement("div");
-							((heading.className = "mwi-performance-option-title"), (heading.textContent = t19(TEXT[kind][id])));
+							((heading.className = "mwi-performance-option-title"), (heading.textContent = t18(TEXT[kind][id])));
 							let copy = document.createElement("div");
 							if (
 								((copy.className = "mwi-performance-option-copy"),
@@ -36093,11 +35006,11 @@ ${locks}`
 							let copy = document.createElement("div"),
 								heading = document.createElement("div");
 							((heading.className = "mwi-performance-field-title"),
-								(heading.textContent = t19(FIELD_TEXT[field].title)));
+								(heading.textContent = t18(FIELD_TEXT[field].title)));
 							let summary = document.createElement("div");
 							if (
 								((summary.className = "mwi-performance-field-copy"),
-								(summary.textContent = t19(FIELD_TEXT[field].summary)),
+								(summary.textContent = t18(FIELD_TEXT[field].summary)),
 								copy.append(heading, summary),
 								field === "refreshIntervalMs")
 							) {
@@ -36135,14 +35048,14 @@ ${locks}`
 					renderReview() {
 						let copy = document.createElement("p");
 						((copy.className = "mwi-performance-copy"),
-							(copy.textContent = `${t19(TEXT.usage[this.usage])} · ${t19(TEXT.tier[this.tier])}`));
+							(copy.textContent = `${t18(TEXT.usage[this.usage])} · ${t18(TEXT.tier[this.tier])}`));
 						let review = document.createElement("div");
 						review.className = "mwi-performance-review";
 						for (let field of Object.keys(FIELD_TEXT)) {
 							let row = document.createElement("div");
 							row.className = "mwi-performance-review-row";
 							let label = document.createElement("span");
-							label.textContent = t19(FIELD_TEXT[field].title);
+							label.textContent = t18(FIELD_TEXT[field].title);
 							let status = document.createElement("b");
 							((status.textContent = choiceStatus(field, this.choices[field])),
 								row.append(label, status),
@@ -36264,11 +35177,11 @@ ${locks}`
 		});
 
 	// src/features/update-banner.js
-	function t20(value) {
+	function t19(value) {
 		return typeof value == "string" ? value : (value?.[runtime.config.isZH ? "zh" : "en"] ?? value?.en ?? "");
 	}
 	function currentVersion() {
-		return String(globalThis.GM_info?.script?.version ?? "26.4.20");
+		return String(globalThis.GM_info?.script?.version ?? "26.4.21");
 	}
 	function isTestBuild() {
 		let info = globalThis.GM_info?.script;
@@ -36314,7 +35227,7 @@ ${locks}`
 							if (Number(response?.status) < 200 || Number(response?.status) >= 300) {
 								reject(
 									new Error(
-										t20({
+										t19({
 											zh: `更新清单请求失败（HTTP ${response?.status}）`,
 											en: `Update manifest request failed (HTTP ${response?.status})`,
 										}),
@@ -36336,7 +35249,7 @@ ${locks}`
 							onerror: () =>
 								reject(
 									new Error(
-										t20({
+										t19({
 											zh: "更新清单请求失败。",
 											en: "Update manifest request failed.",
 										}),
@@ -36345,7 +35258,7 @@ ${locks}`
 							ontimeout: () =>
 								reject(
 									new Error(
-										t20({
+										t19({
 											zh: "更新清单请求超时。",
 											en: "Update manifest request timed out.",
 										}),
@@ -36361,7 +35274,7 @@ ${locks}`
 			: globalThis.fetch(url, { cache: "no-store" }).then((response) => {
 					if (!response.ok)
 						throw new Error(
-							t20({
+							t19({
 								zh: `更新清单请求失败（HTTP ${response.status}）`,
 								en: `Update manifest request failed (HTTP ${response.status})`,
 							}),
@@ -36383,7 +35296,7 @@ ${locks}`
 			!manifest.message ||
 			typeof manifest.message != "object"
 		)
-			throw new Error(t20({ zh: "更新清单格式无效。", en: "Invalid update manifest." }));
+			throw new Error(t19({ zh: "更新清单格式无效。", en: "Invalid update manifest." }));
 		return manifest;
 	}
 	async function fetchImportantUpdateManifest({
@@ -36397,7 +35310,7 @@ ${locks}`
 			} catch (error) {
 				lastError = error;
 			}
-		throw lastError ?? new Error(t20({ zh: "更新清单不可用。", en: "Update manifest unavailable." }));
+		throw lastError ?? new Error(t19({ zh: "更新清单不可用。", en: "Update manifest unavailable." }));
 	}
 	function getImportantUpdateManifest() {
 		return ((manifestCheck ??= fetchImportantUpdateManifest()), manifestCheck);
@@ -36405,10 +35318,10 @@ ${locks}`
 	function updateDownloadUrl() {
 		return String(globalThis.GM_info?.script?.downloadURL ?? "").trim() || GREASY_FORK_DOWNLOAD_URL;
 	}
-	function addStyles17() {
-		if (document.getElementById(STYLE_ID18)) return;
+	function addStyles16() {
+		if (document.getElementById(STYLE_ID17)) return;
 		let style = document.createElement("style");
-		((style.id = STYLE_ID18),
+		((style.id = STYLE_ID17),
 			(style.textContent = `
     #${BANNER_ID}{position:fixed;left:50%;top:8px;z-index:2147482500;display:flex;box-sizing:border-box;width:min(720px,calc(100vw - 24px));align-items:center;gap:10px;padding:8px 10px;border:1px solid rgba(245,158,11,.62);border-radius:6px;background:rgba(25,28,42,.97);color:var(--color-neutral-100,#eee);box-shadow:0 9px 24px rgba(0,0,0,.42);font:inherit;transform:translateX(-50%)}
     .mwi-update-banner-icon{display:flex;width:28px;height:28px;flex:0 0 auto;align-items:center;justify-content:center;border-radius:5px;background:rgba(245,158,11,.14);color:#f5a623;font-weight:800}
@@ -36425,7 +35338,7 @@ ${locks}`
 	}
 	function renderImportantUpdateBanner(manifest) {
 		if ((document.getElementById(BANNER_ID)?.remove(), !shouldShowImportantUpdate(manifest))) return !1;
-		addStyles17();
+		addStyles16();
 		let banner = document.createElement("aside");
 		((banner.id = BANNER_ID),
 			banner.setAttribute("role", "status"),
@@ -36438,9 +35351,9 @@ ${locks}`
     <a class="mwi-update-banner-action" target="_blank" rel="noopener noreferrer"></a>
     <button class="mwi-update-banner-close" aria-label="${runtime.config.isZH ? "关闭" : "Dismiss"}">×</button>`),
 			(banner.querySelector(".mwi-update-banner-title").textContent =
-				t20(manifest.title) || (runtime.config.isZH ? "MWITools 有重要更新" : "Important MWITools update")));
+				t19(manifest.title) || (runtime.config.isZH ? "MWITools 有重要更新" : "Important MWITools update")));
 		let message =
-			t20(manifest.message) ||
+			t19(manifest.message) ||
 			(runtime.config.isZH
 				? `建议更新到 ${manifest.latestVersion}`
 				: `Update to ${manifest.latestVersion} is recommended.`);
@@ -36460,7 +35373,7 @@ ${locks}`
 	var MANIFEST_URL,
 		FALLBACK_MANIFEST_URL,
 		GREASY_FORK_DOWNLOAD_URL,
-		STYLE_ID18,
+		STYLE_ID17,
 		BANNER_ID,
 		manifestCheck,
 		init_update_banner = __esm({
@@ -36471,7 +35384,7 @@ ${locks}`
 					"https://raw.githubusercontent.com/YangLeda/Userscripts-For-MilkyWayIdle/main/release-manifest.json"),
 					(FALLBACK_MANIFEST_URL = "https://feedback.43.167.210.211.sslip.io/api/v1/release-manifest"),
 					(GREASY_FORK_DOWNLOAD_URL = "https://update.greasyfork.org/scripts/494467/MWITools.user.js"),
-					(STYLE_ID18 = "mwitools-important-update-style"),
+					(STYLE_ID17 = "mwitools-important-update-style"),
 					(BANNER_ID = "mwitools-important-update-banner"));
 				manifestCheck = null;
 				runtime.features.register({
@@ -36494,7 +35407,7 @@ ${locks}`
 							scope.add(() => {
 								((disposed = !0),
 									document.getElementById(BANNER_ID)?.remove(),
-									document.getElementById(STYLE_ID18)?.remove());
+									document.getElementById(STYLE_ID17)?.remove());
 							}));
 					},
 				});
@@ -38948,8 +37861,8 @@ ${locks}`
 							return teamDamage;
 						},
 						getTeamKills() {
-							let t21 = 0;
-							return (playerKills.forEach((v) => (t21 += v)), t21);
+							let t20 = 0;
+							return (playerKills.forEach((v) => (t20 += v)), t20);
 						},
 						getPlayerDps(n) {
 							let e = elapsed();
@@ -39310,13 +38223,13 @@ ${locks}`
 							"myparty",
 							"combatzones",
 						]);
-					function looksLikeNoise(t21) {
-						let low = t21.toLowerCase();
+					function looksLikeNoise(t20) {
+						let low = t20.toLowerCase();
 						return !!(
 							GUILD_NAME_NOISE.has(low) ||
-							/^lv\.?\d+$/i.test(t21) ||
-							/^\d+%?$/.test(t21) ||
-							/^[\d.,]+[km]?$/i.test(t21)
+							/^lv\.?\d+$/i.test(t20) ||
+							/^\d+%?$/.test(t20) ||
+							/^[\d.,]+[km]?$/i.test(t20)
 						);
 					}
 					function resolveGuildNames(expectedSlots) {
@@ -39340,14 +38253,14 @@ ${locks}`
 						}
 						let names = candidates
 								.map((el4) => el4.textContent.trim())
-								.filter((t21) => t21 && !looksLikeNoise(t21) && !/^trial\s/i.test(t21)),
+								.filter((t20) => t20 && !looksLikeNoise(t20) && !/^trial\s/i.test(t20)),
 							localName = [...keyToName.values()][0],
 							localInList = localName && names.includes(localName),
 							offset = !localName || !localInList ? 1 : 0,
 							resolved = /* @__PURE__ */ new Map();
 						(offset === 1 && localName && resolved.set("0", localName),
-							names.slice(0, expectedSlots ? expectedSlots - offset : names.length).forEach((t21, i) => {
-								resolved.set(String(i + offset), t21);
+							names.slice(0, expectedSlots ? expectedSlots - offset : names.length).forEach((t20, i) => {
+								resolved.set(String(i + offset), t20);
 							}));
 						for (let [slot, name] of resolved) {
 							if (guildSlotLocked.has(slot)) continue;
@@ -39414,7 +38327,7 @@ ${locks}`
 								let n = el4.children.length;
 								if (n >= lo && n <= hi) {
 									let texts = [...el4.children].slice(0, 6).map((c) => c.textContent.trim().slice(0, 20));
-									texts.some((t21) => t21.length > 0) &&
+									texts.some((t20) => t20.length > 0) &&
 										out.push({
 											selector: (el4.className || el4.tagName) + "",
 											tag: el4.tagName,
@@ -39445,11 +38358,11 @@ ${locks}`
 								let nameLikeCount = 0,
 									texts = [];
 								(el4.querySelectorAll(":scope > * ").forEach((c) => {
-									let t21 = c.textContent.trim();
-									t21.length >= 2 &&
-										t21.length <= 20 &&
-										!looksLikeNoise(t21) &&
-										(nameLikeCount++, texts.push(t21.slice(0, 20)));
+									let t20 = c.textContent.trim();
+									t20.length >= 2 &&
+										t20.length <= 20 &&
+										!looksLikeNoise(t20) &&
+										(nameLikeCount++, texts.push(t20.slice(0, 20)));
 								}),
 									nameLikeCount >= 10 &&
 										out.push({
@@ -41233,11 +40146,11 @@ ${locks}`
 						return (
 							document.querySelectorAll("*").forEach((el4) => {
 								if (isOwnUI(el4) || el4.children.length > 1) return;
-								let t21 = el4.textContent.trim();
-								if (!t21 || t21.length < 2 || t21.length > 40) return;
-								let literalEllipsis = /(\.\.\.|…)$/.test(t21),
+								let t20 = el4.textContent.trim();
+								if (!t20 || t20.length < 2 || t20.length > 40) return;
+								let literalEllipsis = /(\.\.\.|…)$/.test(t20),
 									cssEllipsis = !1;
-								if (!literalEllipsis && t21.length <= 20 && !t21.includes(" ") && !looksLikeNoise(t21))
+								if (!literalEllipsis && t20.length <= 20 && !t20.includes(" ") && !looksLikeNoise(t20))
 									try {
 										let cs = getComputedStyle(el4);
 										cssEllipsis = cs.textOverflow === "ellipsis" && cs.overflow !== "visible";
@@ -44046,16 +42959,16 @@ ${langText2("理论命中率", "Theoretical hit chance")}: ${pct.toFixed(2)}%`;
 								getGameTranslation("labyrinthPanel.automation"),
 							];
 						for (let c of containers) {
-							let t21 = c.textContent;
+							let t20 = c.textContent;
 							if (
-								(combatZones && t21.includes(combatZones)) ||
-								t21.includes("Combat Zones") ||
-								t21.includes("战斗区域") ||
-								t21.includes("戰鬥區域") ||
-								(labyrinthLabels.every(Boolean) && labyrinthLabels.every((label) => t21.includes(label))) ||
-								(t21.includes("Labyrinth") && t21.includes("Room") && t21.includes("Automation")) ||
-								(t21.includes("迷宫") && (t21.includes("房间") || t21.includes("自动化"))) ||
-								(t21.includes("迷宮") && (t21.includes("房間") || t21.includes("自動化"))) ||
+								(combatZones && t20.includes(combatZones)) ||
+								t20.includes("Combat Zones") ||
+								t20.includes("战斗区域") ||
+								t20.includes("戰鬥區域") ||
+								(labyrinthLabels.every(Boolean) && labyrinthLabels.every((label) => t20.includes(label))) ||
+								(t20.includes("Labyrinth") && t20.includes("Room") && t20.includes("Automation")) ||
+								(t20.includes("迷宫") && (t20.includes("房间") || t20.includes("自动化"))) ||
+								(t20.includes("迷宮") && (t20.includes("房間") || t20.includes("自動化"))) ||
 								isSelectedTrialTabBar(c) ||
 								isSelectedGuildProgressTabBar(c)
 							)
@@ -44405,10 +43318,10 @@ ${langText2("理论命中率", "Theoretical hit chance")}: ${pct.toFixed(2)}%`;
 								gap: "4px",
 								marginBottom: "8px",
 							});
-						(TYPES.forEach((t21) => {
+						(TYPES.forEach((t20) => {
 							let btn = document.createElement("button");
-							btn.textContent = t21.label;
-							let active = historyFilter === t21.id;
+							btn.textContent = t20.label;
+							let active = historyFilter === t20.id;
 							(Object.assign(btn.style, {
 								flex: "1",
 								cursor: "pointer",
@@ -44422,7 +43335,7 @@ ${langText2("理论命中率", "Theoretical hit chance")}: ${pct.toFixed(2)}%`;
 								transition: "background .12s",
 							}),
 								btn.addEventListener("click", () => {
-									((historyFilter = t21.id), renderHistory(container));
+									((historyFilter = t20.id), renderHistory(container));
 								}),
 								filterRow.appendChild(btn));
 						}),
@@ -44545,8 +43458,8 @@ ${langText2("理论命中率", "Theoretical hit chance")}: ${pct.toFixed(2)}%`;
 						});
 						let clearBtn = document.createElement("button");
 						((clearBtn.textContent = langText4(
-							`清空${(TYPES.find((t21) => t21.id === historyFilter) || {}).label}记录`,
-							`Clear ${(TYPES.find((t21) => t21.id === historyFilter) || {}).label} records`,
+							`清空${(TYPES.find((t20) => t20.id === historyFilter) || {}).label}记录`,
+							`Clear ${(TYPES.find((t20) => t20.id === historyFilter) || {}).label} records`,
 						)),
 							Object.assign(clearBtn.style, {
 								width: "100%",
@@ -46198,7 +45111,6 @@ ${langText2("理论命中率", "Theoretical hit chance")}: ${pct.toFixed(2)}%`;
 			init_procurement();
 			init_planning();
 			init_train_planning();
-			init_xp_history();
 			init_asset_values();
 			init_message_state();
 			init_messages();
@@ -46226,7 +45138,6 @@ ${langText2("理论命中率", "Theoretical hit chance")}: ${pct.toFixed(2)}%`;
 			init_inventory_loot_double_click();
 			init_inventory_market_double_click();
 			init_opinion_center();
-			init_guild_xp();
 			init_game_widgets();
 			init_navigation_action_queue();
 			init_enhancement_tooltip();

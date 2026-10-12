@@ -2,6 +2,25 @@ const STORAGE_KEY = "MWITools_opinion_center_seen_announcements_v1";
 
 export const ANNOUNCEMENTS = Object.freeze([
   Object.freeze({
+    id: "26.4.21",
+    version: "26.4.21",
+    publishedAt: "2026-10-12",
+    title: Object.freeze({
+      zh: "26.4.21 更新公告",
+      en: "Version 26.4.21 update",
+    }),
+    body: Object.freeze({
+      zh: Object.freeze([
+        "公会：移除本地公会经验采样、经验总览、成员与公会榜经验速率、闲置成员显示及相关设置。公会信用点兑换、建筑提示和技能排行榜增强继续保留。",
+        "性能与存储：停止公会经验历史的自动读写和登录后台整理，消除该模块反复压缩历史造成的主线程阻塞。已有经验历史保留供统一备份与恢复使用。",
+      ]),
+      en: Object.freeze([
+        "Guild: Removed local guild XP sampling, XP overview, member and guild leaderboard XP rates, idle-member display and their settings. Guild credit exchange, building hints and skill leaderboard enhancements remain available.",
+        "Performance and storage: Stopped automatic guild XP history reads, writes and login-time archive processing, eliminating main-thread stalls from repeated history compression in this module. Existing XP archives remain available through unified backup and restore.",
+      ]),
+    }),
+  }),
+  Object.freeze({
     id: "26.4.20",
     version: "26.4.20",
     publishedAt: "2026-10-10",

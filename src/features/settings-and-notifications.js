@@ -867,8 +867,8 @@ function renderSettings(root) {
   const subtitle = document.createElement("div");
   subtitle.className = "mwi-settings-subtitle";
   subtitle.textContent = runtime.config.isZH
-    ? "所有设置会立即生效。功能数据与公会经验只保存在当前设备。"
-    : "Settings apply immediately. Feature data and guild XP stay on this device.";
+    ? "所有设置会立即生效。持久化插件数据在同一脚本管理器内共享，测试服独立。"
+    : "Settings apply immediately. Persistent plugin data is shared within the same userscript manager; the test server stays separate.";
   heroCopy.append(heading, subtitle);
   const search = document.createElement("input");
   search.className = "mwi-settings-search";

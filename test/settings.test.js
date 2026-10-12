@@ -24,6 +24,11 @@ localStorage.setItem(
       id: "damageGraphTransparentBackground",
       isTrue: true,
     },
+    guildXpTracking: { id: "guildXpTracking", isTrue: true },
+    guildOverview: { id: "guildOverview", isTrue: true },
+    guildMemberXp: { id: "guildMemberXp", isTrue: true },
+    guildLeaderboardXp: { id: "guildLeaderboardXp", isTrue: true },
+    guildIdleMembers: { id: "guildIdleMembers", isTrue: true },
     removedOption: { id: "removed_option", isTrue: true },
     legacyConsumableTips: { id: "showConsumTips", isTrue: true },
   }),
@@ -101,6 +106,18 @@ test("legacy settings merge into current defaults", () => {
   );
   const stored = JSON.parse(localStorage.getItem("MWITools_settings_v2"));
   assert.equal(stored.version, 2);
+  for (const id of [
+    "guildXpTracking",
+    "guildOverview",
+    "guildMemberXp",
+    "guildLeaderboardXp",
+    "guildIdleMembers",
+  ]) {
+    assert.equal(runtime.settings.settingsMap[id], undefined);
+    assert.equal(runtime.settings.catalog[id], undefined);
+    assert.equal(stored.values[id], undefined);
+  }
+
   assert.equal(stored.values.displayCapMM, false);
   assert.equal(stored.values.showDamage, false);
   assert.equal(stored.values.showDamageGraph, undefined);
@@ -532,7 +549,7 @@ test("card settings render every visible setting with nested children and search
   assert.equal(document.activeElement, settingsButton);
 
   const search = root.querySelector(".mwi-settings-search");
-  search.value = "Idle members";
+  search.value = "Guild credit";
   search.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
   assert.deepEqual(
     [...root.querySelectorAll(".mwi-settings-group")]

@@ -80,7 +80,7 @@ test("rolling XP retention bounds keys and deletion metadata; expired old-tab wr
   }
 });
 
-test("background migrates GM-only old field schemas, retaining active samples and recent deletions", async () => {
+test("explicit archive preparation migrates GM-only old field schemas, retaining active samples and recent deletions", async () => {
   const name = "MWITools_xp_history_v2:member:legacy";
   const base = prefix(name);
   const at = Date.now();
@@ -96,7 +96,7 @@ test("background migrates GM-only old field schemas, retaining active samples an
   node([gone], { deleted: true });
   // Fresh module indexes the already persisted stores, even with no local key.
   const fresh = await import("../src/core/shared-storage.js?gm-only");
-  await fresh.scheduleSharedMigration();
+  await fresh.prepareSharedHistory(name);
   const expected = [{ objectKey: "member:legacy", at, xp: { smithing: 700 } }];
   assert.deepEqual(JSON.parse(fresh.sharedStorage.getItem(name)), expected);
   assert.equal([...gm.keys()].filter((key) => key.startsWith(base)).length, 2);
@@ -302,4 +302,39 @@ test("simultaneous publications retain both writers and consolidate on the next 
   assert.ok(both.has(JSON.stringify(["xp:b:2"])));
   writePackedHistory(base, both);
   assert.equal([...gm.keys()].filter((key) => key.startsWith(base)).length, 2);
+});
+
+test("startup leaves archived XP history untouched while migrating active settings", async () => {
+  const name = "MWITools_xp_history_v2:member:inactive-archive";
+  const raw = JSON.stringify([
+    { objectKey: "member:inactive-archive", at: Date.now(), xp: 42 },
+  ]);
+  localStorage.setItem(name, raw);
+  const oldField = pathKey(prefix(name), []);
+  gm.set(oldField, { type: "value", value: [], updatedAt: 1 });
+  const settings = "MWITools_archive_migration_fixture";
+  localStorage.setItem(settings, JSON.stringify({ enabled: true }));
+  const archivedBefore = [...gm].filter(([key]) =>
+    key.includes(encodeURIComponent(name)),
+  );
+  const fresh = await import("../src/core/shared-storage.js?archive-removal");
+  await fresh.scheduleSharedMigration();
+  assert.deepEqual(
+    [...gm].filter(([key]) => key.includes(encodeURIComponent(name))),
+    archivedBefore,
+  );
+  assert.equal(localStorage.getItem(name), raw);
+  assert.equal(
+    [...gm.keys()].some((key) => key.includes(encodeURIComponent(settings))),
+    true,
+  );
+  // Explicit backups still include archived data rather than silently deleting it.
+  const backup = fresh.exportSharedBackup();
+  assert.ok(
+    Object.keys(backup.data).some((key) =>
+      key.includes(encodeURIComponent(name)),
+    ),
+  );
+  localStorage.removeItem(name);
+  localStorage.removeItem(settings);
 });
