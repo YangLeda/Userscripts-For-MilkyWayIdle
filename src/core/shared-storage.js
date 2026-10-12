@@ -618,23 +618,14 @@ let migrationRun = null;
 export function scheduleSharedMigration() {
   if (!available()) return Promise.resolve();
   if (migrationRun) return migrationRun;
-  const keys = [
-    ...new Set([
-      ...localKeys(),
-      ...[...listNames().keys()]
-        .filter((prefix) => prefix.startsWith(root()))
-        .map((prefix) =>
-          decodeURIComponent(prefix.slice((root() + "record:").length, -1)),
-        )
-        .filter(isPackedHistory),
-    ]),
-  ];
+  // Guild XP tracking was removed. Archived history is only read or migrated
+  // by explicit backup/restore operations, never as background startup work.
+  const keys = localKeys().filter((key) => !isPackedHistory(key));
   migrationRun = (async () => {
     for (const key of keys) {
       await new Promise((resolve) => setTimeout(resolve, 0));
       try {
-        if (isPackedHistory(key)) await prepareSharedHistory(key);
-        else migrate(key);
+        migrate(key);
       } catch (error) {
         startupDiagnostics.error("storage:migration-failed", error);
       }

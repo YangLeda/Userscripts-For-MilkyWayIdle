@@ -49,7 +49,7 @@ const CUSTOM_GROUPS = Object.freeze([
   },
   {
     id: "guild-visual",
-    title: { zh: "公会与视觉", en: "Guild & visuals" },
+    title: { zh: "排行榜与视觉", en: "Leaderboards & visuals" },
     fields: ["guildEnhancements", "decorativeAnimations"],
   },
 ]);
@@ -116,12 +116,12 @@ const FIELD_TEXT = Object.freeze({
   },
   guildEnhancements: {
     title: {
-      zh: "公会趋势与排行榜增强",
-      en: "Guild trends & leaderboard enhancements",
+      zh: "排行榜增强",
+      en: "Leaderboard enhancements",
     },
     summary: {
-      zh: "显示公会经验趋势、成员速率、名次徽章与排行榜速率。",
-      en: "Show guild trends, member rates, rank badges, and leaderboard rates.",
+      zh: "显示名次徽章与服务器提供的技能排行榜速率。",
+      en: "Show rank badges and server-provided skill leaderboard rates.",
     },
   },
   decorativeAnimations: {

@@ -21,7 +21,7 @@ test("generated userscript has a single valid metadata block", () => {
   assert.equal(output.indexOf("// ==UserScript=="), 0);
   assert.equal(output.match(/\/\/ ==UserScript==/g)?.length, 1);
   assert.equal(output.match(/\/\/ ==\/UserScript==/g)?.length, 1);
-  assert.match(output, /^\/\/ @version\s+26\.4\.20$/m);
+  assert.match(output, /^\/\/ @version\s+26\.4\.21$/m);
   assert.match(output, /^\/\/ @author\s+bot7420, shykai, Stella$/m);
   assert.match(
     output,
@@ -156,4 +156,11 @@ test("CloudFront publishing requests invalidation without status polling", async
   assert.match(workflow, /aws cloudfront create-invalidation/);
   assert.doesNotMatch(workflow, /cloudfront wait invalidation-completed/);
   assert.doesNotMatch(workflow, /GetInvalidation/);
+});
+
+test("guild XP runtime and UI are absent from the shipped userscript", () => {
+  assert.doesNotMatch(
+    output,
+    /recordXpSnapshot|getXpHistory|calculateXpRates|mwi-guild-xp-card|guildXpTracking|guildMemberXp|guildLeaderboardXp|guildIdleMembers/,
+  );
 });
