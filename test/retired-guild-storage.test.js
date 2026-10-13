@@ -45,7 +45,6 @@ const preserved = [
 function fixture() {
   const dom = new JSDOM("", { url: "https://www.milkywayidle.com/game" });
   const gm = new Map();
-  const events = [];
   const host = {
     localStorage: dom.window.localStorage,
     setTimeout,
@@ -60,11 +59,7 @@ function fixture() {
       names.forEach((key) => gm.delete(key));
     },
   };
-  const diagnostics = {
-    mark: (...args) => events.push(args),
-    error: (...args) => events.push(args),
-  };
-  return { dom, gm, events, host, diagnostics };
+  return { dom, gm, host };
 }
 
 test("retired store matching covers historical formats without matching active or foreign stores", () => {
@@ -83,7 +78,7 @@ test("retired store matching covers historical formats without matching active o
 });
 
 test("startup physically removes all obsolete key formats in batches without loading their values", async () => {
-  const { dom, gm, host, diagnostics } = fixture();
+  const { dom, gm, host } = fixture();
   const many = Array.from(
     { length: 6000 },
     (_, index) =>
@@ -96,7 +91,7 @@ test("startup physically removes all obsolete key formats in batches without loa
   let turns = 0;
   const timer = setInterval(() => turns++, 0);
   try {
-    const work = cleanupRetiredGuildStorage(host, diagnostics);
+    const work = cleanupRetiredGuildStorage(host);
     assert.equal(
       gm.size,
       retired.length + many.length + preserved.length,
@@ -112,10 +107,7 @@ test("startup physically removes all obsolete key formats in batches without loa
       assert.equal(host.localStorage.getItem(key), "keep or remove");
     for (const key of retired)
       assert.equal(host.localStorage.getItem(key), null);
-    assert.equal(
-      (await cleanupRetiredGuildStorage(host, diagnostics)).shared,
-      0,
-    );
+    assert.equal((await cleanupRetiredGuildStorage(host)).shared, 0);
   } finally {
     clearInterval(timer);
     dom.window.close();
@@ -123,7 +115,7 @@ test("startup physically removes all obsolete key formats in batches without loa
 });
 
 test("individual deletion failures do not block startup and remaining keys retry next time", async () => {
-  const { dom, gm, host, diagnostics } = fixture();
+  const { dom, gm, host } = fixture();
   delete host.GM_deleteValues;
   retired.forEach((name) => gm.set(name, "old"));
   let fail = true;
@@ -132,17 +124,17 @@ test("individual deletion failures do not block startup and remaining keys retry
       throw new Error("Manager temporarily unavailable");
     gm.delete(key);
   };
-  const first = await cleanupRetiredGuildStorage(host, diagnostics);
+  const first = await cleanupRetiredGuildStorage(host);
   assert.equal(first.failed, 1);
   assert.ok(gm.has(oldKey));
   fail = false;
-  assert.equal((await cleanupRetiredGuildStorage(host, diagnostics)).failed, 0);
+  assert.equal((await cleanupRetiredGuildStorage(host)).failed, 0);
   assert.equal(gm.size, 0);
   dom.window.close();
 });
 
 test("blocked IndexedDB deletion releases startup and can finish when the old tab closes", async () => {
-  const { dom, host, diagnostics, events } = fixture();
+  const { dom, host } = fixture();
   let request;
   host.indexedDB = {
     deleteDatabase(name) {
@@ -152,40 +144,32 @@ test("blocked IndexedDB deletion releases startup and can finish when the old ta
       return request;
     },
   };
-  const result = await cleanupRetiredGuildStorage(host, diagnostics);
+  const result = await cleanupRetiredGuildStorage(host);
   assert.equal(result.database, "blocked");
-  assert.ok(
-    events.some(
-      ([phase]) => phase === "storage:guild-cleanup:database-blocked",
-    ),
-  );
   request.onsuccess();
   assert.equal(result.database, "deleted");
   dom.window.close();
 });
 
 test("unresponsive database deletion is bounded and database failures are retryable", async () => {
-  const { dom, host, diagnostics } = fixture();
+  const { dom, host } = fixture();
   host.setTimeout = (callback, delay) =>
     setTimeout(callback, delay === 500 ? 5 : delay);
   host.indexedDB = { deleteDatabase: () => ({}) };
-  assert.equal(
-    (await cleanupRetiredGuildStorage(host, diagnostics)).database,
-    "pending",
-  );
+  assert.equal((await cleanupRetiredGuildStorage(host)).database, "pending");
   host.indexedDB.deleteDatabase = () => {
     const request = { error: new Error("database unavailable") };
     globalThis.queueMicrotask(() => request.onerror());
     return request;
   };
-  const result = await cleanupRetiredGuildStorage(host, diagnostics);
+  const result = await cleanupRetiredGuildStorage(host);
   assert.equal(result.database, "failed");
   assert.equal(result.failed, 1);
   dom.window.close();
 });
 
 test("old backups skip retired local, packed and recovery data but restore active settings", async () => {
-  const { dom, gm, host, diagnostics } = fixture();
+  const { dom, gm, host } = fixture();
   Object.assign(globalThis, {
     localStorage: host.localStorage,
     location: dom.window.location,
@@ -230,6 +214,6 @@ test("old backups skip retired local, packed and recovery data but restore activ
     ),
     false,
   );
-  await cleanupRetiredGuildStorage(host, diagnostics);
+  await cleanupRetiredGuildStorage(host);
   dom.window.close();
 });

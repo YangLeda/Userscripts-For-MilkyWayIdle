@@ -28,7 +28,6 @@
 // @grant        GM_setValue
 // @grant        GM_setValues
 // @grant        GM_info
-// @grant        GM_registerMenuCommand
 // @grant        unsafeWindow
 // @connect      www.milkywayidle.com
 // @connect      test.milkywayidle.com
@@ -46,15 +45,8 @@
 // 特别感谢：ColaCola、Zhulimoon、400badrequest、Q7
 
 /*
-    无法进入游戏：从脚本管理器菜单打开“MWITools 启动诊断”，选择“正常加载并记录”。
-    仍卡住时，在同一标签页安全启动并下载诊断报告；安全启动保留设置与历史。
-    请同时提供浏览器、脚本管理器、脚本版本和可正常运行的旧版本号。
-    检查是否重复启用多份 MWITools，更新脚本或切换游戏语言后刷新网页。
-
-    Loading fails: open MWITools startup debug in the userscript manager menu.
-    Reload with diagnostics; if blocked, use Safe start in the same tab and export
-    the report. Settings and history are preserved. Include browser, manager and
-    script versions, and the last working version. Avoid duplicate enabled copies.
+    更新脚本或切换游戏语言后刷新网页，避免同时启用多份 MWITools。
+    Reload after updating or changing game language. Avoid duplicate enabled copies.
 */
 (() => {
 	var __create = Object.create;
@@ -106,343 +98,6 @@
 		)
 	);
 
-	// src/core/startup-diagnostics.js
-	function createStartupDiagnostics(host = globalThis) {
-		let langText4 = (zh, en) => {
-				let language = host.navigator?.language ?? "en";
-				try {
-					language = host.localStorage?.getItem("i18nextLng") || language;
-				} catch {}
-				return /^zh/i.test(language) ? zh : en;
-			},
-			enabled = !1,
-			safe = !1,
-			skipSocket = !1,
-			runtime2 = null,
-			previous = null,
-			report = null,
-			flushTimer = null,
-			heartbeat = null,
-			stopTimer = null,
-			panel = null,
-			statusNode = null,
-			sockets = /* @__PURE__ */ new WeakSet(),
-			installedGetter = null,
-			socketDescriptor = () => {
-				try {
-					let descriptor = Object.getOwnPropertyDescriptor(host.MessageEvent?.prototype ?? {}, "data");
-					return {
-						present: !!descriptor,
-						configurable: !!descriptor?.configurable,
-						getter: typeof descriptor?.get == "function",
-						getterName: clean(descriptor?.get?.name),
-						...(installedGetter ? { stillInstalled: descriptor?.get === installedGetter } : {}),
-					};
-				} catch {
-					return { inaccessible: !0 };
-				}
-			},
-			print = (level, ...args) => {
-				try {
-					host.console?.[level]?.("[MWITools Debug]", ...args);
-				} catch {}
-			},
-			now = () => host.performance?.now?.() ?? Date.now(),
-			read = (key) => {
-				try {
-					return host.sessionStorage?.getItem(key);
-				} catch {
-					return null;
-				}
-			},
-			write2 = (key, value) => {
-				try {
-					host.sessionStorage?.setItem(key, value);
-				} catch {}
-			},
-			flush = () => {
-				((flushTimer = null), enabled && report && write2(REPORT_KEY, JSON.stringify(report)));
-			},
-			mark = (phase, detail = null, immediate = !1) => {
-				!enabled ||
-					!report ||
-					(report.events.push({
-						ms: Math.round(now() - report.started),
-						phase: clean(phase),
-						...(detail === null ? {} : { detail: clean(detail) }),
-					}),
-					report.events.length > 120 && report.events.shift(),
-					(report.lastPhase = clean(phase)),
-					print(
-						/failed|error|rejection/.test(phase) ? "error" : /slow|delay/.test(phase) ? "warn" : "info",
-						`+${Math.round(now() - report.started)}ms ${clean(phase)}`,
-						...(detail === null ? [] : [clean(detail)]),
-					),
-					statusNode && (statusNode.textContent = `${langText4("当前阶段", "Current phase")}: ${report.lastPhase}`),
-					immediate ? flush() : flushTimer === null && (flushTimer = host.setTimeout(flush, 500)));
-			},
-			error = (phase, failure) => mark(phase, failure?.stack ?? failure?.message ?? failure, !0),
-			snapshot = () => ({
-				schema: 1,
-				current: report
-					? {
-							...report,
-							events: [...report.events],
-							socket: { ...report.socket, current: socketDescriptor() },
-							features: (runtime2?.features.list() ?? []).map(({ id, status, error: error2 }) => ({
-								id,
-								status,
-								error: error2 ? clean(error2) : null,
-							})),
-							game: {
-								documentReady: host.document?.readyState,
-								navigationVisible: !!host.document?.querySelector('[class*="NavigationBar_nav__"]'),
-							},
-						}
-					: null,
-				previous,
-			}),
-			download = () => {
-				let url = host.URL.createObjectURL(
-						new host.Blob([JSON.stringify(snapshot(), null, 2)], {
-							type: "application/json",
-						}),
-					),
-					link = host.document.createElement("a");
-				((link.href = url),
-					(link.download = "MWITools-startup-debug.json"),
-					link.click(),
-					host.setTimeout(() => host.URL.revokeObjectURL(url), 1e3));
-			},
-			rescue = (value, noSocket = !1) => {
-				write2(RESCUE_KEY, value ? "1" : "0");
-				let url = new host.URL(host.location.href);
-				(url.searchParams.delete("mwitoolsSafe"),
-					url.searchParams.set("mwitoolsDebug", "1"),
-					noSocket ? url.searchParams.set("mwitoolsNoSocket", "1") : url.searchParams.delete("mwitoolsNoSocket"),
-					(host.location.href = url.href));
-			},
-			show = () => {
-				if (!host.document?.body) {
-					host.document?.addEventListener("DOMContentLoaded", show, { once: !0 });
-					return;
-				}
-				if (panel?.isConnected) {
-					panel.hidden = !1;
-					return;
-				}
-				((panel = host.document.createElement("section")),
-					(panel.id = "mwitools-startup-debug"),
-					(panel.style.cssText =
-						"position:fixed;z-index:2147483647;right:12px;top:12px;width:340px;max-width:calc(100vw - 24px);max-height:80vh;overflow:auto;padding:14px;background:#15202d;color:#e6edf3;border:1px solid #52657a;border-radius:10px;font:13px/1.6 system-ui;box-sizing:border-box;box-shadow:0 4px 20px #0008"));
-				let title = host.document.createElement("strong");
-				title.textContent = langText4("MWITools 启动诊断", "MWITools startup debug");
-				let help = host.document.createElement("p");
-				((help.textContent = safe
-					? langText4(
-							"安全启动：本页未加载 MWITools 功能，设置和历史数据保留。",
-							"Safe start: features bypassed; saved data preserved.",
-						)
-					: langText4(
-							"日志仅保存在本标签页，记录启动阶段、错误与卡顿，不记录游戏消息内容。",
-							"Logs stay in this tab and record startup phases, errors and stalls without game payloads.",
-						)),
-					skipSocket &&
-						!safe &&
-						(help.textContent = langText4(
-							"对照启动：暂停 MWITools 消息拦截，依赖游戏数据的功能不可用。观察其他脚本是否恢复。",
-							"Comparison start: MWITools message interception is bypassed; data-dependent features are unavailable. Check whether other scripts recover.",
-						)),
-					panel.append(title, help));
-				let status = host.document.createElement("p");
-				((statusNode = status),
-					(status.textContent = enabled
-						? `${langText4("诊断已开启", "Debug enabled")} · ${report?.lastPhase ?? "boot"}`
-						: langText4("开启诊断后刷新，才能记录完整启动过程。", "Reload with debug enabled to capture startup.")),
-					panel.append(status));
-				for (let [label, action] of [
-					[langText4("下载诊断报告", "Download report"), download],
-					[langText4("输出报告到控制台", "Print report to console"), () => print("info", snapshot())],
-					[langText4("正常加载并记录", "Start with debug"), () => rescue(!1)],
-					[langText4("跳过消息拦截并记录", "Debug without message interception"), () => rescue(!1, !0)],
-					[langText4("安全启动（暂停插件）", "Safe start"), () => rescue(!0)],
-					[
-						langText4("收起", "Close"),
-						() => {
-							panel.hidden = !0;
-						},
-					],
-				]) {
-					let button = host.document.createElement("button");
-					((button.textContent = label),
-						(button.style.cssText =
-							"display:block;width:100%;margin-top:8px;padding:6px;background:#26394e;color:inherit;border:1px solid #52657a;border-radius:5px;cursor:pointer"),
-						button.addEventListener("click", action),
-						panel.append(button));
-				}
-				host.document.body.append(panel);
-			},
-			stop = () => {
-				(host.clearInterval(heartbeat),
-					host.clearTimeout(stopTimer),
-					host.clearTimeout(flushTimer),
-					(heartbeat = stopTimer = flushTimer = null),
-					flush());
-			};
-		return {
-			mark,
-			error,
-			snapshot,
-			show,
-			stop,
-			attachRuntime(value) {
-				runtime2 = value;
-			},
-			get skipSocket() {
-				return skipSocket;
-			},
-			socketHookInstalled(getter) {
-				!enabled ||
-					!report?.socket ||
-					((installedGetter = getter),
-					(report.socket.installed = socketDescriptor()),
-					mark("socket:descriptor-installed", JSON.stringify(report.socket.installed), !0));
-			},
-			socketProgress(kind, pending) {
-				!enabled ||
-					!report?.socket ||
-					((report.socket[kind] += 1),
-					(report.socket.pending = pending),
-					(report.socket.maxPending = Math.max(report.socket.maxPending, pending)));
-			},
-			get enabled() {
-				return enabled;
-			},
-			measure(phase, operation) {
-				if (!enabled) return operation();
-				phase.includes(":init_") && mark(`${phase}:begin`, null, !0);
-				let started = now();
-				try {
-					return operation();
-				} finally {
-					let elapsed = now() - started;
-					elapsed >= 50 && mark(`${phase}:slow`, `${Math.round(elapsed)} ms`, !0);
-				}
-			},
-			watchSocket(socket) {
-				!enabled ||
-					sockets.has(socket) ||
-					(sockets.add(socket),
-					mark("socket:first-frame", null, !0),
-					socket.addEventListener?.(
-						"close",
-						(event) => mark("socket:closed", `code=${Number(event.code)} clean=${!!event.wasClean}`, !0),
-						{ once: !0 },
-					),
-					socket.addEventListener?.("error", () => mark("socket:error", null, !0), { once: !0 }));
-			},
-			async boot(load) {
-				let params = new host.URL(host.location?.href ?? "https://localhost").searchParams;
-				if (
-					((safe = params.get("mwitoolsSafe") === "1" || read(RESCUE_KEY) === "1"),
-					(skipSocket = params.get("mwitoolsNoSocket") === "1"),
-					(enabled = safe || skipSocket || params.get("mwitoolsDebug") === "1" || host.__MWITOOLS_DEBUG_BUILD__ === !0),
-					enabled)
-				) {
-					try {
-						previous = JSON.parse(read(REPORT_KEY) || "null");
-					} catch {}
-					((report = {
-						started: now(),
-						at: /* @__PURE__ */ new Date().toISOString(),
-						version: host.GM_info?.script?.version ?? "unknown",
-						host: host.location?.hostname,
-						userAgent: clean(host.navigator?.userAgent),
-						safe,
-						skipSocket,
-						manager: {
-							name: clean(host.GM_info?.scriptHandler),
-							version: clean(host.GM_info?.version),
-						},
-						socket: {
-							before: socketDescriptor(),
-							received: 0,
-							processed: 0,
-							failed: 0,
-							pending: 0,
-							maxPending: 0,
-						},
-						events: [],
-					}),
-						mark("bootstrap:ready", null, !0),
-						print("info", "Environment", snapshot()));
-					try {
-						let target = host.unsafeWindow ?? host;
-						target.__MWITOOLS_STARTUP_DEBUG__ = {
-							snapshot,
-							print: () => print("info", snapshot()),
-						};
-					} catch {}
-					(host.addEventListener?.("error", (event) => error("page:error", event.error ?? event.message)),
-						host.addEventListener?.("unhandledrejection", (event) => error("page:rejection", event.reason)),
-						host.addEventListener?.("pagehide", stop, { once: !0 }));
-					let last = now(),
-						ticks = 0,
-						warnedReplaced = !1;
-					((heartbeat = host.setInterval(() => {
-						let gap = now() - last;
-						((last = now()),
-							!host.document?.hidden && gap > 1500 && mark("main-thread:delay", `${Math.round(gap)} ms`));
-						let descriptor = socketDescriptor();
-						(installedGetter &&
-							descriptor.stillInstalled === !1 &&
-							!warnedReplaced &&
-							((warnedReplaced = !0), mark("socket:hook-replaced", JSON.stringify(descriptor), !0)),
-							++ticks % 10 === 0 &&
-								(print("info", "Heartbeat", {
-									elapsedMs: Math.round(now() - report.started),
-									phase: report.lastPhase,
-									...report.socket,
-									current: descriptor,
-									features: snapshot().current.features,
-								}),
-								flush()));
-					}, 1e3)),
-						(stopTimer = host.setTimeout(stop, 9e4)),
-						show());
-				}
-				try {
-					host.GM_registerMenuCommand?.("MWITools 启动诊断 / Startup debug", show);
-				} catch {}
-				if (safe) {
-					mark("bootstrap:safe-bypass", null, !0);
-					return;
-				}
-				mark("modules:load", null, !0);
-				try {
-					(await load(), mark("startup:ready", null, !0));
-				} catch (failure) {
-					((enabled = !0), (report ??= { started: now(), events: [] }), error("startup:failed", failure), show());
-				}
-			},
-		};
-	}
-	var REPORT_KEY,
-		RESCUE_KEY,
-		clean,
-		startupDiagnostics,
-		init_startup_diagnostics = __esm({
-			"src/core/startup-diagnostics.js"() {
-				((REPORT_KEY = "MWITools_startup_debug_v1"),
-					(RESCUE_KEY = "MWITools_startup_rescue_v1"),
-					(clean = (value) =>
-						String(value ?? "")
-							.replace(/https?:\/\/[^\s)]+/g, (url) => url.split(/[?#]/)[0])
-							.slice(0, 800)));
-				startupDiagnostics = createStartupDiagnostics();
-			},
-		});
-
 	// src/core/retired-guild-storage.js
 	function isRetiredGuildStorageKey(key) {
 		return (
@@ -471,50 +126,43 @@
 			return !1;
 		}
 	}
-	async function cleanupRetiredGuildStorage(host = globalThis, diagnostics = startupDiagnostics) {
+	async function cleanupRetiredGuildStorage(host = globalThis) {
 		let counts = { local: 0, shared: 0, failed: 0, database: "unavailable" },
 			langText4 = (zh, en) => (/^zh/i.test(host.navigator?.language ?? "en") ? zh : en),
 			yieldTask = () => new Promise((resolve) => host.setTimeout(resolve, 0)),
 			failure = (phase, error) => {
 				((counts.failed += 1),
-					diagnostics.error(`storage:guild-cleanup:${phase}:failed`, error),
 					host.console?.warn?.(
 						"[MWITools] Retired guild storage cleanup failed; retrying on next startup",
 						phase,
 						error,
 					));
-			};
-		diagnostics.mark("storage:guild-cleanup:begin", null, !0);
-		let database = new Promise((resolve) => {
-			if (!host.indexedDB?.deleteDatabase) return resolve();
-			let timer,
-				finish = (status) => {
-					(host.clearTimeout(timer), (counts.database = status), resolve());
-				};
-			try {
-				let request2 = host.indexedDB.deleteDatabase("MWIToolsHistory");
-				((timer = host.setTimeout(() => finish("pending"), 500)),
-					(request2.onsuccess = () => {
-						(finish("deleted"), diagnostics.mark("storage:guild-cleanup:database-deleted", null, !0));
-					}),
-					(request2.onerror = () => {
-						(failure("database", request2.error), finish("failed"));
-					}),
-					(request2.onblocked = () => {
-						(diagnostics.mark(
-							"storage:guild-cleanup:database-blocked",
-							"Close older game tabs to release the database",
-							!0,
-						),
-							host.console?.warn?.(
+			},
+			database = new Promise((resolve) => {
+				if (!host.indexedDB?.deleteDatabase) return resolve();
+				let timer,
+					finish = (status) => {
+						(host.clearTimeout(timer), (counts.database = status), resolve());
+					};
+				try {
+					let request2 = host.indexedDB.deleteDatabase("MWIToolsHistory");
+					((timer = host.setTimeout(() => finish("pending"), 500)),
+						(request2.onsuccess = () => {
+							finish("deleted");
+						}),
+						(request2.onerror = () => {
+							(failure("database", request2.error), finish("failed"));
+						}),
+						(request2.onblocked = () => {
+							(host.console?.warn?.(
 								"[MWITools] Guild history database deletion blocked by an older tab; close that tab and reload",
 							),
-							finish("blocked"));
-					}));
-			} catch (error) {
-				(failure("database", error), finish("failed"));
-			}
-		});
+								finish("blocked"));
+						}));
+				} catch (error) {
+					(failure("database", error), finish("failed"));
+				}
+			});
 		try {
 			let storage = host.localStorage,
 				names = Array.from({ length: storage?.length ?? 0 }, (_, index) => storage.key(index)).filter(
@@ -539,8 +187,7 @@
 					let batch = names.slice(index, index + size);
 					if (bulk) await host.GM_deleteValues(batch);
 					else for (let name of batch) await host.GM_deleteValue(name);
-					((counts.shared += batch.length),
-						diagnostics.mark("storage:guild-cleanup:progress", `${counts.shared}/${names.length} shared keys`));
+					counts.shared += batch.length;
 				}
 				if (names.length && host.GM_listValues().some(isRetiredGuildStorageName))
 					throw new Error(
@@ -555,7 +202,6 @@
 		}
 		return (
 			await database,
-			diagnostics.mark("storage:guild-cleanup:finished", JSON.stringify(counts), !0),
 			(counts.local || counts.shared) &&
 				host.console?.info?.("[MWITools] Removed retired guild XP storage", {
 					...counts,
@@ -564,9 +210,7 @@
 		);
 	}
 	var init_retired_guild_storage = __esm({
-		"src/core/retired-guild-storage.js"() {
-			init_startup_diagnostics();
-		},
+		"src/core/retired-guild-storage.js"() {},
 	});
 
 	// src/core/runtime.js
@@ -636,8 +280,6 @@
 			}
 	}
 	function setFeatureStatus(id, status, error = null) {
-		(status === "initializing" || status === "failed") &&
-			startupDiagnostics.mark(`feature:${id}:${status}`, error?.message, !0);
 		let previous = featureStates.get(id) ?? {};
 		(featureStates.set(id, { ...previous, status, error }), emitFeatureStatus(id));
 	}
@@ -708,7 +350,6 @@
 						instanceCleanup: typeof instanceCleanup == "function" ? instanceCleanup : null,
 					}),
 					emitFeatureStatus(id),
-					startupDiagnostics.mark(`feature:${id}:active`),
 					!0);
 		} catch (error) {
 			return (
@@ -723,7 +364,6 @@
 					runtime.config.isZH ? `[MWITools] 功能 ${id} 启动失败` : `[MWITools] Failed to initialize feature ${id}`,
 					error,
 				),
-				startupDiagnostics.error(`feature:${id}:failed`, error),
 				emitFeatureStatus(id),
 				!1
 			);
@@ -766,7 +406,6 @@
 		runtime,
 		init_runtime = __esm({
 			"src/core/runtime.js"() {
-				init_startup_diagnostics();
 				routeCharacterRequested = /[?&]characterId=/.test(globalThis.location?.search ?? "");
 				((featureDefinitions = /* @__PURE__ */ new Map()),
 					(featureStates = /* @__PURE__ */ new Map()),
@@ -783,31 +422,28 @@
 					starts: [],
 					messageHandlers: /* @__PURE__ */ new Map(),
 					createCleanupScope,
-					registerStart(name, start2) {
-						this.starts.push({ name, start: start2 });
+					registerStart(name, start3) {
+						this.starts.push({ name, start: start3 });
 					},
 					start() {
 						featureInitializationPaused = !1;
 						for (let feature of this.starts)
 							try {
-								(startupDiagnostics.mark(`start-hook:${feature.name}`, null, !0),
-									feature.start()?.catch?.((error) => {
-										(startupDiagnostics.error(`start-hook:${feature.name}:failed`, error),
-											console.error(
-												runtime.config.isZH
-													? `[MWITools] 启动钩子执行失败：${feature.name}`
-													: `[MWITools] Startup hook failed: ${feature.name}`,
-												error,
-											));
-									}));
-							} catch (error) {
-								(startupDiagnostics.error(`start-hook:${feature.name}:failed`, error),
+								feature.start()?.catch?.((error) => {
 									console.error(
 										runtime.config.isZH
 											? `[MWITools] 启动钩子执行失败：${feature.name}`
 											: `[MWITools] Startup hook failed: ${feature.name}`,
 										error,
-									));
+									);
+								});
+							} catch (error) {
+								console.error(
+									runtime.config.isZH
+										? `[MWITools] 启动钩子执行失败：${feature.name}`
+										: `[MWITools] Startup hook failed: ${feature.name}`,
+									error,
+								);
 							}
 						return ((runtimeStarted = !0), this.features.initializeAll());
 					},
@@ -832,20 +468,14 @@
 						];
 						for (let handler of handlers)
 							try {
-								startupDiagnostics.enabled
-									? startupDiagnostics.measure(
-											`handler:${payload.type}:${handler.name || handlers.indexOf(handler)}`,
-											() => handler(payload, rawMessage),
-										)
-									: handler(payload, rawMessage);
+								handler(payload, rawMessage);
 							} catch (error) {
-								(startupDiagnostics.error(`handler:${payload.type}:failed`, error),
-									console.error(
-										runtime.config.isZH
-											? `[MWITools] 消息 ${payload.type} 的处理器执行失败`
-											: `[MWITools] Message handler failed for ${payload.type}`,
-										error,
-									));
+								console.error(
+									runtime.config.isZH
+										? `[MWITools] 消息 ${payload.type} 的处理器执行失败`
+										: `[MWITools] Message handler failed for ${payload.type}`,
+									error,
+								);
 							}
 					},
 					features: {
@@ -1669,14 +1299,12 @@
 		if (globalThis.GM_getValue(marker)) return;
 		let raw = native()?.getItem(key);
 		(raw != null &&
-			(startupDiagnostics.mark("storage:migrate", `${key.split(":")[0]} (${raw.length} chars)`, !0),
-			globalThis.GM_setValue(`${root()}recovery:${encodeURIComponent(marker)}`, {
+			(globalThis.GM_setValue(`${root()}recovery:${encodeURIComponent(marker)}`, {
 				key,
 				raw,
 				at: Date.now(),
 			}),
-			write(key, raw, { migration: !0 }),
-			startupDiagnostics.mark("storage:migrated", key.split(":")[0])),
+			write(key, raw, { migration: !0 })),
 			globalThis.GM_setValue(marker, !0));
 	}
 	function exportSharedBackup() {
@@ -1821,7 +1449,7 @@
 					try {
 						migrate(key);
 					} catch (error) {
-						startupDiagnostics.error("storage:migration-failed", error);
+						console.error("[MWITools] Storage migration failed", error);
 					}
 					observed.has(canonical(key)) || (bases.delete(recordPrefix(key)), snapshots.delete(recordPrefix(key)));
 				}
@@ -1834,7 +1462,6 @@
 	var PREFIX,
 		bases,
 		observed,
-		tracedReads,
 		snapshots,
 		indexedNames,
 		forbidden,
@@ -1851,13 +1478,11 @@
 		migrationRun,
 		init_shared_storage = __esm({
 			"src/core/shared-storage.js"() {
-				init_startup_diagnostics();
 				init_retired_guild_storage();
 				init_packed_history();
 				((PREFIX = "MWITools_shared_v1:"),
 					(bases = /* @__PURE__ */ new Map()),
 					(observed = /* @__PURE__ */ new Set()),
-					(tracedReads = /* @__PURE__ */ new Set()),
 					(snapshots = /* @__PURE__ */ new Map()),
 					(indexedNames = null),
 					(forbidden = /* @__PURE__ */ new Set(["__proto__", "prototype", "constructor"])),
@@ -1896,13 +1521,7 @@
 											: null));
 				sharedStorage = {
 					getItem(key) {
-						if (
-							(startupDiagnostics.enabled &&
-								!tracedReads.has(key) &&
-								(tracedReads.add(key), startupDiagnostics.mark("storage:read", key.split(":")[0], !0)),
-							!available() || !shared(key))
-						)
-							return native()?.getItem(key) ?? null;
+						if (!available() || !shared(key)) return native()?.getItem(key) ?? null;
 						(migrate(key), observed.add(canonical(key)));
 						let entries = entriesFor(key);
 						bases.set(recordPrefix(key), entries);
@@ -10277,23 +9896,16 @@
 	// src/core/messages.js
 	function drainMessages() {
 		let batch = queue.splice(0, 4);
-		for (let [index, message] of batch.entries())
+		for (let message of batch)
 			try {
-				(handleMessage(message),
-					startupDiagnostics.socketProgress("processed", queue.length + batch.length - index - 1));
+				handleMessage(message);
 			} catch (error) {
-				(startupDiagnostics.socketProgress("failed", queue.length + batch.length - index - 1),
-					startupDiagnostics.error("socket:processing-failed", error),
-					console.error("[MWITools] Game message processing failed", error));
+				console.error("[MWITools] Game message processing failed", error);
 			}
 		queue.length ? setTimeout(drainMessages, 0) : (scheduled = !1);
 	}
 	function hookWS() {
 		if (hooked) return;
-		if (startupDiagnostics.skipSocket) {
-			startupDiagnostics.mark("socket:hook-bypassed", null, !0);
-			return;
-		}
 		let dataProperty = Object.getOwnPropertyDescriptor(MessageEvent.prototype, "data"),
 			originalGet = dataProperty.get;
 		((dataProperty.get = function () {
@@ -10306,20 +9918,16 @@
 				return originalGet.call(this);
 			let message = originalGet.call(this);
 			try {
-				(startupDiagnostics.watchSocket(socket),
-					Object.defineProperty(this, "data", { value: message }),
+				(Object.defineProperty(this, "data", { value: message }),
 					queue.push(message),
-					startupDiagnostics.socketProgress("received", queue.length),
 					scheduled || ((scheduled = !0), setTimeout(drainMessages, 0)));
 			} catch (error) {
-				startupDiagnostics.error("socket:hook-failed", error);
+				console.error("[MWITools] Message hook failed", error);
 			}
 			return message;
 		}),
 			Object.defineProperty(MessageEvent.prototype, "data", dataProperty),
-			(hooked = !0),
-			startupDiagnostics.socketHookInstalled(dataProperty.get),
-			startupDiagnostics.mark("socket:hooked"));
+			(hooked = !0));
 	}
 	function handleMessage(message) {
 		let payload;
@@ -10330,15 +9938,11 @@
 		}
 		return (
 			payload?.type &&
-				(payload.type.startsWith("init_") &&
-					startupDiagnostics.mark(`socket:${payload.type}`, `${message.length} chars`, !0),
-				startupDiagnostics.enabled
-					? startupDiagnostics.measure(`state:${payload.type}`, () => runtime.api.applyGameMessage(payload))
-					: runtime.api.applyGameMessage(payload),
+				(runtime.api.applyGameMessage(payload),
 				payload.type === "init_character_data" &&
 					runtime.features
 						.handleCharacterData(payload)
-						.catch((error) => startupDiagnostics.error("character:initialization-failed", error)),
+						.catch((error) => console.error("[MWITools] Character initialization failed", error)),
 				runtime.dispatchMessage(payload, message)),
 			message
 		);
@@ -10350,7 +9954,6 @@
 		init_messages = __esm({
 			"src/core/messages.js"() {
 				init_runtime();
-				init_startup_diagnostics();
 				((hooked = !1), (queue = []), (scheduled = !1));
 				GAME_SOCKET_HOSTS = [
 					"api.milkywayidle.com/ws",
@@ -12002,9 +11605,9 @@
 		}
 		return result;
 	}
-	function periodStatistics(entries, { start: start2 = null, end = null } = {}) {
+	function periodStatistics(entries, { start: start3 = null, end = null } = {}) {
 		let values = finiteEntries(entries),
-			selected = values.filter(([date]) => (!start2 || date >= start2) && (!end || date <= end));
+			selected = values.filter(([date]) => (!start3 || date >= start3) && (!end || date <= end));
 		if (!selected.length) return null;
 		let firstDate = selected[0][0],
 			baseline = [...values].reverse().find(([date]) => date < firstDate),
@@ -12051,14 +11654,14 @@
 		if (!first || !last) return null;
 		let gapDays = Math.max(1, dayGap(first[0], last[0])),
 			components = ASSET_COMPONENT_KEYS.map((key) => {
-				let start2 = first[1]?.values?.[key],
+				let start3 = first[1]?.values?.[key],
 					end = last[1]?.values?.[key],
-					known = Number.isFinite(start2) && Number.isFinite(end),
-					change = known ? end - start2 : null;
+					known = Number.isFinite(start3) && Number.isFinite(end),
+					change = known ? end - start3 : null;
 				return {
 					key,
 					...ASSET_COMPONENT_META[key],
-					start: start2,
+					start: start3,
 					end,
 					change,
 					averagePerDay: known ? change / gapDays : null,
@@ -12193,9 +11796,9 @@
 			if (((paths[run][0] = current), useBootstrap)) {
 				let day = 1;
 				for (; day <= horizon;) {
-					let start2 = Math.floor(random() * returns.length);
+					let start3 = Math.floor(random() * returns.length);
 					for (let block = 0; block < 5 && day <= horizon; block += 1)
-						((paths[run][day] = paths[run][day - 1] * Math.exp(returns[(start2 + block) % returns.length])),
+						((paths[run][day] = paths[run][day - 1] * Math.exp(returns[(start3 + block) % returns.length])),
 							(day += 1));
 				}
 			} else
@@ -12850,10 +12453,10 @@
 	function monthRange(date) {
 		let year = date.getFullYear(),
 			month = date.getMonth(),
-			start2 = `${year}-${String(month + 1).padStart(2, "0")}-01`,
+			start3 = `${year}-${String(month + 1).padStart(2, "0")}-01`,
 			end = new Date(year, month + 1, 0);
 		return {
-			start: start2,
+			start: start3,
 			end: `${year}-${String(month + 1).padStart(2, "0")}-${String(end.getDate()).padStart(2, "0")}`,
 			year,
 			month,
@@ -25964,14 +25567,14 @@ ${locks}`
 						),
 					));
 			} else {
-				let start2 = createButton(
+				let start3 = createButton(
 					`🚂 ${t10("开始火车", "Start train")} (${plan.steps.length === 1 ? t10("单站计划", "Single stop") : `${plan.steps.length}${t10("步", " stops")}`})`,
 					"start",
 					() => startTrain(idlePlan(context)),
 				);
-				((start2.disabled = plan.hasExplicitCount === !1),
-					start2.disabled && (start2.title = t10("请先填写生产数量", "Enter a production count first")),
-					controls.appendChild(start2));
+				((start3.disabled = plan.hasExplicitCount === !1),
+					start3.disabled && (start3.title = t10("请先填写生产数量", "Enter a production count first")),
+					controls.appendChild(start3));
 			}
 			host.appendChild(controls);
 		}
@@ -29801,10 +29404,12 @@ ${locks}`
 							}),
 							body: Object.freeze({
 								zh: Object.freeze([
+									"发布：移除调试专用脚本、构建入口、启动诊断面板和详细追踪，正式版保留自动清理旧公会经验存储的功能。",
 									"存储与启动：启动时分批删除已移除的公会经验功能留下的本地历史、共享记录、压缩数据页、恢复副本、迁移标记与旧经验数据库，不读取或解压历史内容。其他设置、资产历史、DPS 历史及仍在使用的公会功能保留；清理失败会在下次启动重试，旧标签页占用数据库时会提示关闭。",
 									"备份与恢复：新备份不再包含已移除的公会经验历史，导入旧备份时跳过这部分数据，避免清理后的历史重新出现。",
 								]),
 								en: Object.freeze([
+									"Release: Removed the dedicated debug script, build entry, startup diagnostic panel and detailed tracing. The production release retains automatic cleanup of retired guild XP storage.",
 									"Storage and startup: Startup deletes retired guild XP local history, shared records, compressed pages, recovery copies, migration markers and the old XP database in batches without reading or decompressing history. Other settings, asset history, DPS history and active guild features are preserved. Failed cleanup retries on the next startup; a database held by an old tab prompts you to close it.",
 									"Backup and recovery: New backups exclude retired guild XP history, and older backup imports skip it so removed archives cannot reappear.",
 								]),
@@ -29820,12 +29425,10 @@ ${locks}`
 							}),
 							body: Object.freeze({
 								zh: Object.freeze([
-									"启动诊断：提供可直接安装的 debug 版本，控制台输出启动阶段、错误、慢处理、卡顿和消息积压，支持跳过消息拦截的对照启动与安全启动，帮助定位脚本同时失效的问题。",
 									"公会：移除本地公会经验采样、经验总览、成员与公会榜经验速率、闲置成员显示及相关设置。公会信用点兑换、建筑提示和技能排行榜增强继续保留。",
 									"性能与存储：停止公会经验历史的自动读写和登录后台整理，消除该模块反复压缩历史造成的主线程阻塞。已有经验历史保留供统一备份与恢复使用。",
 								]),
 								en: Object.freeze([
-									"Startup diagnostics: Added an installable debug build with console output for startup phases, errors, slow processing, stalls and message backlog, plus comparison startup without message interception and safe startup to investigate scripts failing together.",
 									"Guild: Removed local guild XP sampling, XP overview, member and guild leaderboard XP rates, idle-member display and their settings. Guild credit exchange, building hints and skill leaderboard enhancements remain available.",
 									"Performance and storage: Stopped automatic guild XP history reads, writes and login-time archive processing, eliminating main-thread stalls from repeated history compression in this module. Existing XP archives remain available through unified backup and restore.",
 								]),
@@ -29863,13 +29466,13 @@ ${locks}`
 									"库存：修复分类标签与缓存忽略资产计入设置的问题，牛铃、任务代币和公会／地下城代币统一遵守开关；全部、分类、最爱和搜索结果按同一口径估值，切换标签继续复用快照。",
 									"市场：修复市场列表移除后仍保留旧游戏界面的内存占用，列表重建后自动恢复挂单价格填充。合并同时发生的市场数据请求，接口失败或限流时暂停重试并沿用缓存；刷新页面也遵守冷却时间，避免重复请求。",
 									"性能：减少重复脚本检测的全页扫描，优化共享历史索引与公会曲线计算，释放成员和榜单不使用的曲线缓存。公会历史采样改为小批处理，连续更新合并执行，减少集中计算对页面操作的阻塞。",
-									"启动：游戏先读取原始网络消息，再分批处理插件消息，插件报错不再中断游戏读取；未使用角色的历史迁移延后分批执行。新增启动诊断与安全启动入口，保留设置和历史，可导出本地阶段、错误及卡顿报告，帮助定位无法进入游戏的问题。",
+									"启动：游戏先读取原始网络消息，再分批处理插件消息，插件报错不再中断游戏读取；未使用角色的历史迁移延后分批执行。",
 								]),
 								en: Object.freeze([
 									"Inventory: Fixed category tabs and cached values ignoring asset inclusion settings. Cowbells, task tokens and guild/dungeon tokens now consistently follow their switches across All, category, Favorites and search views. Tab changes continue to reuse the snapshot.",
 									"Market: Fixed memory retained by the old game interface after market lists are removed; price autofill resumes when a replacement list mounts. Concurrent market-data requests now share one fetch; failures and rate limits pause retries and reuse cached data. Reloads also honor the cooldown to avoid repeated requests.",
 									"Performance: Reduced full-page duplicate-script scans, optimized shared-history lookups and guild trend calculations, and released unused member and leaderboard curve caches. Guild history sampling now yields between small batches and coalesces overlapping updates to reduce interference with page input.",
-									"Startup: The game receives original network messages before plugin processing runs in batches; plugin errors no longer interrupt the game's message reads. Inactive-character history migration now runs in deferred batches. Added local startup diagnostics and a safe-start entry that preserves settings and history, with exportable phase, error and stall reports to investigate loading failures.",
+									"Startup: The game receives original network messages before plugin processing runs in batches; plugin errors no longer interrupt the game's message reads. Inactive-character history migration now runs in deferred batches. ",
 								]),
 							}),
 						}),
@@ -37082,7 +36685,7 @@ ${locks}`
 								recordRelated(type, payload);
 							}
 						}
-						function start2() {
+						function start3() {
 							return (
 								active ||
 									((state = emptyState()),
@@ -37331,7 +36934,7 @@ ${locks}`
 							bus,
 							record,
 							recordUnparsed,
-							start: start2,
+							start: start3,
 							stop,
 							clear,
 							status,
@@ -45290,19 +44893,16 @@ ${langText2("理论命中率", "Theoretical hit chance")}: ${pct.toFixed(2)}%`;
 		startApp: () => startApp,
 	});
 	async function startGame() {
-		(startupDiagnostics.mark("client-data:read"),
-			runtime.api.refreshGameClientData() ||
-				runtime.features.register({
-					id: "clientDataCache",
-					initialize({ scope }) {
-						let interval = scope.interval(() => {
-							runtime.api.refreshGameClientData() && clearInterval(interval);
-						}, 250);
-					},
-				}),
-			startupDiagnostics.mark("market-cache:read"),
+		(runtime.api.refreshGameClientData() ||
+			runtime.features.register({
+				id: "clientDataCache",
+				initialize({ scope }) {
+					let interval = scope.interval(() => {
+						runtime.api.refreshGameClientData() && clearInterval(interval);
+					}, 250);
+				},
+			}),
 			runtime.api.loadMarketItemValuesFromStorage(),
-			startupDiagnostics.mark("socket:hook"),
 			runtime.api.hookWS());
 		let currentApiVersion = 3,
 			storedApiVersion = localStorage.getItem("MWITools_marketAPI_ApiVersion");
@@ -45315,31 +44915,23 @@ ${langText2("理论命中率", "Theoretical hit chance")}: ${pct.toFixed(2)}%`;
 			localStorage.setItem("MWITools_marketAPI_timestamp", JSON.stringify(0)),
 			localStorage.setItem("MWITools_marketAPI_json", JSON.stringify(null)),
 			localStorage.setItem("MWITools_marketAPI_ApiVersion", JSON.stringify(currentApiVersion))),
-			runtime.api.fetchMarketJSON(!0),
-			startupDiagnostics.mark("performance-setup:wait"));
+			runtime.api.fetchMarketJSON(!0));
 		try {
 			await runtime.api.runPerformanceOnboardingIfNeeded();
 		} catch (error) {
-			(startupDiagnostics.error("performance-setup:failed", error),
-				console.error(
-					runtime.config.isZH
-						? "[MWITools] 性能引导启动失败，将继续使用当前设置。"
-						: "[MWITools] Performance setup failed; continuing with current settings.",
-					error,
-				));
+			console.error(
+				runtime.config.isZH
+					? "[MWITools] 性能引导启动失败，将继续使用当前设置。"
+					: "[MWITools] Performance setup failed; continuing with current settings.",
+				error,
+			);
 		}
-		(startupDiagnostics.mark("features:start"),
-			await runtime.start(),
-			startupDiagnostics.mark("features:ready"),
-			scheduleSharedMigration());
+		(await runtime.start(), scheduleSharedMigration());
 	}
 	async function startApp() {
 		if (
-			(startupDiagnostics.attachRuntime(runtime),
-			runtime.features.pauseInitialization(),
-			startupDiagnostics.mark("settings:read"),
+			(runtime.features.pauseInitialization(),
 			runtime.api.readSettings(),
-			startupDiagnostics.mark("settings:ready"),
 			document.URL.includes("amvoidguy.github.io") || document.URL.includes("shykai.github.io/MWICombatSimulatorTest/"))
 		) {
 			(runtime.api.addImportButtonForAmvoidguy(), runtime.api.observeResultsForAmvoidguy());
@@ -45354,7 +44946,6 @@ ${langText2("理论命中率", "Theoretical hit chance")}: ${pct.toFixed(2)}%`;
 	var init_app = __esm({
 		"src/app.js"() {
 			init_runtime();
-			init_startup_diagnostics();
 			init_shared_storage();
 			init_game_data();
 			init_game_assets();
@@ -45408,10 +44999,10 @@ ${langText2("理论命中率", "Theoretical hit chance")}: ${pct.toFixed(2)}%`;
 	});
 
 	// src/main.js
-	init_startup_diagnostics();
 	init_retired_guild_storage();
-	startupDiagnostics.boot(async () => {
+	async function start2() {
 		let cleanup4 = cleanupRetiredGuildStorage();
 		(await (await Promise.resolve().then(() => (init_app(), app_exports))).startApp(), await cleanup4);
-	});
+	}
+	start2().catch((error) => console.error("[MWITools] Startup failed", error));
 })();

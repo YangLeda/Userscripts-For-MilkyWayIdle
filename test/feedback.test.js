@@ -396,20 +396,15 @@ test("the shared Ctrl tooltip announcement is red, bold, and underlined", () => 
 
 test("announcement history preserves each release separately through 26.4.22", () => {
   assert.equal(ANNOUNCEMENTS[0].publishedAt, "2026-10-13");
-  assert.equal(ANNOUNCEMENTS[0].body.zh.length, 2);
-  assert.equal(ANNOUNCEMENTS[0].body.en.length, 2);
+  assert.equal(ANNOUNCEMENTS[0].body.zh.length, 3);
+  assert.equal(ANNOUNCEMENTS[0].body.en.length, 3);
   assert.match(
     ANNOUNCEMENTS[0].body.zh.join("\n"),
     /分批删除.*公会经验[\s\S]*导入旧备份/,
   );
   assert.equal(ANNOUNCEMENTS[1].publishedAt, "2026-10-12");
-  assert.equal(ANNOUNCEMENTS[1].body.zh.length, 3);
-  assert.equal(ANNOUNCEMENTS[1].body.en.length, 3);
-  assert.match(ANNOUNCEMENTS[1].body.zh[0], /启动诊断.*控制台.*消息积压/);
-  assert.match(
-    ANNOUNCEMENTS[1].body.en[0],
-    /Startup diagnostics.*console.*message backlog/,
-  );
+  assert.equal(ANNOUNCEMENTS[1].body.zh.length, 2);
+  assert.equal(ANNOUNCEMENTS[1].body.en.length, 2);
   assert.match(
     ANNOUNCEMENTS[1].body.zh.join("\n"),
     /移除本地公会经验[\s\S]*已有经验历史保留/,
