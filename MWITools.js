@@ -117,6 +117,7 @@
 			},
 			enabled = !1,
 			safe = !1,
+			skipSocket = !1,
 			runtime2 = null,
 			previous = null,
 			report = null,
@@ -126,6 +127,26 @@
 			panel = null,
 			statusNode = null,
 			sockets = /* @__PURE__ */ new WeakSet(),
+			installedGetter = null,
+			socketDescriptor = () => {
+				try {
+					let descriptor = Object.getOwnPropertyDescriptor(host.MessageEvent?.prototype ?? {}, "data");
+					return {
+						present: !!descriptor,
+						configurable: !!descriptor?.configurable,
+						getter: typeof descriptor?.get == "function",
+						getterName: clean(descriptor?.get?.name),
+						...(installedGetter ? { stillInstalled: descriptor?.get === installedGetter } : {}),
+					};
+				} catch {
+					return { inaccessible: !0 };
+				}
+			},
+			print = (level, ...args) => {
+				try {
+					host.console?.[level]?.("[MWITools Debug]", ...args);
+				} catch {}
+			},
 			now = () => host.performance?.now?.() ?? Date.now(),
 			read = (key) => {
 				try {
@@ -152,6 +173,11 @@
 					}),
 					report.events.length > 120 && report.events.shift(),
 					(report.lastPhase = clean(phase)),
+					print(
+						/failed|error|rejection/.test(phase) ? "error" : /slow|delay/.test(phase) ? "warn" : "info",
+						`+${Math.round(now() - report.started)}ms ${clean(phase)}`,
+						...(detail === null ? [] : [clean(detail)]),
+					),
 					statusNode && (statusNode.textContent = `${langText4("当前阶段", "Current phase")}: ${report.lastPhase}`),
 					immediate ? flush() : flushTimer === null && (flushTimer = host.setTimeout(flush, 500)));
 			},
@@ -162,6 +188,7 @@
 					? {
 							...report,
 							events: [...report.events],
+							socket: { ...report.socket, current: socketDescriptor() },
 							features: (runtime2?.features.list() ?? []).map(({ id, status, error: error2 }) => ({
 								id,
 								status,
@@ -187,11 +214,12 @@
 					link.click(),
 					host.setTimeout(() => host.URL.revokeObjectURL(url), 1e3));
 			},
-			rescue = (value) => {
+			rescue = (value, noSocket = !1) => {
 				write2(RESCUE_KEY, value ? "1" : "0");
 				let url = new host.URL(host.location.href);
 				(url.searchParams.delete("mwitoolsSafe"),
 					url.searchParams.set("mwitoolsDebug", "1"),
+					noSocket ? url.searchParams.set("mwitoolsNoSocket", "1") : url.searchParams.delete("mwitoolsNoSocket"),
 					(host.location.href = url.href));
 			},
 			show = () => {
@@ -219,6 +247,12 @@
 							"日志仅保存在本标签页，记录启动阶段、错误与卡顿，不记录游戏消息内容。",
 							"Logs stay in this tab and record startup phases, errors and stalls without game payloads.",
 						)),
+					skipSocket &&
+						!safe &&
+						(help.textContent = langText4(
+							"对照启动：暂停 MWITools 消息拦截，依赖游戏数据的功能不可用。观察其他脚本是否恢复。",
+							"Comparison start: MWITools message interception is bypassed; data-dependent features are unavailable. Check whether other scripts recover.",
+						)),
 					panel.append(title, help));
 				let status = host.document.createElement("p");
 				((statusNode = status),
@@ -228,7 +262,9 @@
 					panel.append(status));
 				for (let [label, action] of [
 					[langText4("下载诊断报告", "Download report"), download],
+					[langText4("输出报告到控制台", "Print report to console"), () => print("info", snapshot())],
 					[langText4("正常加载并记录", "Start with debug"), () => rescue(!1)],
+					[langText4("跳过消息拦截并记录", "Debug without message interception"), () => rescue(!1, !0)],
 					[langText4("安全启动（暂停插件）", "Safe start"), () => rescue(!0)],
 					[
 						langText4("收起", "Close"),
@@ -262,6 +298,23 @@
 			attachRuntime(value) {
 				runtime2 = value;
 			},
+			get skipSocket() {
+				return skipSocket;
+			},
+			socketHookInstalled(getter) {
+				!enabled ||
+					!report?.socket ||
+					((installedGetter = getter),
+					(report.socket.installed = socketDescriptor()),
+					mark("socket:descriptor-installed", JSON.stringify(report.socket.installed), !0));
+			},
+			socketProgress(kind, pending) {
+				!enabled ||
+					!report?.socket ||
+					((report.socket[kind] += 1),
+					(report.socket.pending = pending),
+					(report.socket.maxPending = Math.max(report.socket.maxPending, pending)));
+			},
 			get enabled() {
 				return enabled;
 			},
@@ -292,7 +345,8 @@
 				let params = new host.URL(host.location?.href ?? "https://localhost").searchParams;
 				if (
 					((safe = params.get("mwitoolsSafe") === "1" || read(RESCUE_KEY) === "1"),
-					(enabled = safe || params.get("mwitoolsDebug") === "1" || host.__MWITOOLS_DEBUG_BUILD__ === !0),
+					(skipSocket = params.get("mwitoolsNoSocket") === "1"),
+					(enabled = safe || skipSocket || params.get("mwitoolsDebug") === "1" || host.__MWITOOLS_DEBUG_BUILD__ === !0),
 					enabled)
 				) {
 					try {
@@ -305,17 +359,54 @@
 						host: host.location?.hostname,
 						userAgent: clean(host.navigator?.userAgent),
 						safe,
+						skipSocket,
+						manager: {
+							name: clean(host.GM_info?.scriptHandler),
+							version: clean(host.GM_info?.version),
+						},
+						socket: {
+							before: socketDescriptor(),
+							received: 0,
+							processed: 0,
+							failed: 0,
+							pending: 0,
+							maxPending: 0,
+						},
 						events: [],
 					}),
 						mark("bootstrap:ready", null, !0),
-						host.addEventListener?.("error", (event) => error("page:error", event.error ?? event.message)),
+						print("info", "Environment", snapshot()));
+					try {
+						let target = host.unsafeWindow ?? host;
+						target.__MWITOOLS_STARTUP_DEBUG__ = {
+							snapshot,
+							print: () => print("info", snapshot()),
+						};
+					} catch {}
+					(host.addEventListener?.("error", (event) => error("page:error", event.error ?? event.message)),
 						host.addEventListener?.("unhandledrejection", (event) => error("page:rejection", event.reason)),
 						host.addEventListener?.("pagehide", stop, { once: !0 }));
-					let last = now();
+					let last = now(),
+						ticks = 0,
+						warnedReplaced = !1;
 					((heartbeat = host.setInterval(() => {
 						let gap = now() - last;
 						((last = now()),
 							!host.document?.hidden && gap > 1500 && mark("main-thread:delay", `${Math.round(gap)} ms`));
+						let descriptor = socketDescriptor();
+						(installedGetter &&
+							descriptor.stillInstalled === !1 &&
+							!warnedReplaced &&
+							((warnedReplaced = !0), mark("socket:hook-replaced", JSON.stringify(descriptor), !0)),
+							++ticks % 10 === 0 &&
+								(print("info", "Heartbeat", {
+									elapsedMs: Math.round(now() - report.started),
+									phase: report.lastPhase,
+									...report.socket,
+									current: descriptor,
+									features: snapshot().current.features,
+								}),
+								flush()));
 					}, 1e3)),
 						(stopTimer = host.setTimeout(stop, 9e4)),
 						show());
@@ -574,23 +665,23 @@
 						for (let feature of this.starts)
 							try {
 								(startupDiagnostics.mark(`start-hook:${feature.name}`, null, !0),
-									feature
-										.start()
-										?.catch?.((error) =>
+									feature.start()?.catch?.((error) => {
+										(startupDiagnostics.error(`start-hook:${feature.name}:failed`, error),
 											console.error(
 												runtime.config.isZH
 													? `[MWITools] 启动钩子执行失败：${feature.name}`
 													: `[MWITools] Startup hook failed: ${feature.name}`,
 												error,
-											),
-										));
+											));
+									}));
 							} catch (error) {
-								console.error(
-									runtime.config.isZH
-										? `[MWITools] 启动钩子执行失败：${feature.name}`
-										: `[MWITools] Startup hook failed: ${feature.name}`,
-									error,
-								);
+								(startupDiagnostics.error(`start-hook:${feature.name}:failed`, error),
+									console.error(
+										runtime.config.isZH
+											? `[MWITools] 启动钩子执行失败：${feature.name}`
+											: `[MWITools] Startup hook failed: ${feature.name}`,
+										error,
+									));
 							}
 						return ((runtimeStarted = !0), this.features.initializeAll());
 					},
@@ -10051,17 +10142,23 @@
 	// src/core/messages.js
 	function drainMessages() {
 		let batch = queue.splice(0, 4);
-		for (let message of batch)
+		for (let [index, message] of batch.entries())
 			try {
-				handleMessage(message);
+				(handleMessage(message),
+					startupDiagnostics.socketProgress("processed", queue.length + batch.length - index - 1));
 			} catch (error) {
-				(startupDiagnostics.error("socket:processing-failed", error),
+				(startupDiagnostics.socketProgress("failed", queue.length + batch.length - index - 1),
+					startupDiagnostics.error("socket:processing-failed", error),
 					console.error("[MWITools] Game message processing failed", error));
 			}
 		queue.length ? setTimeout(drainMessages, 0) : (scheduled = !1);
 	}
 	function hookWS() {
 		if (hooked) return;
+		if (startupDiagnostics.skipSocket) {
+			startupDiagnostics.mark("socket:hook-bypassed", null, !0);
+			return;
+		}
 		let dataProperty = Object.getOwnPropertyDescriptor(MessageEvent.prototype, "data"),
 			originalGet = dataProperty.get;
 		((dataProperty.get = function () {
@@ -10077,6 +10174,7 @@
 				(startupDiagnostics.watchSocket(socket),
 					Object.defineProperty(this, "data", { value: message }),
 					queue.push(message),
+					startupDiagnostics.socketProgress("received", queue.length),
 					scheduled || ((scheduled = !0), setTimeout(drainMessages, 0)));
 			} catch (error) {
 				startupDiagnostics.error("socket:hook-failed", error);
@@ -10085,6 +10183,7 @@
 		}),
 			Object.defineProperty(MessageEvent.prototype, "data", dataProperty),
 			(hooked = !0),
+			startupDiagnostics.socketHookInstalled(dataProperty.get),
 			startupDiagnostics.mark("socket:hooked"));
 	}
 	function handleMessage(message) {
@@ -29567,10 +29666,12 @@ ${locks}`
 							}),
 							body: Object.freeze({
 								zh: Object.freeze([
+									"启动诊断：提供可直接安装的 debug 版本，控制台输出启动阶段、错误、慢处理、卡顿和消息积压，支持跳过消息拦截的对照启动与安全启动，帮助定位脚本同时失效的问题。",
 									"公会：移除本地公会经验采样、经验总览、成员与公会榜经验速率、闲置成员显示及相关设置。公会信用点兑换、建筑提示和技能排行榜增强继续保留。",
 									"性能与存储：停止公会经验历史的自动读写和登录后台整理，消除该模块反复压缩历史造成的主线程阻塞。已有经验历史保留供统一备份与恢复使用。",
 								]),
 								en: Object.freeze([
+									"Startup diagnostics: Added an installable debug build with console output for startup phases, errors, slow processing, stalls and message backlog, plus comparison startup without message interception and safe startup to investigate scripts failing together.",
 									"Guild: Removed local guild XP sampling, XP overview, member and guild leaderboard XP rates, idle-member display and their settings. Guild credit exchange, building hints and skill leaderboard enhancements remain available.",
 									"Performance and storage: Stopped automatic guild XP history reads, writes and login-time archive processing, eliminating main-thread stalls from repeated history compression in this module. Existing XP archives remain available through unified backup and restore.",
 								]),
@@ -45065,12 +45166,13 @@ ${langText2("理论命中率", "Theoretical hit chance")}: ${pct.toFixed(2)}%`;
 		try {
 			await runtime.api.runPerformanceOnboardingIfNeeded();
 		} catch (error) {
-			console.error(
-				runtime.config.isZH
-					? "[MWITools] 性能引导启动失败，将继续使用当前设置。"
-					: "[MWITools] Performance setup failed; continuing with current settings.",
-				error,
-			);
+			(startupDiagnostics.error("performance-setup:failed", error),
+				console.error(
+					runtime.config.isZH
+						? "[MWITools] 性能引导启动失败，将继续使用当前设置。"
+						: "[MWITools] Performance setup failed; continuing with current settings.",
+					error,
+				));
 		}
 		(startupDiagnostics.mark("features:start"),
 			await runtime.start(),

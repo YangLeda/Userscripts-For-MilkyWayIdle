@@ -90,6 +90,7 @@ async function startGame() {
   try {
     await runtime.api.runPerformanceOnboardingIfNeeded();
   } catch (error) {
+    startupDiagnostics.error("performance-setup:failed", error);
     console.error(
       runtime.config.isZH
         ? "[MWITools] 性能引导启动失败，将继续使用当前设置。"
