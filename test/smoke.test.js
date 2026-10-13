@@ -103,6 +103,35 @@ function createUserscriptWindow(url) {
 }
 
 for (const [buildName, userscript] of userscripts) {
+  test(`${buildName} starts the socket hook while retired storage deletion yields`, async () => {
+    const { dom, window } = createUserscriptWindow(
+      "https://www.milkywayidle.com/game",
+    );
+    const retiredKey = "MWITools_xp_history_v1";
+    window.localStorage.setItem(retiredKey, "old archive");
+    const before = Object.getOwnPropertyDescriptor(
+      window.MessageEvent.prototype,
+      "data",
+    ).get;
+    window.eval(userscript);
+    for (let index = 0; index < 30; index++) await Promise.resolve();
+    assert.equal(
+      window.localStorage.getItem(retiredKey),
+      "old archive",
+      "deletion timer is deliberately paused in this fixture",
+    );
+    assert.notEqual(
+      Object.getOwnPropertyDescriptor(window.MessageEvent.prototype, "data")
+        .get,
+      before,
+      "network capture must not await archive deletion",
+    );
+    assert.equal(
+      new window.MessageEvent("message", { data: "native payload" }).data,
+      "native payload",
+    );
+    dom.window.close();
+  });
   test(`${buildName} safe-start bypass works before any feature or storage module loads`, async () => {
     const { calls, dom, window } = createUserscriptWindow(
       "https://www.milkywayidle.com/game?mwitoolsSafe=1",

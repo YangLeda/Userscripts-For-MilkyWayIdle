@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWITools
 // @namespace    http://tampermonkey.net/
-// @version      26.4.21
+// @version      26.4.22
 // @updateURL    https://update.greasyfork.org/scripts/494467/MWITools.meta.js
 // @downloadURL  https://update.greasyfork.org/scripts/494467/MWITools.user.js
 // @description  Tools for MilkyWayIdle. Includes a feedback center, action projections, market insights, asset history, DPS/HPS statistics, inventory tools, tasks, and guild utilities.
@@ -442,6 +442,132 @@
 				startupDiagnostics = createStartupDiagnostics();
 			},
 		});
+
+	// src/core/retired-guild-storage.js
+	function isRetiredGuildStorageKey(key) {
+		return (
+			key === "MWITools_xp_history_v1" ||
+			/^(MWITools_xp_history_v2:|MWITools_xp_migrated:|MWITools_xp_object_migrated_v2:)/.test(key)
+		);
+	}
+	function isRetiredGuildStorageName(name) {
+		if (isRetiredGuildStorageKey(name)) return !0;
+		let match = String(name).match(/^MWITools_shared_v1:(live|test):(record|revision|migration|recovery):(.*)$/);
+		if (!match) return !1;
+		let [, , kind, remainder] = match;
+		try {
+			if (kind === "record" || kind === "revision") {
+				let split = remainder.indexOf(":");
+				if (kind === "record" && split < 0) return !1;
+				let encoded = kind === "record" ? remainder.slice(0, split) : remainder;
+				return isRetiredGuildStorageKey(decodeURIComponent(encoded));
+			}
+			return kind === "recovery"
+				? isRetiredGuildStorageName(decodeURIComponent(remainder))
+				: /:MWITools_xp_history_v1$|:(MWITools_xp_history_v2|MWITools_xp_migrated|MWITools_xp_object_migrated_v2):/.test(
+						remainder,
+					);
+		} catch {
+			return !1;
+		}
+	}
+	async function cleanupRetiredGuildStorage(host = globalThis, diagnostics = startupDiagnostics) {
+		let counts = { local: 0, shared: 0, failed: 0, database: "unavailable" },
+			langText4 = (zh, en) => (/^zh/i.test(host.navigator?.language ?? "en") ? zh : en),
+			yieldTask = () => new Promise((resolve) => host.setTimeout(resolve, 0)),
+			failure = (phase, error) => {
+				((counts.failed += 1),
+					diagnostics.error(`storage:guild-cleanup:${phase}:failed`, error),
+					host.console?.warn?.(
+						"[MWITools] Retired guild storage cleanup failed; retrying on next startup",
+						phase,
+						error,
+					));
+			};
+		diagnostics.mark("storage:guild-cleanup:begin", null, !0);
+		let database = new Promise((resolve) => {
+			if (!host.indexedDB?.deleteDatabase) return resolve();
+			let timer,
+				finish = (status) => {
+					(host.clearTimeout(timer), (counts.database = status), resolve());
+				};
+			try {
+				let request2 = host.indexedDB.deleteDatabase("MWIToolsHistory");
+				((timer = host.setTimeout(() => finish("pending"), 500)),
+					(request2.onsuccess = () => {
+						(finish("deleted"), diagnostics.mark("storage:guild-cleanup:database-deleted", null, !0));
+					}),
+					(request2.onerror = () => {
+						(failure("database", request2.error), finish("failed"));
+					}),
+					(request2.onblocked = () => {
+						(diagnostics.mark(
+							"storage:guild-cleanup:database-blocked",
+							"Close older game tabs to release the database",
+							!0,
+						),
+							host.console?.warn?.(
+								"[MWITools] Guild history database deletion blocked by an older tab; close that tab and reload",
+							),
+							finish("blocked"));
+					}));
+			} catch (error) {
+				(failure("database", error), finish("failed"));
+			}
+		});
+		try {
+			let storage = host.localStorage,
+				names = Array.from({ length: storage?.length ?? 0 }, (_, index) => storage.key(index)).filter(
+					isRetiredGuildStorageName,
+				);
+			for (let index = 0; index < names.length; index += 32) {
+				await yieldTask();
+				for (let name of names.slice(index, index + 32)) (storage.removeItem(name), (counts.local += 1));
+			}
+		} catch (error) {
+			failure("local", error);
+		}
+		try {
+			if (typeof host.GM_listValues == "function") {
+				let names = host.GM_listValues().filter(isRetiredGuildStorageName),
+					bulk = typeof host.GM_deleteValues == "function";
+				if (names.length && !bulk && typeof host.GM_deleteValue != "function")
+					throw new Error(langText4("脚本管理器的存储删除接口不可用", "Userscript storage deletion API unavailable"));
+				let size = bulk ? 128 : 32;
+				for (let index = 0; index < names.length; index += size) {
+					await yieldTask();
+					let batch = names.slice(index, index + size);
+					if (bulk) await host.GM_deleteValues(batch);
+					else for (let name of batch) await host.GM_deleteValue(name);
+					((counts.shared += batch.length),
+						diagnostics.mark("storage:guild-cleanup:progress", `${counts.shared}/${names.length} shared keys`));
+				}
+				if (names.length && host.GM_listValues().some(isRetiredGuildStorageName))
+					throw new Error(
+						langText4(
+							"旧公会经验存储仍存在，将在下次启动重试清理",
+							"Retired guild keys remain; cleanup will retry on next startup",
+						),
+					);
+			}
+		} catch (error) {
+			failure("shared", error);
+		}
+		return (
+			await database,
+			diagnostics.mark("storage:guild-cleanup:finished", JSON.stringify(counts), !0),
+			(counts.local || counts.shared) &&
+				host.console?.info?.("[MWITools] Removed retired guild XP storage", {
+					...counts,
+				}),
+			counts
+		);
+	}
+	var init_retired_guild_storage = __esm({
+		"src/core/retired-guild-storage.js"() {
+			init_startup_diagnostics();
+		},
+	});
 
 	// src/core/runtime.js
 	function resolveCharacterId(payload) {
@@ -1557,7 +1683,11 @@
 		let data = {};
 		if (available()) {
 			for (let key of localKeys()) migrate(key);
-			let names = globalThis.GM_listValues().filter((key) => key.startsWith(root()) && /:(record|recovery):/.test(key)),
+			let names = globalThis
+					.GM_listValues()
+					.filter(
+						(key) => key.startsWith(root()) && /:(record|recovery):/.test(key) && !isRetiredGuildStorageName(key),
+					),
 				values = getValues(names.filter((name) => !/:page:|:commit:|:packed$/.test(name)));
 			for (let key of names) {
 				if (/:page:|:commit:|:packed$/.test(key)) continue;
@@ -1583,7 +1713,7 @@
 		} else
 			for (let index = 0; index < (native()?.length ?? 0); index++) {
 				let key = native().key(index);
-				shared(key) && (data[`local:${key}`] = native().getItem(key));
+				shared(key) && !isRetiredGuildStorageKey(key) && (data[`local:${key}`] = native().getItem(key));
 			}
 		return {
 			__mwitools_backup__: !0,
@@ -1603,7 +1733,9 @@
 			backup.environment !== environment()
 		)
 			throw new TypeError("Invalid MWITools backup or environment");
-		let entries = Object.entries(backup.data);
+		let entries = Object.entries(backup.data).filter(([key]) =>
+			key.startsWith("local:") ? !isRetiredGuildStorageName(key.slice(6)) : !isRetiredGuildStorageName(root() + key),
+		);
 		for (let [key, value] of entries) {
 			if (key.startsWith("local:")) {
 				if (!shared(key.slice(6)) || typeof value != "string") throw new TypeError("Invalid local backup record");
@@ -1674,7 +1806,9 @@
 		}
 	}
 	function localKeys() {
-		return Array.from({ length: native()?.length ?? 0 }, (_, index) => native().key(index)).filter(shared);
+		return Array.from({ length: native()?.length ?? 0 }, (_, index) => native().key(index)).filter(
+			(key) => shared(key) && !isRetiredGuildStorageKey(key),
+		);
 	}
 	function scheduleSharedMigration() {
 		if (!available()) return Promise.resolve();
@@ -1718,6 +1852,7 @@
 		init_shared_storage = __esm({
 			"src/core/shared-storage.js"() {
 				init_startup_diagnostics();
+				init_retired_guild_storage();
 				init_packed_history();
 				((PREFIX = "MWITools_shared_v1:"),
 					(bases = /* @__PURE__ */ new Map()),
@@ -29657,6 +29792,25 @@ ${locks}`
 				((STORAGE_KEY = "MWITools_opinion_center_seen_announcements_v1"),
 					(ANNOUNCEMENTS = Object.freeze([
 						Object.freeze({
+							id: "26.4.22",
+							version: "26.4.22",
+							publishedAt: "2026-10-13",
+							title: Object.freeze({
+								zh: "26.4.22 更新公告",
+								en: "Version 26.4.22 update",
+							}),
+							body: Object.freeze({
+								zh: Object.freeze([
+									"存储与启动：启动时分批删除已移除的公会经验功能留下的本地历史、共享记录、压缩数据页、恢复副本、迁移标记与旧经验数据库，不读取或解压历史内容。其他设置、资产历史、DPS 历史及仍在使用的公会功能保留；清理失败会在下次启动重试，旧标签页占用数据库时会提示关闭。",
+									"备份与恢复：新备份不再包含已移除的公会经验历史，导入旧备份时跳过这部分数据，避免清理后的历史重新出现。",
+								]),
+								en: Object.freeze([
+									"Storage and startup: Startup deletes retired guild XP local history, shared records, compressed pages, recovery copies, migration markers and the old XP database in batches without reading or decompressing history. Other settings, asset history, DPS history and active guild features are preserved. Failed cleanup retries on the next startup; a database held by an old tab prompts you to close it.",
+									"Backup and recovery: New backups exclude retired guild XP history, and older backup imports skip it so removed archives cannot reappear.",
+								]),
+							}),
+						}),
+						Object.freeze({
 							id: "26.4.21",
 							version: "26.4.21",
 							publishedAt: "2026-10-12",
@@ -35282,7 +35436,7 @@ ${locks}`
 		return typeof value == "string" ? value : (value?.[runtime.config.isZH ? "zh" : "en"] ?? value?.en ?? "");
 	}
 	function currentVersion() {
-		return String(globalThis.GM_info?.script?.version ?? "26.4.21");
+		return String(globalThis.GM_info?.script?.version ?? "26.4.22");
 	}
 	function isTestBuild() {
 		let info = globalThis.GM_info?.script;
@@ -45255,9 +45409,9 @@ ${langText2("理论命中率", "Theoretical hit chance")}: ${pct.toFixed(2)}%`;
 
 	// src/main.js
 	init_startup_diagnostics();
-	startupDiagnostics.boot(() =>
-		Promise.resolve()
-			.then(() => (init_app(), app_exports))
-			.then((app) => app.startApp()),
-	);
+	init_retired_guild_storage();
+	startupDiagnostics.boot(async () => {
+		let cleanup4 = cleanupRetiredGuildStorage();
+		(await (await Promise.resolve().then(() => (init_app(), app_exports))).startApp(), await cleanup4);
+	});
 })();

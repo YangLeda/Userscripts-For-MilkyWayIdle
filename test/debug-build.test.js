@@ -12,7 +12,7 @@ const output = await readFile(
 test("debug artifact replaces the production identity and enables console logging", async () => {
   assert.match(output, /^\/\/ @name\s+MWITools$/m);
   assert.match(output, /^\/\/ @namespace\s+http:\/\/tampermonkey.net\/$/m);
-  assert.match(output, /^\/\/ @version\s+26\.4\.21-debug\.2$/m);
+  assert.match(output, /^\/\/ @version\s+26\.4\.22-debug\.2$/m);
   assert.doesNotMatch(output, /^\/\/ @(?:updateURL|downloadURL)\s/m);
   assert.doesNotThrow(() => new vm.Script(output));
   assert.match(output, /module:begin/);

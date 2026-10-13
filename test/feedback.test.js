@@ -394,35 +394,43 @@ test("the shared Ctrl tooltip announcement is red, bold, and underlined", () => 
   scope.cleanup();
 });
 
-test("announcement history preserves each release separately through 26.4.21", () => {
-  assert.equal(ANNOUNCEMENTS[0].publishedAt, "2026-10-12");
-  assert.equal(ANNOUNCEMENTS[0].body.zh.length, 3);
-  assert.equal(ANNOUNCEMENTS[0].body.en.length, 3);
-  assert.match(ANNOUNCEMENTS[0].body.zh[0], /启动诊断.*控制台.*消息积压/);
+test("announcement history preserves each release separately through 26.4.22", () => {
+  assert.equal(ANNOUNCEMENTS[0].publishedAt, "2026-10-13");
+  assert.equal(ANNOUNCEMENTS[0].body.zh.length, 2);
+  assert.equal(ANNOUNCEMENTS[0].body.en.length, 2);
   assert.match(
-    ANNOUNCEMENTS[0].body.en[0],
+    ANNOUNCEMENTS[0].body.zh.join("\n"),
+    /分批删除.*公会经验[\s\S]*导入旧备份/,
+  );
+  assert.equal(ANNOUNCEMENTS[1].publishedAt, "2026-10-12");
+  assert.equal(ANNOUNCEMENTS[1].body.zh.length, 3);
+  assert.equal(ANNOUNCEMENTS[1].body.en.length, 3);
+  assert.match(ANNOUNCEMENTS[1].body.zh[0], /启动诊断.*控制台.*消息积压/);
+  assert.match(
+    ANNOUNCEMENTS[1].body.en[0],
     /Startup diagnostics.*console.*message backlog/,
   );
   assert.match(
-    ANNOUNCEMENTS[0].body.zh.join("\n"),
+    ANNOUNCEMENTS[1].body.zh.join("\n"),
     /移除本地公会经验[\s\S]*已有经验历史保留/,
   );
-  const release19 = ANNOUNCEMENTS[2];
-  const release18 = ANNOUNCEMENTS[3];
-  const release17 = ANNOUNCEMENTS[4];
-  const release16 = ANNOUNCEMENTS[5];
-  const release15 = ANNOUNCEMENTS[6];
-  const latest = ANNOUNCEMENTS[7];
-  const newest = ANNOUNCEMENTS[8];
-  const current = ANNOUNCEMENTS[9];
-  const previous = ANNOUNCEMENTS[10];
-  const prior = ANNOUNCEMENTS[11];
-  const older = ANNOUNCEMENTS[12];
-  const oldest = ANNOUNCEMENTS[13];
-  const earliest = ANNOUNCEMENTS[14];
+  const release19 = ANNOUNCEMENTS[3];
+  const release18 = ANNOUNCEMENTS[4];
+  const release17 = ANNOUNCEMENTS[5];
+  const release16 = ANNOUNCEMENTS[6];
+  const release15 = ANNOUNCEMENTS[7];
+  const latest = ANNOUNCEMENTS[8];
+  const newest = ANNOUNCEMENTS[9];
+  const current = ANNOUNCEMENTS[10];
+  const previous = ANNOUNCEMENTS[11];
+  const prior = ANNOUNCEMENTS[12];
+  const older = ANNOUNCEMENTS[13];
+  const oldest = ANNOUNCEMENTS[14];
+  const earliest = ANNOUNCEMENTS[15];
   assert.deepEqual(
     ANNOUNCEMENTS.map(({ version }) => version),
     [
+      "26.4.22",
       "26.4.21",
       "26.4.20",
       "26.4.19",
@@ -440,10 +448,10 @@ test("announcement history preserves each release separately through 26.4.21", (
       "26.4.6",
     ],
   );
-  assert.equal(ANNOUNCEMENTS[1].publishedAt, "2026-10-10");
-  assert.equal(ANNOUNCEMENTS[1].body.zh.length, 2);
-  assert.equal(ANNOUNCEMENTS[1].body.en.length, 2);
-  assert.match(ANNOUNCEMENTS[1].body.zh.join("\n"), /压缩分页.*旧存储/);
+  assert.equal(ANNOUNCEMENTS[2].publishedAt, "2026-10-10");
+  assert.equal(ANNOUNCEMENTS[2].body.zh.length, 2);
+  assert.equal(ANNOUNCEMENTS[2].body.en.length, 2);
+  assert.match(ANNOUNCEMENTS[2].body.zh.join("\n"), /压缩分页.*旧存储/);
   assert.equal(release19.version, "26.4.19");
   assert.equal(release19.publishedAt, "2026-10-03");
   assert.equal(release19.body.zh.length, 4);
