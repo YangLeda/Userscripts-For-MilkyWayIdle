@@ -1,5 +1,4 @@
 import { runtime } from "./runtime.js";
-import { startupDiagnostics } from "./startup-diagnostics.js";
 
 let hooked = false;
 const queue = [];
@@ -7,19 +6,10 @@ let scheduled = false;
 function drainMessages() {
   // Preserve frame order, yielding to the game between small batches.
   const batch = queue.splice(0, 4);
-  for (const [index, message] of batch.entries()) {
+  for (const message of batch) {
     try {
       handleMessage(message);
-      startupDiagnostics.socketProgress(
-        "processed",
-        queue.length + batch.length - index - 1,
-      );
     } catch (error) {
-      startupDiagnostics.socketProgress(
-        "failed",
-        queue.length + batch.length - index - 1,
-      );
-      startupDiagnostics.error("socket:processing-failed", error);
       console.error("[MWITools] Game message processing failed", error);
     }
   }
@@ -37,10 +27,7 @@ const GAME_SOCKET_HOSTS = [
 /** Installs the existing MessageEvent hook without changing the websocket payload. */
 function hookWS() {
   if (hooked) return;
-  if (startupDiagnostics.skipSocket) {
-    startupDiagnostics.mark("socket:hook-bypassed", null, true);
-    return;
-  }
+
   const dataProperty = Object.getOwnPropertyDescriptor(
     MessageEvent.prototype,
     "data",
@@ -62,24 +49,21 @@ function hookWS() {
     // The game's getter must always return its original payload, even when a
     // plugin handler fails. Plugin work runs after the native listener finishes.
     try {
-      startupDiagnostics.watchSocket(socket);
       Object.defineProperty(this, "data", { value: message });
       queue.push(message);
-      startupDiagnostics.socketProgress("received", queue.length);
+
       if (!scheduled) {
         scheduled = true;
         setTimeout(drainMessages, 0);
       }
     } catch (error) {
-      startupDiagnostics.error("socket:hook-failed", error);
+      console.error("[MWITools] Message hook failed", error);
     }
     return message;
   };
 
   Object.defineProperty(MessageEvent.prototype, "data", dataProperty);
   hooked = true;
-  startupDiagnostics.socketHookInstalled(dataProperty.get);
-  startupDiagnostics.mark("socket:hooked");
 }
 
 /**
@@ -95,22 +79,13 @@ function handleMessage(message) {
     return message;
   }
   if (!payload?.type) return message;
-  if (payload.type.startsWith("init_"))
-    startupDiagnostics.mark(
-      `socket:${payload.type}`,
-      `${message.length} chars`,
-      true,
-    );
-  if (startupDiagnostics.enabled)
-    startupDiagnostics.measure(`state:${payload.type}`, () =>
-      runtime.api.applyGameMessage(payload),
-    );
-  else runtime.api.applyGameMessage(payload);
+
+  runtime.api.applyGameMessage(payload);
   if (payload.type === "init_character_data") {
     void runtime.features
       .handleCharacterData(payload)
       .catch((error) =>
-        startupDiagnostics.error("character:initialization-failed", error),
+        console.error("[MWITools] Character initialization failed", error),
       );
   }
   runtime.dispatchMessage(payload, message);

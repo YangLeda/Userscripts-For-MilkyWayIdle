@@ -89,6 +89,10 @@ test("generated userscript has a single valid metadata block", () => {
 
 test("generated userscript is standalone JavaScript", () => {
   assert.doesNotMatch(output, /sourceMappingURL=/);
+  assert.doesNotMatch(
+    output,
+    /__MWITOOLS_DEBUG_BUILD__|__MWITOOLS_STARTUP_DEBUG__|mwitools-startup-debug|\[MWITools Debug\]|mwitoolsNoSocket/,
+  );
   assert.doesNotThrow(() => new vm.Script(output));
 });
 

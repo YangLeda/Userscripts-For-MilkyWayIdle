@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { startupDiagnostics } from "../src/core/startup-diagnostics.js";
 import { runtime } from "../src/core/runtime.js";
 import "../src/core/game-data.js";
 import "../src/core/state.js";
@@ -25,41 +24,6 @@ test("wildcard message consumers receive each typed or non-JSON frame once", () 
     ["dps_test_message", '{"type":"dps_test_message"}'],
     ["__non_json_message__", "server-non-json-ping"],
   ]);
-});
-
-test("comparison startup bypasses the core getter without affecting other scripts", async () => {
-  const descriptor = Object.getOwnPropertyDescriptor(
-    MessageEvent.prototype,
-    "data",
-  );
-  const savedLocation = globalThis.location;
-  const savedConsole = globalThis.console;
-  globalThis.location = {
-    href: "https://www.milkywayidle.com/game?mwitoolsNoSocket=1",
-  };
-  globalThis.console = { info() {}, warn() {}, error() {} };
-  try {
-    await startupDiagnostics.boot(() => runtime.api.hookWS());
-    assert.deepEqual(
-      Object.getOwnPropertyDescriptor(MessageEvent.prototype, "data"),
-      descriptor,
-    );
-    assert.equal(
-      startupDiagnostics.snapshot().current.lastPhase,
-      "startup:ready",
-    );
-    assert.ok(
-      startupDiagnostics
-        .snapshot()
-        .current.events.some(({ phase }) => phase === "socket:hook-bypassed"),
-    );
-  } finally {
-    startupDiagnostics.stop();
-    globalThis.location = savedLocation;
-    globalThis.console = savedConsole;
-    delete globalThis.__MWITOOLS_STARTUP_DEBUG__;
-    await startupDiagnostics.boot(() => {});
-  }
 });
 
 test("the websocket hook accepts a cross-realm socket-shaped wrapper", async () => {

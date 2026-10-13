@@ -3,8 +3,6 @@
  * that other modules need, while their implementation details stay private.
  */
 
-import { startupDiagnostics } from "./startup-diagnostics.js";
-
 const routeCharacterRequested = /[?&]characterId=/.test(
   globalThis.location?.search ?? "",
 );
@@ -100,8 +98,6 @@ function emitFeatureStatus(id) {
 }
 
 function setFeatureStatus(id, status, error = null) {
-  if (status === "initializing" || status === "failed")
-    startupDiagnostics.mark(`feature:${id}:${status}`, error?.message, true);
   const previous = featureStates.get(id) ?? {};
   featureStates.set(id, { ...previous, status, error });
   emitFeatureStatus(id);
@@ -187,7 +183,7 @@ async function initializeFeature(id) {
         typeof instanceCleanup === "function" ? instanceCleanup : null,
     });
     emitFeatureStatus(id);
-    startupDiagnostics.mark(`feature:${id}:active`);
+
     return true;
   } catch (error) {
     scope.cleanup();
@@ -203,7 +199,7 @@ async function initializeFeature(id) {
         : `[MWITools] Failed to initialize feature ${id}`,
       error,
     );
-    startupDiagnostics.error(`feature:${id}:failed`, error);
+
     emitFeatureStatus(id);
     return false;
   }
@@ -255,10 +251,8 @@ export const runtime = {
     featureInitializationPaused = false;
     for (const feature of this.starts) {
       try {
-        startupDiagnostics.mark(`start-hook:${feature.name}`, null, true);
         const result = feature.start();
         result?.catch?.((error) => {
-          startupDiagnostics.error(`start-hook:${feature.name}:failed`, error);
           console.error(
             runtime.config.isZH
               ? `[MWITools] 启动钩子执行失败：${feature.name}`
@@ -267,7 +261,6 @@ export const runtime = {
           );
         });
       } catch (error) {
-        startupDiagnostics.error(`start-hook:${feature.name}:failed`, error);
         console.error(
           runtime.config.isZH
             ? `[MWITools] 启动钩子执行失败：${feature.name}`
@@ -298,14 +291,8 @@ export const runtime = {
     ];
     for (const handler of handlers) {
       try {
-        if (startupDiagnostics.enabled)
-          startupDiagnostics.measure(
-            `handler:${payload.type}:${handler.name || handlers.indexOf(handler)}`,
-            () => handler(payload, rawMessage),
-          );
-        else handler(payload, rawMessage);
+        handler(payload, rawMessage);
       } catch (error) {
-        startupDiagnostics.error(`handler:${payload.type}:failed`, error);
         console.error(
           runtime.config.isZH
             ? `[MWITools] 消息 ${payload.type} 的处理器执行失败`

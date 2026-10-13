@@ -1,5 +1,5 @@
 import { runtime } from "./core/runtime.js";
-import { startupDiagnostics } from "./core/startup-diagnostics.js";
+
 import { scheduleSharedMigration } from "./core/shared-storage.js";
 import "./core/game-data.js";
 import "./core/game-assets.js";
@@ -51,7 +51,6 @@ import "./features/legacy-lifecycle.js";
 import "./features/message-effects.js";
 
 async function startGame() {
-  startupDiagnostics.mark("client-data:read");
   const clientDataLoaded = runtime.api.refreshGameClientData();
   if (!clientDataLoaded) {
     runtime.features.register({
@@ -63,9 +62,9 @@ async function startGame() {
       },
     });
   }
-  startupDiagnostics.mark("market-cache:read");
+
   runtime.api.loadMarketItemValuesFromStorage();
-  startupDiagnostics.mark("socket:hook");
+
   runtime.api.hookWS();
 
   const currentApiVersion = 3;
@@ -86,11 +85,10 @@ async function startGame() {
     );
   }
   runtime.api.fetchMarketJSON(true);
-  startupDiagnostics.mark("performance-setup:wait");
+
   try {
     await runtime.api.runPerformanceOnboardingIfNeeded();
   } catch (error) {
-    startupDiagnostics.error("performance-setup:failed", error);
     console.error(
       runtime.config.isZH
         ? "[MWITools] 性能引导启动失败，将继续使用当前设置。"
@@ -98,18 +96,16 @@ async function startGame() {
       error,
     );
   }
-  startupDiagnostics.mark("features:start");
+
   await runtime.start();
-  startupDiagnostics.mark("features:ready");
+
   scheduleSharedMigration();
 }
 
 export async function startApp() {
-  startupDiagnostics.attachRuntime(runtime);
   runtime.features.pauseInitialization();
-  startupDiagnostics.mark("settings:read");
+
   runtime.api.readSettings();
-  startupDiagnostics.mark("settings:ready");
 
   if (
     document.URL.includes("amvoidguy.github.io") ||

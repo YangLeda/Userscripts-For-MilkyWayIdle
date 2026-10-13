@@ -132,22 +132,6 @@ for (const [buildName, userscript] of userscripts) {
     );
     dom.window.close();
   });
-  test(`${buildName} safe-start bypass works before any feature or storage module loads`, async () => {
-    const { calls, dom, window } = createUserscriptWindow(
-      "https://www.milkywayidle.com/game?mwitoolsSafe=1",
-    );
-    window.GM_listValues = () => {
-      throw new Error("Shared storage must not be accessed in rescue");
-    };
-    window.eval(userscript);
-    for (let index = 0; index < 30; index += 1) await Promise.resolve();
-    assert.equal(calls.requests, 0);
-    assert.equal(calls.styles, 0);
-    assert.equal(calls.mutationObservers, 0);
-    assert.ok(window.document.querySelector("#mwitools-startup-debug"));
-    assert.equal(window.localStorage.getItem("initClientData"), "cached");
-    dom.window.close();
-  });
   test(`${buildName} game route starts without synchronous errors`, async () => {
     const { calls, dom, window } = createUserscriptWindow(
       "https://www.milkywayidle.com/",

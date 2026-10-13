@@ -28,7 +28,6 @@
 // @grant        GM_setValue
 // @grant        GM_setValues
 // @grant        GM_info
-// @grant        GM_registerMenuCommand
 // @grant        unsafeWindow
 // @connect      www.milkywayidle.com
 // @connect      test.milkywayidle.com
@@ -46,13 +45,6 @@
 // 特别感谢：ColaCola、Zhulimoon、400badrequest、Q7
 
 /*
-    无法进入游戏：从脚本管理器菜单打开“MWITools 启动诊断”，选择“正常加载并记录”。
-    仍卡住时，在同一标签页安全启动并下载诊断报告；安全启动保留设置与历史。
-    请同时提供浏览器、脚本管理器、脚本版本和可正常运行的旧版本号。
-    检查是否重复启用多份 MWITools，更新脚本或切换游戏语言后刷新网页。
-
-    Loading fails: open MWITools startup debug in the userscript manager menu.
-    Reload with diagnostics; if blocked, use Safe start in the same tab and export
-    the report. Settings and history are preserved. Include browser, manager and
-    script versions, and the last working version. Avoid duplicate enabled copies.
+    更新脚本或切换游戏语言后刷新网页，避免同时启用多份 MWITools。
+    Reload after updating or changing game language. Avoid duplicate enabled copies.
 */

@@ -1,6 +1,6 @@
 // Persistent plugin data is shared by the two live origins. Game caches and
 // in-flight sessions deliberately continue to use origin-local storage.
-import { startupDiagnostics } from "./startup-diagnostics.js";
+
 import {
   isRetiredGuildStorageKey,
   isRetiredGuildStorageName,
@@ -17,7 +17,7 @@ import {
 const PREFIX = "MWITools_shared_v1:";
 const bases = new Map();
 const observed = new Set();
-const tracedReads = new Set();
+
 // Cache immutable read snapshots; revisions invalidate only the changed store.
 const snapshots = new Map();
 let indexedNames = null;
@@ -328,11 +328,6 @@ function migrate(key) {
   if (globalThis.GM_getValue(marker)) return;
   const raw = native()?.getItem(key);
   if (raw !== null && raw !== undefined) {
-    startupDiagnostics.mark(
-      "storage:migrate",
-      `${key.split(":")[0]} (${raw.length} chars)`,
-      true,
-    );
     // The complete pre-migration copy is also the recovery record for unknown-age conflicts.
     globalThis.GM_setValue(`${root()}recovery:${encodeURIComponent(marker)}`, {
       key,
@@ -340,16 +335,11 @@ function migrate(key) {
       at: Date.now(),
     });
     write(key, raw, { migration: true });
-    startupDiagnostics.mark("storage:migrated", key.split(":")[0]);
   }
   globalThis.GM_setValue(marker, true);
 }
 export const sharedStorage = {
   getItem(key) {
-    if (startupDiagnostics.enabled && !tracedReads.has(key)) {
-      tracedReads.add(key);
-      startupDiagnostics.mark("storage:read", key.split(":")[0], true);
-    }
     if (!available() || !shared(key)) return native()?.getItem(key) ?? null;
     migrate(key);
     observed.add(canonical(key));
@@ -560,7 +550,7 @@ if (typeof globalThis.GM_addValueChangeListener === "function") {
 }
 
 const historyPreparations = new Map();
-let cleanupApiTraced = false;
+
 export function prepareSharedHistory(key) {
   if (!available() || !isPackedHistory(key)) return Promise.resolve();
   const prefix = recordPrefix(key);
@@ -579,27 +569,15 @@ export function prepareSharedHistory(key) {
         await new Promise((resolve) => setTimeout(resolve, 0));
         Object.assign(
           prepared.values,
-          startupDiagnostics.measure("storage:legacy-read", () =>
-            getValues(names.slice(index, index + 256)),
-          ),
+          getValues(names.slice(index, index + 256)),
         );
       }
       if (globalThis.GM_getValue(revisionKey(key), null) === revision) break;
       indexedNames = null;
       if (attempt === 2) return; // Active old tabs: retry later rather than block or overwrite.
     }
-    startupDiagnostics.measure("storage:history-pack", () =>
-      entriesFor(key, prepared),
-    );
-    if (!cleanupApiTraced) {
-      cleanupApiTraced = true;
-      startupDiagnostics.mark(
-        "storage:delete-api",
-        typeof globalThis.GM_deleteValues === "function"
-          ? "bulk"
-          : "individual",
-      );
-    }
+    entriesFor(key, prepared);
+
     const chunkSize =
       typeof globalThis.GM_deleteValues === "function" ? 4096 : 32;
     for (let index = 0; index < prepared.deletes.length; index += chunkSize) {
@@ -609,9 +587,7 @@ export function prepareSharedHistory(key) {
       const unchanged = batch.filter((name) =>
         equal(current[name], prepared.values[name]),
       );
-      startupDiagnostics.measure("storage:legacy-delete", () =>
-        deleteStorageNames(unchanged),
-      );
+      deleteStorageNames(unchanged);
       if (indexedNames)
         unchanged.forEach((name) => indexedNames.get(prefix)?.delete(name));
     }
@@ -640,7 +616,7 @@ export function scheduleSharedMigration() {
       try {
         migrate(key);
       } catch (error) {
-        startupDiagnostics.error("storage:migration-failed", error);
+        console.error("[MWITools] Storage migration failed", error);
       }
       if (!observed.has(canonical(key))) {
         bases.delete(recordPrefix(key));
