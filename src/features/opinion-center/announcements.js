@@ -2,6 +2,25 @@ const STORAGE_KEY = "MWITools_opinion_center_seen_announcements_v1";
 
 export const ANNOUNCEMENTS = Object.freeze([
   Object.freeze({
+    id: "26.4.22",
+    version: "26.4.22",
+    publishedAt: "2026-10-13",
+    title: Object.freeze({
+      zh: "26.4.22 更新公告",
+      en: "Version 26.4.22 update",
+    }),
+    body: Object.freeze({
+      zh: Object.freeze([
+        "存储与启动：启动时分批删除已移除的公会经验功能留下的本地历史、共享记录、压缩数据页、恢复副本、迁移标记与旧经验数据库，不读取或解压历史内容。其他设置、资产历史、DPS 历史及仍在使用的公会功能保留；清理失败会在下次启动重试，旧标签页占用数据库时会提示关闭。",
+        "备份与恢复：新备份不再包含已移除的公会经验历史，导入旧备份时跳过这部分数据，避免清理后的历史重新出现。",
+      ]),
+      en: Object.freeze([
+        "Storage and startup: Startup deletes retired guild XP local history, shared records, compressed pages, recovery copies, migration markers and the old XP database in batches without reading or decompressing history. Other settings, asset history, DPS history and active guild features are preserved. Failed cleanup retries on the next startup; a database held by an old tab prompts you to close it.",
+        "Backup and recovery: New backups exclude retired guild XP history, and older backup imports skip it so removed archives cannot reappear.",
+      ]),
+    }),
+  }),
+  Object.freeze({
     id: "26.4.21",
     version: "26.4.21",
     publishedAt: "2026-10-12",
@@ -11,10 +30,12 @@ export const ANNOUNCEMENTS = Object.freeze([
     }),
     body: Object.freeze({
       zh: Object.freeze([
+        "启动诊断：提供可直接安装的 debug 版本，控制台输出启动阶段、错误、慢处理、卡顿和消息积压，支持跳过消息拦截的对照启动与安全启动，帮助定位脚本同时失效的问题。",
         "公会：移除本地公会经验采样、经验总览、成员与公会榜经验速率、闲置成员显示及相关设置。公会信用点兑换、建筑提示和技能排行榜增强继续保留。",
         "性能与存储：停止公会经验历史的自动读写和登录后台整理，消除该模块反复压缩历史造成的主线程阻塞。已有经验历史保留供统一备份与恢复使用。",
       ]),
       en: Object.freeze([
+        "Startup diagnostics: Added an installable debug build with console output for startup phases, errors, slow processing, stalls and message backlog, plus comparison startup without message interception and safe startup to investigate scripts failing together.",
         "Guild: Removed local guild XP sampling, XP overview, member and guild leaderboard XP rates, idle-member display and their settings. Guild credit exchange, building hints and skill leaderboard enhancements remain available.",
         "Performance and storage: Stopped automatic guild XP history reads, writes and login-time archive processing, eliminating main-thread stalls from repeated history compression in this module. Existing XP archives remain available through unified backup and restore.",
       ]),

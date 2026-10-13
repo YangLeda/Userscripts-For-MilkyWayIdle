@@ -2,6 +2,10 @@
 // in-flight sessions deliberately continue to use origin-local storage.
 import { startupDiagnostics } from "./startup-diagnostics.js";
 import {
+  isRetiredGuildStorageKey,
+  isRetiredGuildStorageName,
+} from "./retired-guild-storage.js";
+import {
   isPackedHistory,
   readPackedHistory,
   writePackedHistory,
@@ -382,7 +386,10 @@ export function exportSharedBackup() {
     const names = globalThis
       .GM_listValues()
       .filter(
-        (key) => key.startsWith(root()) && /:(record|recovery):/.test(key),
+        (key) =>
+          key.startsWith(root()) &&
+          /:(record|recovery):/.test(key) &&
+          !isRetiredGuildStorageName(key),
       );
     const values = getValues(
       names.filter((name) => !/:page:|:commit:|:packed$/.test(name)),
@@ -415,7 +422,8 @@ export function exportSharedBackup() {
   } else {
     for (let index = 0; index < (native()?.length ?? 0); index++) {
       const key = native().key(index);
-      if (shared(key)) data[`local:${key}`] = native().getItem(key);
+      if (shared(key) && !isRetiredGuildStorageKey(key))
+        data[`local:${key}`] = native().getItem(key);
     }
   }
   return {
@@ -436,7 +444,12 @@ export function restoreSharedBackup(backup) {
     backup.environment !== environment()
   )
     throw new TypeError("Invalid MWITools backup or environment");
-  const entries = Object.entries(backup.data);
+  // Older backups may contain the retired sampler; never resurrect its archives.
+  const entries = Object.entries(backup.data).filter(([key]) =>
+    key.startsWith("local:")
+      ? !isRetiredGuildStorageName(key.slice(6))
+      : !isRetiredGuildStorageName(root() + key),
+  );
   for (const [key, value] of entries) {
     if (key.startsWith("local:")) {
       if (!shared(key.slice(6)) || typeof value !== "string")
@@ -610,7 +623,7 @@ export function prepareSharedHistory(key) {
 function localKeys() {
   return Array.from({ length: native()?.length ?? 0 }, (_, index) =>
     native().key(index),
-  ).filter(shared);
+  ).filter((key) => shared(key) && !isRetiredGuildStorageKey(key));
 }
 let migrationRun = null;
 // Used stores still migrate on first read. Import inactive stores after startup,

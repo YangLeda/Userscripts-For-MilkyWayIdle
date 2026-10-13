@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWITools
 // @namespace    http://tampermonkey.net/
-// @version      26.4.21-debug.1
+// @version      26.4.22-debug.2
 // @description  Tools for MilkyWayIdle. Includes a feedback center, action projections, market insights, asset history, DPS/HPS statistics, inventory tools, tasks, and guild utilities.
 // @author       bot7420, shykai, Stella
 // @license      CC-BY-NC-SA-4.0
@@ -117,6 +117,7 @@ globalThis.__MWITOOLS_DEBUG_BUILD__ = true;
 			},
 			enabled = !1,
 			safe = !1,
+			skipSocket = !1,
 			runtime2 = null,
 			previous = null,
 			report = null,
@@ -126,6 +127,26 @@ globalThis.__MWITOOLS_DEBUG_BUILD__ = true;
 			panel = null,
 			statusNode = null,
 			sockets = /* @__PURE__ */ new WeakSet(),
+			installedGetter = null,
+			socketDescriptor = () => {
+				try {
+					let descriptor = Object.getOwnPropertyDescriptor(host.MessageEvent?.prototype ?? {}, "data");
+					return {
+						present: !!descriptor,
+						configurable: !!descriptor?.configurable,
+						getter: typeof descriptor?.get == "function",
+						getterName: clean(descriptor?.get?.name),
+						...(installedGetter ? { stillInstalled: descriptor?.get === installedGetter } : {}),
+					};
+				} catch {
+					return { inaccessible: !0 };
+				}
+			},
+			print = (level, ...args) => {
+				try {
+					host.console?.[level]?.("[MWITools Debug]", ...args);
+				} catch {}
+			},
 			now = () => host.performance?.now?.() ?? Date.now(),
 			read = (key) => {
 				try {
@@ -150,8 +171,13 @@ globalThis.__MWITOOLS_DEBUG_BUILD__ = true;
 						phase: clean(phase),
 						...(detail === null ? {} : { detail: clean(detail) }),
 					}),
-					report.events.length > 120 && report.events.shift(),
+					report.events.length > LIMIT && report.events.shift(),
 					(report.lastPhase = clean(phase)),
+					print(
+						/failed|error|rejection/.test(phase) ? "error" : /slow|delay/.test(phase) ? "warn" : "info",
+						`+${Math.round(now() - report.started)}ms ${clean(phase)}`,
+						...(detail === null ? [] : [clean(detail)]),
+					),
 					statusNode && (statusNode.textContent = `${langText4("当前阶段", "Current phase")}: ${report.lastPhase}`),
 					immediate ? flush() : flushTimer === null && (flushTimer = host.setTimeout(flush, 500)));
 			},
@@ -162,6 +188,7 @@ globalThis.__MWITOOLS_DEBUG_BUILD__ = true;
 					? {
 							...report,
 							events: [...report.events],
+							socket: { ...report.socket, current: socketDescriptor() },
 							features: (runtime2?.features.list() ?? []).map(({ id, status, error: error2 }) => ({
 								id,
 								status,
@@ -187,11 +214,12 @@ globalThis.__MWITOOLS_DEBUG_BUILD__ = true;
 					link.click(),
 					host.setTimeout(() => host.URL.revokeObjectURL(url), 1e3));
 			},
-			rescue = (value) => {
+			rescue = (value, noSocket = !1) => {
 				write2(RESCUE_KEY, value ? "1" : "0");
 				let url = new host.URL(host.location.href);
 				(url.searchParams.delete("mwitoolsSafe"),
 					url.searchParams.set("mwitoolsDebug", "1"),
+					noSocket ? url.searchParams.set("mwitoolsNoSocket", "1") : url.searchParams.delete("mwitoolsNoSocket"),
 					(host.location.href = url.href));
 			},
 			show = () => {
@@ -219,6 +247,12 @@ globalThis.__MWITOOLS_DEBUG_BUILD__ = true;
 							"日志仅保存在本标签页，记录启动阶段、错误与卡顿，不记录游戏消息内容。",
 							"Logs stay in this tab and record startup phases, errors and stalls without game payloads.",
 						)),
+					skipSocket &&
+						!safe &&
+						(help.textContent = langText4(
+							"对照启动：暂停 MWITools 消息拦截，依赖游戏数据的功能不可用。观察其他脚本是否恢复。",
+							"Comparison start: MWITools message interception is bypassed; data-dependent features are unavailable. Check whether other scripts recover.",
+						)),
 					panel.append(title, help));
 				let status = host.document.createElement("p");
 				((statusNode = status),
@@ -228,7 +262,9 @@ globalThis.__MWITOOLS_DEBUG_BUILD__ = true;
 					panel.append(status));
 				for (let [label, action] of [
 					[langText4("下载诊断报告", "Download report"), download],
+					[langText4("输出报告到控制台", "Print report to console"), () => print("info", snapshot())],
 					[langText4("正常加载并记录", "Start with debug"), () => rescue(!1)],
+					[langText4("跳过消息拦截并记录", "Debug without message interception"), () => rescue(!1, !0)],
 					[langText4("安全启动（暂停插件）", "Safe start"), () => rescue(!0)],
 					[
 						langText4("收起", "Close"),
@@ -262,6 +298,23 @@ globalThis.__MWITOOLS_DEBUG_BUILD__ = true;
 			attachRuntime(value) {
 				runtime2 = value;
 			},
+			get skipSocket() {
+				return skipSocket;
+			},
+			socketHookInstalled(getter) {
+				!enabled ||
+					!report?.socket ||
+					((installedGetter = getter),
+					(report.socket.installed = socketDescriptor()),
+					mark("socket:descriptor-installed", JSON.stringify(report.socket.installed), !0));
+			},
+			socketProgress(kind, pending) {
+				!enabled ||
+					!report?.socket ||
+					((report.socket[kind] += 1),
+					(report.socket.pending = pending),
+					(report.socket.maxPending = Math.max(report.socket.maxPending, pending)));
+			},
 			get enabled() {
 				return enabled;
 			},
@@ -292,7 +345,8 @@ globalThis.__MWITOOLS_DEBUG_BUILD__ = true;
 				let params = new host.URL(host.location?.href ?? "https://localhost").searchParams;
 				if (
 					((safe = params.get("mwitoolsSafe") === "1" || read(RESCUE_KEY) === "1"),
-					(enabled = safe || params.get("mwitoolsDebug") === "1" || host.__MWITOOLS_DEBUG_BUILD__ === !0),
+					(skipSocket = params.get("mwitoolsNoSocket") === "1"),
+					(enabled = safe || skipSocket || params.get("mwitoolsDebug") === "1" || host.__MWITOOLS_DEBUG_BUILD__ === !0),
 					enabled)
 				) {
 					try {
@@ -305,17 +359,54 @@ globalThis.__MWITOOLS_DEBUG_BUILD__ = true;
 						host: host.location?.hostname,
 						userAgent: clean(host.navigator?.userAgent),
 						safe,
+						skipSocket,
+						manager: {
+							name: clean(host.GM_info?.scriptHandler),
+							version: clean(host.GM_info?.version),
+						},
+						socket: {
+							before: socketDescriptor(),
+							received: 0,
+							processed: 0,
+							failed: 0,
+							pending: 0,
+							maxPending: 0,
+						},
 						events: [],
 					}),
 						mark("bootstrap:ready", null, !0),
-						host.addEventListener?.("error", (event) => error("page:error", event.error ?? event.message)),
+						print("info", "Environment", snapshot()));
+					try {
+						let target = host.unsafeWindow ?? host;
+						target.__MWITOOLS_STARTUP_DEBUG__ = {
+							snapshot,
+							print: () => print("info", snapshot()),
+						};
+					} catch {}
+					(host.addEventListener?.("error", (event) => error("page:error", event.error ?? event.message)),
 						host.addEventListener?.("unhandledrejection", (event) => error("page:rejection", event.reason)),
 						host.addEventListener?.("pagehide", stop, { once: !0 }));
-					let last = now();
+					let last = now(),
+						ticks = 0,
+						warnedReplaced = !1;
 					((heartbeat = host.setInterval(() => {
 						let gap = now() - last;
 						((last = now()),
 							!host.document?.hidden && gap > 1500 && mark("main-thread:delay", `${Math.round(gap)} ms`));
+						let descriptor = socketDescriptor();
+						(installedGetter &&
+							descriptor.stillInstalled === !1 &&
+							!warnedReplaced &&
+							((warnedReplaced = !0), mark("socket:hook-replaced", JSON.stringify(descriptor), !0)),
+							++ticks % 10 === 0 &&
+								(print("info", "Heartbeat", {
+									elapsedMs: Math.round(now() - report.started),
+									phase: report.lastPhase,
+									...report.socket,
+									current: descriptor,
+									features: snapshot().current.features,
+								}),
+								flush()));
 					}, 1e3)),
 						(stopTimer = host.setTimeout(stop, 9e4)),
 						show());
@@ -338,19 +429,159 @@ globalThis.__MWITOOLS_DEBUG_BUILD__ = true;
 	}
 	var REPORT_KEY,
 		RESCUE_KEY,
+		LIMIT,
 		clean,
 		startupDiagnostics,
 		init_startup_diagnostics = __esm({
 			"src/core/startup-diagnostics.js"() {
+				try {
+					console.info("[MWITools Debug]", "module:begin", "src/core/startup-diagnostics.js");
+				} catch {}
 				((REPORT_KEY = "MWITools_startup_debug_v1"),
 					(RESCUE_KEY = "MWITools_startup_rescue_v1"),
+					(LIMIT = 120),
 					(clean = (value) =>
 						String(value ?? "")
 							.replace(/https?:\/\/[^\s)]+/g, (url) => url.split(/[?#]/)[0])
 							.slice(0, 800)));
 				startupDiagnostics = createStartupDiagnostics();
+				try {
+					console.info("[MWITools Debug]", "module:ready", "src/core/startup-diagnostics.js");
+				} catch {}
 			},
 		});
+
+	// src/core/retired-guild-storage.js
+	function isRetiredGuildStorageKey(key) {
+		return (
+			key === "MWITools_xp_history_v1" ||
+			/^(MWITools_xp_history_v2:|MWITools_xp_migrated:|MWITools_xp_object_migrated_v2:)/.test(key)
+		);
+	}
+	function isRetiredGuildStorageName(name) {
+		if (isRetiredGuildStorageKey(name)) return !0;
+		let match = String(name).match(/^MWITools_shared_v1:(live|test):(record|revision|migration|recovery):(.*)$/);
+		if (!match) return !1;
+		let [, , kind, remainder] = match;
+		try {
+			if (kind === "record" || kind === "revision") {
+				let split = remainder.indexOf(":");
+				if (kind === "record" && split < 0) return !1;
+				let encoded = kind === "record" ? remainder.slice(0, split) : remainder;
+				return isRetiredGuildStorageKey(decodeURIComponent(encoded));
+			}
+			return kind === "recovery"
+				? isRetiredGuildStorageName(decodeURIComponent(remainder))
+				: /:MWITools_xp_history_v1$|:(MWITools_xp_history_v2|MWITools_xp_migrated|MWITools_xp_object_migrated_v2):/.test(
+						remainder,
+					);
+		} catch {
+			return !1;
+		}
+	}
+	async function cleanupRetiredGuildStorage(host = globalThis, diagnostics = startupDiagnostics) {
+		let counts = { local: 0, shared: 0, failed: 0, database: "unavailable" },
+			langText4 = (zh, en) => (/^zh/i.test(host.navigator?.language ?? "en") ? zh : en),
+			yieldTask = () => new Promise((resolve) => host.setTimeout(resolve, 0)),
+			failure = (phase, error) => {
+				((counts.failed += 1),
+					diagnostics.error(`storage:guild-cleanup:${phase}:failed`, error),
+					host.console?.warn?.(
+						"[MWITools] Retired guild storage cleanup failed; retrying on next startup",
+						phase,
+						error,
+					));
+			};
+		diagnostics.mark("storage:guild-cleanup:begin", null, !0);
+		let database = new Promise((resolve) => {
+			if (!host.indexedDB?.deleteDatabase) return resolve();
+			let timer,
+				finish = (status) => {
+					(host.clearTimeout(timer), (counts.database = status), resolve());
+				};
+			try {
+				let request2 = host.indexedDB.deleteDatabase("MWIToolsHistory");
+				((timer = host.setTimeout(() => finish("pending"), 500)),
+					(request2.onsuccess = () => {
+						(finish("deleted"), diagnostics.mark("storage:guild-cleanup:database-deleted", null, !0));
+					}),
+					(request2.onerror = () => {
+						(failure("database", request2.error), finish("failed"));
+					}),
+					(request2.onblocked = () => {
+						(diagnostics.mark(
+							"storage:guild-cleanup:database-blocked",
+							"Close older game tabs to release the database",
+							!0,
+						),
+							host.console?.warn?.(
+								"[MWITools] Guild history database deletion blocked by an older tab; close that tab and reload",
+							),
+							finish("blocked"));
+					}));
+			} catch (error) {
+				(failure("database", error), finish("failed"));
+			}
+		});
+		try {
+			let storage = host.localStorage,
+				names = Array.from({ length: storage?.length ?? 0 }, (_, index) => storage.key(index)).filter(
+					isRetiredGuildStorageName,
+				);
+			for (let index = 0; index < names.length; index += 32) {
+				await yieldTask();
+				for (let name of names.slice(index, index + 32)) (storage.removeItem(name), (counts.local += 1));
+			}
+		} catch (error) {
+			failure("local", error);
+		}
+		try {
+			if (typeof host.GM_listValues == "function") {
+				let names = host.GM_listValues().filter(isRetiredGuildStorageName),
+					bulk = typeof host.GM_deleteValues == "function";
+				if (names.length && !bulk && typeof host.GM_deleteValue != "function")
+					throw new Error(langText4("脚本管理器的存储删除接口不可用", "Userscript storage deletion API unavailable"));
+				let size = bulk ? 128 : 32;
+				for (let index = 0; index < names.length; index += size) {
+					await yieldTask();
+					let batch = names.slice(index, index + size);
+					if (bulk) await host.GM_deleteValues(batch);
+					else for (let name of batch) await host.GM_deleteValue(name);
+					((counts.shared += batch.length),
+						diagnostics.mark("storage:guild-cleanup:progress", `${counts.shared}/${names.length} shared keys`));
+				}
+				if (names.length && host.GM_listValues().some(isRetiredGuildStorageName))
+					throw new Error(
+						langText4(
+							"旧公会经验存储仍存在，将在下次启动重试清理",
+							"Retired guild keys remain; cleanup will retry on next startup",
+						),
+					);
+			}
+		} catch (error) {
+			failure("shared", error);
+		}
+		return (
+			await database,
+			diagnostics.mark("storage:guild-cleanup:finished", JSON.stringify(counts), !0),
+			(counts.local || counts.shared) &&
+				host.console?.info?.("[MWITools] Removed retired guild XP storage", {
+					...counts,
+				}),
+			counts
+		);
+	}
+	var init_retired_guild_storage = __esm({
+		"src/core/retired-guild-storage.js"() {
+			init_startup_diagnostics();
+			try {
+				console.info("[MWITools Debug]", "module:begin", "src/core/retired-guild-storage.js");
+			} catch {}
+			try {
+				console.info("[MWITools Debug]", "module:ready", "src/core/retired-guild-storage.js");
+			} catch {}
+		},
+	});
 
 	// src/core/runtime.js
 	function resolveCharacterId(payload) {
@@ -550,6 +781,9 @@ globalThis.__MWITOOLS_DEBUG_BUILD__ = true;
 		init_runtime = __esm({
 			"src/core/runtime.js"() {
 				init_startup_diagnostics();
+				try {
+					console.info("[MWITools Debug]", "module:begin", "src/core/runtime.js");
+				} catch {}
 				routeCharacterRequested = /[?&]characterId=/.test(globalThis.location?.search ?? "");
 				((featureDefinitions = /* @__PURE__ */ new Map()),
 					(featureStates = /* @__PURE__ */ new Map()),
@@ -574,23 +808,23 @@ globalThis.__MWITOOLS_DEBUG_BUILD__ = true;
 						for (let feature of this.starts)
 							try {
 								(startupDiagnostics.mark(`start-hook:${feature.name}`, null, !0),
-									feature
-										.start()
-										?.catch?.((error) =>
+									feature.start()?.catch?.((error) => {
+										(startupDiagnostics.error(`start-hook:${feature.name}:failed`, error),
 											console.error(
 												runtime.config.isZH
 													? `[MWITools] 启动钩子执行失败：${feature.name}`
 													: `[MWITools] Startup hook failed: ${feature.name}`,
 												error,
-											),
-										));
+											));
+									}));
 							} catch (error) {
-								console.error(
-									runtime.config.isZH
-										? `[MWITools] 启动钩子执行失败：${feature.name}`
-										: `[MWITools] Startup hook failed: ${feature.name}`,
-									error,
-								);
+								(startupDiagnostics.error(`start-hook:${feature.name}:failed`, error),
+									console.error(
+										runtime.config.isZH
+											? `[MWITools] 启动钩子执行失败：${feature.name}`
+											: `[MWITools] Startup hook failed: ${feature.name}`,
+										error,
+									));
 							}
 						return ((runtimeStarted = !0), this.features.initializeAll());
 					},
@@ -725,6 +959,9 @@ globalThis.__MWITOOLS_DEBUG_BUILD__ = true;
 						},
 					},
 				};
+				try {
+					console.info("[MWITools Debug]", "module:ready", "src/core/runtime.js");
+				} catch {}
 			},
 		});
 
@@ -1239,13 +1476,19 @@ globalThis.__MWITOOLS_DEBUG_BUILD__ = true;
 		pageKey,
 		init_packed_history = __esm({
 			"src/core/packed-history.js"() {
-				((import_lz_string = __toESM(require_lz_string(), 1)),
-					(isPackedHistory = (key) => /^MWITools_xp_history_v[12](?::|$)/.test(key)),
+				import_lz_string = __toESM(require_lz_string(), 1);
+				try {
+					console.info("[MWITools Debug]", "module:begin", "src/core/packed-history.js");
+				} catch {}
+				((isPackedHistory = (key) => /^MWITools_xp_history_v[12](?::|$)/.test(key)),
 					(PAGE_SIZE = 128 * 1024),
 					(localize = (zh, en) => ((globalThis.localStorage?.getItem("i18nextLng") ?? "").startsWith("zh") ? zh : en)),
 					(RETENTION = 720 * 60 * 60 * 1e3),
 					(manifestKey = (prefix) => `${prefix}packed`),
 					(pageKey = (prefix, generation, index) => `${prefix}page:${generation}:${index}`));
+				try {
+					console.info("[MWITools Debug]", "module:ready", "src/core/packed-history.js");
+				} catch {}
 			},
 		});
 
@@ -1466,7 +1709,11 @@ globalThis.__MWITOOLS_DEBUG_BUILD__ = true;
 		let data = {};
 		if (available()) {
 			for (let key of localKeys()) migrate(key);
-			let names = globalThis.GM_listValues().filter((key) => key.startsWith(root()) && /:(record|recovery):/.test(key)),
+			let names = globalThis
+					.GM_listValues()
+					.filter(
+						(key) => key.startsWith(root()) && /:(record|recovery):/.test(key) && !isRetiredGuildStorageName(key),
+					),
 				values = getValues(names.filter((name) => !/:page:|:commit:|:packed$/.test(name)));
 			for (let key of names) {
 				if (/:page:|:commit:|:packed$/.test(key)) continue;
@@ -1492,7 +1739,7 @@ globalThis.__MWITOOLS_DEBUG_BUILD__ = true;
 		} else
 			for (let index = 0; index < (native()?.length ?? 0); index++) {
 				let key = native().key(index);
-				shared(key) && (data[`local:${key}`] = native().getItem(key));
+				shared(key) && !isRetiredGuildStorageKey(key) && (data[`local:${key}`] = native().getItem(key));
 			}
 		return {
 			__mwitools_backup__: !0,
@@ -1512,7 +1759,9 @@ globalThis.__MWITOOLS_DEBUG_BUILD__ = true;
 			backup.environment !== environment()
 		)
 			throw new TypeError("Invalid MWITools backup or environment");
-		let entries = Object.entries(backup.data);
+		let entries = Object.entries(backup.data).filter(([key]) =>
+			key.startsWith("local:") ? !isRetiredGuildStorageName(key.slice(6)) : !isRetiredGuildStorageName(root() + key),
+		);
 		for (let [key, value] of entries) {
 			if (key.startsWith("local:")) {
 				if (!shared(key.slice(6)) || typeof value != "string") throw new TypeError("Invalid local backup record");
@@ -1583,7 +1832,9 @@ globalThis.__MWITOOLS_DEBUG_BUILD__ = true;
 		}
 	}
 	function localKeys() {
-		return Array.from({ length: native()?.length ?? 0 }, (_, index) => native().key(index)).filter(shared);
+		return Array.from({ length: native()?.length ?? 0 }, (_, index) => native().key(index)).filter(
+			(key) => shared(key) && !isRetiredGuildStorageKey(key),
+		);
 	}
 	function scheduleSharedMigration() {
 		if (!available()) return Promise.resolve();
@@ -1627,7 +1878,11 @@ globalThis.__MWITOOLS_DEBUG_BUILD__ = true;
 		init_shared_storage = __esm({
 			"src/core/shared-storage.js"() {
 				init_startup_diagnostics();
+				init_retired_guild_storage();
 				init_packed_history();
+				try {
+					console.info("[MWITools Debug]", "module:begin", "src/core/shared-storage.js");
+				} catch {}
 				((PREFIX = "MWITools_shared_v1:"),
 					(bases = /* @__PURE__ */ new Map()),
 					(observed = /* @__PURE__ */ new Set()),
@@ -1705,6 +1960,9 @@ globalThis.__MWITOOLS_DEBUG_BUILD__ = true;
 								globalThis.dispatchEvent?.(new CustomEvent("mwitools-shared-storage", { detail: value })));
 					});
 				migrationRun = null;
+				try {
+					console.info("[MWITools Debug]", "module:ready", "src/core/shared-storage.js");
+				} catch {}
 			},
 		});
 
@@ -1767,6 +2025,9 @@ globalThis.__MWITOOLS_DEBUG_BUILD__ = true;
 		init_game_data = __esm({
 			"src/core/game-data.js"() {
 				init_runtime();
+				try {
+					console.info("[MWITools Debug]", "module:begin", "src/core/game-data.js");
+				} catch {}
 				((CLIENT_DATA_STATE_FIELDS = Object.freeze({
 					actionDetailMap: "initData_actionDetailMap",
 					levelExperienceTable: "initData_levelExperienceTable",
@@ -1797,6 +2058,9 @@ globalThis.__MWITOOLS_DEBUG_BUILD__ = true;
 					refreshGameClientData,
 					whenGameClientDataReady,
 				});
+				try {
+					console.info("[MWITools Debug]", "module:ready", "src/core/game-data.js");
+				} catch {}
 			},
 		});
 
@@ -1899,6 +2163,9 @@ globalThis.__MWITOOLS_DEBUG_BUILD__ = true;
 		init_game_assets = __esm({
 			"src/core/game-assets.js"() {
 				init_runtime();
+				try {
+					console.info("[MWITools Debug]", "module:begin", "src/core/game-assets.js");
+				} catch {}
 				((SPRITE_PATTERN =
 					/((?:https?:\/\/[^/]+)?[^?#]*\/(abilities|actions|avatars|combat_monsters|items|misc|skills)_sprite(?:\.[^/#?]+)?\.svg(?:\?[^#]*)?)/i),
 					(SPRITE_SOURCE_PRIORITY = Object.freeze({
@@ -1915,6 +2182,9 @@ globalThis.__MWITOOLS_DEBUG_BUILD__ = true;
 					registerGameSpriteSource,
 					scanGameSpriteSources,
 				});
+				try {
+					console.info("[MWITools Debug]", "module:ready", "src/core/game-assets.js");
+				} catch {}
 			},
 		});
 
@@ -2095,6 +2365,9 @@ globalThis.__MWITOOLS_DEBUG_BUILD__ = true;
 			"src/core/config.js"() {
 				init_shared_storage();
 				init_runtime();
+				try {
+					console.info("[MWITools Debug]", "module:begin", "src/core/config.js");
+				} catch {}
 				((isZH = isGameLanguageZH()),
 					(SCRIPT_COLOR_MAIN = "green"),
 					(SCRIPT_COLOR_TOOLTIP = "darkgreen"),
@@ -3381,6 +3654,9 @@ globalThis.__MWITOOLS_DEBUG_BUILD__ = true;
 				runtime.registerStart("core/config.js", () => {
 					console.log(window.location.href);
 				});
+				try {
+					console.info("[MWITools Debug]", "module:ready", "src/core/config.js");
+				} catch {}
 			},
 		});
 
@@ -3441,6 +3717,9 @@ globalThis.__MWITOOLS_DEBUG_BUILD__ = true;
 			"src/core/state.js"() {
 				init_market_backup();
 				init_runtime();
+				try {
+					console.info("[MWITools Debug]", "module:begin", "src/core/state.js");
+				} catch {}
 				((MARKET_JSON_LOCAL_BACKUP =
 					typeof market_backup_default == "string" ? market_backup_default : JSON.stringify(market_backup_default)),
 					(MARKET_JSON_LOCAL_BACKUP_IS_COMPRESSED = typeof market_backup_default == "string"),
@@ -3864,6 +4143,9 @@ globalThis.__MWITOOLS_DEBUG_BUILD__ = true;
 						},
 					},
 				});
+				try {
+					console.info("[MWITools Debug]", "module:ready", "src/core/state.js");
+				} catch {}
 			},
 		});
 
@@ -4293,6 +4575,9 @@ globalThis.__MWITOOLS_DEBUG_BUILD__ = true;
 		init_game_localization = __esm({
 			"src/core/game-localization.js"() {
 				init_runtime();
+				try {
+					console.info("[MWITools Debug]", "module:begin", "src/core/game-localization.js");
+				} catch {}
 				((SUPPORTED_GAME_LOCALES = Object.freeze(["en", "es", "fr", "pt", "zh", "zh-TW", "ja", "ko", "ru"])),
 					(LOCALE_SET = new Set(SUPPORTED_GAME_LOCALES)),
 					(LOCALE_CACHE_SCHEMA = 1),
@@ -4400,6 +4685,9 @@ globalThis.__MWITOOLS_DEBUG_BUILD__ = true;
 					resolveEntityFromElement,
 					getLocalizedEntityName,
 				});
+				try {
+					console.info("[MWITools Debug]", "module:ready", "src/core/game-localization.js");
+				} catch {}
 			},
 		});
 
@@ -4433,8 +4721,14 @@ globalThis.__MWITOOLS_DEBUG_BUILD__ = true;
 			"src/core/localization.js"() {
 				init_runtime();
 				init_game_localization();
+				try {
+					console.info("[MWITools Debug]", "module:begin", "src/core/localization.js");
+				} catch {}
 				((itemName = (hrid, options) => entityName("item", hrid, options)),
 					(actionName = (hrid, options) => entityName("action", hrid, options)));
+				try {
+					console.info("[MWITools Debug]", "module:ready", "src/core/localization.js");
+				} catch {}
 			},
 		});
 
@@ -4985,6 +5279,9 @@ globalThis.__MWITOOLS_DEBUG_BUILD__ = true;
 			"src/core/market.js"() {
 				import_lz_string2 = __toESM(require_lz_string(), 1);
 				init_runtime();
+				try {
+					console.info("[MWITools Debug]", "module:begin", "src/core/market.js");
+				} catch {}
 				((MARKET_TAX_RATE = 0.04),
 					(COWBELL_TAX_RATE = 0.18),
 					(MARKET_MAX_PRICE = 1e12),
@@ -5036,6 +5333,9 @@ globalThis.__MWITOOLS_DEBUG_BUILD__ = true;
 					applyMarketListings,
 					getListingWorkingPrice,
 				});
+				try {
+					console.info("[MWITools Debug]", "module:ready", "src/core/market.js");
+				} catch {}
 			},
 		});
 
@@ -5930,6 +6230,9 @@ globalThis.__MWITOOLS_DEBUG_BUILD__ = true;
 		init_action_projection = __esm({
 			"src/core/action-projection.js"() {
 				init_runtime();
+				try {
+					console.info("[MWITools Debug]", "module:begin", "src/core/action-projection.js");
+				} catch {}
 				((MIN_ACTION_SECONDS = 3),
 					(DRINKS_PER_HOUR = 12),
 					(ENHANCEMENT_BONUSES = Object.freeze([
@@ -5982,6 +6285,9 @@ globalThis.__MWITOOLS_DEBUG_BUILD__ = true;
 					projectQueue,
 					resolveProductionActionByItemHrid,
 				});
+				try {
+					console.info("[MWITools Debug]", "module:ready", "src/core/action-projection.js");
+				} catch {}
 			},
 		});
 
@@ -7305,6 +7611,9 @@ globalThis.__MWITOOLS_DEBUG_BUILD__ = true;
 				init_shared_storage();
 				init_runtime();
 				init_localization();
+				try {
+					console.info("[MWITools Debug]", "module:begin", "src/core/procurement.js");
+				} catch {}
 				((DATA_VERSION = 3),
 					(SETTINGS_KEY = "MWITools_procurement_settings_v1"),
 					(DATA_PREFIX = "MWITools_procurement_v1"),
@@ -7420,6 +7729,9 @@ globalThis.__MWITOOLS_DEBUG_BUILD__ = true;
 					event.detail?.key === activeStorageKey.replace(":china:", ":production:") &&
 						loadCharacterData(activeCharacterId2);
 				});
+				try {
+					console.info("[MWITools Debug]", "module:ready", "src/core/procurement.js");
+				} catch {}
 			},
 		});
 
@@ -8155,6 +8467,9 @@ globalThis.__MWITOOLS_DEBUG_BUILD__ = true;
 			"src/core/planning.js"() {
 				init_runtime();
 				init_localization();
+				try {
+					console.info("[MWITools Debug]", "module:begin", "src/core/planning.js");
+				} catch {}
 				((MAX_DEPTH = 40),
 					(EPSILON = 1e-9),
 					(POLICIES = /* @__PURE__ */ new Set(["chain", "single", "buy"])),
@@ -8224,6 +8539,9 @@ globalThis.__MWITOOLS_DEBUG_BUILD__ = true;
 						return procurement.on("planning:change", listener);
 					},
 				};
+				try {
+					console.info("[MWITools Debug]", "module:ready", "src/core/planning.js");
+				} catch {}
 			},
 		});
 
@@ -8528,6 +8846,9 @@ globalThis.__MWITOOLS_DEBUG_BUILD__ = true;
 			"src/core/train-planning.js"() {
 				init_market();
 				init_runtime();
+				try {
+					console.info("[MWITools Debug]", "module:begin", "src/core/train-planning.js");
+				} catch {}
 				MAX_TRAIN_DEPTH = 50;
 				((cachedActionMap = null),
 					(cachedUpgradeActions = /* @__PURE__ */ new Map()),
@@ -8546,6 +8867,9 @@ globalThis.__MWITOOLS_DEBUG_BUILD__ = true;
 					parseTrainCount,
 				};
 				runtime.api.trainPlanning = trainPlanning;
+				try {
+					console.info("[MWITools Debug]", "module:ready", "src/core/train-planning.js");
+				} catch {}
 			},
 		});
 
@@ -9589,6 +9913,9 @@ globalThis.__MWITOOLS_DEBUG_BUILD__ = true;
 		init_asset_values = __esm({
 			"src/core/asset-values.js"() {
 				init_runtime();
+				try {
+					console.info("[MWITools Debug]", "module:begin", "src/core/asset-values.js");
+				} catch {}
 				((SHOP_CURRENCY_HRIDS = /* @__PURE__ */ new Set([
 					"/items/chimerical_token",
 					"/items/sinister_token",
@@ -9634,6 +9961,9 @@ globalThis.__MWITOOLS_DEBUG_BUILD__ = true;
 				runtime.settings.onChange?.("includeGuildDungeonTokensInAssets", refreshConfiguredAssetValues);
 				runtime.settings.onChange?.("includeTaskTokensInAssets", refreshConfiguredAssetValues);
 				runtime.settings.onChange?.("valueBackEquipmentWithProtectionMirror", refreshConfiguredAssetValues);
+				try {
+					console.info("[MWITools Debug]", "module:ready", "src/core/asset-values.js");
+				} catch {}
 			},
 		});
 
@@ -10011,6 +10341,9 @@ globalThis.__MWITOOLS_DEBUG_BUILD__ = true;
 		init_message_state = __esm({
 			"src/core/message-state.js"() {
 				init_runtime();
+				try {
+					console.info("[MWITools Debug]", "module:begin", "src/core/message-state.js");
+				} catch {}
 				((CHARACTER_GUILD_BUFF_KEYS = [
 					"characterGuildBuffMap",
 					"characterGuildBuffDict",
@@ -10045,23 +10378,32 @@ globalThis.__MWITOOLS_DEBUG_BUILD__ = true;
 					applySkillsUpdated,
 					orderCharacterActions,
 				});
+				try {
+					console.info("[MWITools Debug]", "module:ready", "src/core/message-state.js");
+				} catch {}
 			},
 		});
 
 	// src/core/messages.js
 	function drainMessages() {
 		let batch = queue.splice(0, 4);
-		for (let message of batch)
+		for (let [index, message] of batch.entries())
 			try {
-				handleMessage(message);
+				(handleMessage(message),
+					startupDiagnostics.socketProgress("processed", queue.length + batch.length - index - 1));
 			} catch (error) {
-				(startupDiagnostics.error("socket:processing-failed", error),
+				(startupDiagnostics.socketProgress("failed", queue.length + batch.length - index - 1),
+					startupDiagnostics.error("socket:processing-failed", error),
 					console.error("[MWITools] Game message processing failed", error));
 			}
 		queue.length ? setTimeout(drainMessages, 0) : (scheduled = !1);
 	}
 	function hookWS() {
 		if (hooked) return;
+		if (startupDiagnostics.skipSocket) {
+			startupDiagnostics.mark("socket:hook-bypassed", null, !0);
+			return;
+		}
 		let dataProperty = Object.getOwnPropertyDescriptor(MessageEvent.prototype, "data"),
 			originalGet = dataProperty.get;
 		((dataProperty.get = function () {
@@ -10077,6 +10419,7 @@ globalThis.__MWITOOLS_DEBUG_BUILD__ = true;
 				(startupDiagnostics.watchSocket(socket),
 					Object.defineProperty(this, "data", { value: message }),
 					queue.push(message),
+					startupDiagnostics.socketProgress("received", queue.length),
 					scheduled || ((scheduled = !0), setTimeout(drainMessages, 0)));
 			} catch (error) {
 				startupDiagnostics.error("socket:hook-failed", error);
@@ -10085,6 +10428,7 @@ globalThis.__MWITOOLS_DEBUG_BUILD__ = true;
 		}),
 			Object.defineProperty(MessageEvent.prototype, "data", dataProperty),
 			(hooked = !0),
+			startupDiagnostics.socketHookInstalled(dataProperty.get),
 			startupDiagnostics.mark("socket:hooked"));
 	}
 	function handleMessage(message) {
@@ -10117,6 +10461,9 @@ globalThis.__MWITOOLS_DEBUG_BUILD__ = true;
 			"src/core/messages.js"() {
 				init_runtime();
 				init_startup_diagnostics();
+				try {
+					console.info("[MWITools Debug]", "module:begin", "src/core/messages.js");
+				} catch {}
 				((hooked = !1), (queue = []), (scheduled = !1));
 				GAME_SOCKET_HOSTS = [
 					"api.milkywayidle.com/ws",
@@ -10125,6 +10472,9 @@ globalThis.__MWITOOLS_DEBUG_BUILD__ = true;
 					"api-test.milkywayidlecn.com/ws",
 				];
 				Object.assign(runtime.api, { hookWS, handleMessage });
+				try {
+					console.info("[MWITools Debug]", "module:ready", "src/core/messages.js");
+				} catch {}
 			},
 		});
 
@@ -10499,6 +10849,9 @@ globalThis.__MWITOOLS_DEBUG_BUILD__ = true;
 		init_build_score = __esm({
 			"src/features/build-score.js"() {
 				init_runtime();
+				try {
+					console.info("[MWITools Debug]", "module:begin", "src/features/build-score.js");
+				} catch {}
 				SCORE_UNIT = 1e6;
 				Object.assign(runtime.api, {
 					getSelfBuildScores,
@@ -10517,6 +10870,9 @@ globalThis.__MWITOOLS_DEBUG_BUILD__ = true;
 					calculateSkill,
 					calculateEquipment,
 				});
+				try {
+					console.info("[MWITools Debug]", "module:ready", "src/features/build-score.js");
+				} catch {}
 			},
 		});
 
@@ -10725,6 +11081,9 @@ globalThis.__MWITOOLS_DEBUG_BUILD__ = true;
 			"src/features/duplicate-script-warning.js"() {
 				init_shared_storage();
 				init_runtime();
+				try {
+					console.info("[MWITools Debug]", "module:begin", "src/features/duplicate-script-warning.js");
+				} catch {}
 				((WARNING_ID = "mwitools-duplicate-script-warning"),
 					(MUTED_DUPLICATES_KEY = "MWITools_muted_duplicate_scripts_v1"),
 					(DUPLICATE_IDS = Object.freeze({
@@ -10752,6 +11111,9 @@ globalThis.__MWITOOLS_DEBUG_BUILD__ = true;
 					clearMutedDuplicateScriptIds,
 					getMutedDuplicateScriptIds: () => [...readMutedDuplicateScriptIds()],
 				});
+				try {
+					console.info("[MWITools Debug]", "module:ready", "src/features/duplicate-script-warning.js");
+				} catch {}
 			},
 		});
 
@@ -10822,6 +11184,9 @@ globalThis.__MWITOOLS_DEBUG_BUILD__ = true;
 		init_mobile_viewport_fix = __esm({
 			"src/features/mobile-viewport-fix.js"() {
 				init_runtime();
+				try {
+					console.info("[MWITools Debug]", "module:begin", "src/features/mobile-viewport-fix.js");
+				} catch {}
 				((STYLE_ID = "mwitools-mobile-viewport-style"),
 					(ACTIVE_ATTRIBUTE = "data-mwitools-mobile-viewport"),
 					(HEIGHT_PROPERTY = "--mwitools-visual-viewport-height"));
@@ -10849,6 +11214,9 @@ globalThis.__MWITOOLS_DEBUG_BUILD__ = true;
 							}));
 					},
 				});
+				try {
+					console.info("[MWITools Debug]", "module:ready", "src/features/mobile-viewport-fix.js");
+				} catch {}
 			},
 		});
 
@@ -11004,6 +11372,9 @@ globalThis.__MWITOOLS_DEBUG_BUILD__ = true;
 		init_snapshot = __esm({
 			"src/features/asset-history/00-snapshot.js"() {
 				init_runtime();
+				try {
+					console.info("[MWITools Debug]", "module:begin", "src/features/asset-history/00-snapshot.js");
+				} catch {}
 				((ASSET_COMPONENT_KEYS = [
 					"equipment",
 					"inventory",
@@ -11026,6 +11397,9 @@ globalThis.__MWITOOLS_DEBUG_BUILD__ = true;
 					refreshAssetSnapshot,
 					scheduleAssetSnapshotRefresh,
 				});
+				try {
+					console.info("[MWITools Debug]", "module:ready", "src/features/asset-history/00-snapshot.js");
+				} catch {}
 			},
 		});
 
@@ -11244,6 +11618,9 @@ globalThis.__MWITOOLS_DEBUG_BUILD__ = true;
 				init_shared_storage();
 				init_runtime();
 				init_snapshot();
+				try {
+					console.info("[MWITools Debug]", "module:begin", "src/features/asset-history/10-store.js");
+				} catch {}
 				((ASSET_HISTORY_STORAGE_KEY = "MWITools_asset_history_v1"),
 					(ASSET_HISTORY_BACKUP_MARKER = "__mwitools_asset_history_backup__"),
 					(LEGACY_KEYS = {
@@ -11740,6 +12117,9 @@ globalThis.__MWITOOLS_DEBUG_BUILD__ = true;
 				globalThis.addEventListener?.("mwitools-shared-storage", (event) => {
 					event.detail?.key === ASSET_HISTORY_STORAGE_KEY && assetHistoryStore.reloadFromStorage();
 				});
+				try {
+					console.info("[MWITools Debug]", "module:ready", "src/features/asset-history/10-store.js");
+				} catch {}
 			},
 		});
 
@@ -12001,6 +12381,9 @@ globalThis.__MWITOOLS_DEBUG_BUILD__ = true;
 			"src/features/asset-history/15-analytics.js"() {
 				init_snapshot();
 				init_store();
+				try {
+					console.info("[MWITools Debug]", "module:begin", "src/features/asset-history/15-analytics.js");
+				} catch {}
 				ASSET_COMPONENT_META = Object.freeze({
 					equipment: { zh: "装备", en: "Equipment", color: "#38bdf8" },
 					inventory: { zh: "库存", en: "Inventory", color: "#fbbf24" },
@@ -12168,6 +12551,9 @@ globalThis.__MWITOOLS_DEBUG_BUILD__ = true;
 						7,
 					],
 				];
+				try {
+					console.info("[MWITools Debug]", "module:ready", "src/features/asset-history/15-analytics.js");
+				} catch {}
 			},
 		});
 
@@ -12197,7 +12583,14 @@ globalThis.__MWITOOLS_DEBUG_BUILD__ = true;
 		};
 	}
 	var init_frame_scheduler = __esm({
-		"src/core/frame-scheduler.js"() {},
+		"src/core/frame-scheduler.js"() {
+			try {
+				console.info("[MWITools Debug]", "module:begin", "src/core/frame-scheduler.js");
+			} catch {}
+			try {
+				console.info("[MWITools Debug]", "module:ready", "src/core/frame-scheduler.js");
+			} catch {}
+		},
 	});
 
 	// src/core/mutation-channel.js
@@ -12278,6 +12671,9 @@ globalThis.__MWITOOLS_DEBUG_BUILD__ = true;
 		init_mutation_channel = __esm({
 			"src/core/mutation-channel.js"() {
 				init_runtime();
+				try {
+					console.info("[MWITools Debug]", "module:begin", "src/core/mutation-channel.js");
+				} catch {}
 				((channels = /* @__PURE__ */ new Map()),
 					(TASK_SURFACE_MUTATION_OPTIONS = Object.freeze({
 						childList: !0,
@@ -12292,6 +12688,9 @@ globalThis.__MWITOOLS_DEBUG_BUILD__ = true;
 						"childList",
 						"subtree",
 					]));
+				try {
+					console.info("[MWITools Debug]", "module:ready", "src/core/mutation-channel.js");
+				} catch {}
 			},
 		});
 
@@ -12340,6 +12739,9 @@ globalThis.__MWITOOLS_DEBUG_BUILD__ = true;
 				init_runtime();
 				init_snapshot();
 				init_store();
+				try {
+					console.info("[MWITools Debug]", "module:begin", "src/features/asset-history/20-chart.js");
+				} catch {}
 				((COLORS = {
 					equipment: "#5bc0eb",
 					inventory: "#ffd166",
@@ -12601,6 +13003,9 @@ globalThis.__MWITOOLS_DEBUG_BUILD__ = true;
 						);
 					}
 				};
+				try {
+					console.info("[MWITools Debug]", "module:ready", "src/features/asset-history/20-chart.js");
+				} catch {}
 			},
 		});
 
@@ -12691,6 +13096,9 @@ globalThis.__MWITOOLS_DEBUG_BUILD__ = true;
 				init_snapshot();
 				init_analytics();
 				init_chart();
+				try {
+					console.info("[MWITools Debug]", "module:begin", "src/features/asset-history/25-center.js");
+				} catch {}
 				/*!
 				 * Asset-center interface adapted from Everyday Profit Pro (MIT License).
 				 * Copyright (c) 2025 VictoryWinWinWin, PaperCat, SuXingX
@@ -13395,6 +13803,9 @@ ${values.map((item) => item.date).join(`
 							this.root?.remove());
 					}
 				};
+				try {
+					console.info("[MWITools Debug]", "module:ready", "src/features/asset-history/25-center.js");
+				} catch {}
 			},
 		});
 
@@ -14069,6 +14480,9 @@ ${values.map((item) => item.date).join(`
 				init_store();
 				init_chart();
 				init_center();
+				try {
+					console.info("[MWITools Debug]", "module:begin", "src/features/asset-history/30-panel.js");
+				} catch {}
 				((TAB_ID = "mwitools-asset-history-tab"),
 					(PANEL_ID = "mwitools-asset-history-panel"),
 					(CENTER_ID = "mwitools-asset-center-modal"),
@@ -14482,6 +14896,9 @@ ${preview}`,
 						((this.visible = !1), this.chart.destroy(), this.center?.destroy());
 					}
 				};
+				try {
+					console.info("[MWITools Debug]", "module:ready", "src/features/asset-history/30-panel.js");
+				} catch {}
 			},
 		});
 
@@ -14508,6 +14925,9 @@ ${preview}`,
 				init_analytics();
 				init_store();
 				init_panel();
+				try {
+					console.info("[MWITools Debug]", "module:begin", "src/features/asset-history/index.js");
+				} catch {}
 				assetHistoryApi = {
 					storageKey: "MWITools_asset_history_v1",
 					record(snapshot = getLatestAssetSnapshot(), scopeKey = currentScopeKey()) {
@@ -14634,6 +15054,9 @@ ${preview}`,
 						return (latest && consume(latest), refreshAssetSnapshot(), () => ui.destroy());
 					},
 				});
+				try {
+					console.info("[MWITools Debug]", "module:ready", "src/features/asset-history/index.js");
+				} catch {}
 			},
 		});
 
@@ -15628,6 +16051,9 @@ ${preview}`,
 				init_game_localization();
 				init_runtime();
 				init_panel();
+				try {
+					console.info("[MWITools Debug]", "module:begin", "src/features/planning.js");
+				} catch {}
 				((TAB_ID2 = "mwitools-planning-tab"),
 					(PANEL_ID2 = "mwitools-planning-panel"),
 					(STYLE_ID4 = "mwitools-planning-style"),
@@ -15902,6 +16328,9 @@ ${preview}`,
 						return () => ui.destroy();
 					},
 				});
+				try {
+					console.info("[MWITools Debug]", "module:ready", "src/features/planning.js");
+				} catch {}
 			},
 		});
 
@@ -15978,6 +16407,9 @@ ${preview}`,
 		init_public_api = __esm({
 			"src/features/public-api.js"() {
 				init_runtime();
+				try {
+					console.info("[MWITools Debug]", "module:begin", "src/features/public-api.js");
+				} catch {}
 				((PUBLIC_API_VERSION = 1),
 					(SCORE_SCHEMA_VERSION = 2),
 					(SCORES_UPDATED_EVENT = "mwitools:scores-updated"),
@@ -16010,6 +16442,9 @@ ${preview}`,
 					getPublishedScores: getScores,
 					publishScoreSnapshot,
 				});
+				try {
+					console.info("[MWITools Debug]", "module:ready", "src/features/public-api.js");
+				} catch {}
 			},
 		});
 
@@ -16769,6 +17204,9 @@ ${preview}`,
 				init_runtime();
 				init_game_assets();
 				init_localization();
+				try {
+					console.info("[MWITools Debug]", "module:begin", "src/features/leaderboard-overlay.js");
+				} catch {}
 				((OVERLAY_VERSION = "1.4.1"),
 					(LEADERBOARD_API_URL = "https://mwi-guild.43.167.210.211.sslip.io/api/v1/leaderboards"),
 					(LEADERBOARD_CACHE_KEY = "MWITools_leaderboard_overlay_cache_v3"),
@@ -16874,6 +17312,9 @@ ${preview}`,
 						return activateIntegratedMode("effects");
 					},
 				});
+				try {
+					console.info("[MWITools Debug]", "module:ready", "src/features/leaderboard-overlay.js");
+				} catch {}
 			},
 		});
 
@@ -17547,6 +17988,9 @@ ${preview}`,
 			"src/features/battle-buffs.js"() {
 				init_runtime();
 				init_game_assets();
+				try {
+					console.info("[MWITools Debug]", "module:begin", "src/features/battle-buffs.js");
+				} catch {}
 				((STYLE_ID6 = "mwi-buff-style"),
 					(STATIC_EFFECT_CAPACITY = 3),
 					(MARQUEE_SPEED_PX_PER_SECOND = 24),
@@ -17595,6 +18039,9 @@ ${preview}`,
 						ALL_TARGET_DEBUFFS,
 					},
 				});
+				try {
+					console.info("[MWITools Debug]", "module:ready", "src/features/battle-buffs.js");
+				} catch {}
 			},
 		});
 
@@ -18656,6 +19103,9 @@ ${preview}`,
 				init_runtime();
 				init_game_localization();
 				init_panel();
+				try {
+					console.info("[MWITools Debug]", "module:begin", "src/features/inventory.js");
+				} catch {}
 				((inventoryRefreshTimer = null),
 					(inventoryDisplayVersion = 0),
 					(frozenInventoryDisplays = /* @__PURE__ */ new Map()),
@@ -18691,6 +19141,9 @@ ${preview}`,
 						delete grid.dataset.mwitoolsGridMounted;
 					scheduleNetworthRefresh();
 				});
+				try {
+					console.info("[MWITools Debug]", "module:ready", "src/features/inventory.js");
+				} catch {}
 			},
 		});
 
@@ -19367,6 +19820,9 @@ ${preview}`,
 				init_game_localization();
 				init_localization();
 				init_game_assets();
+				try {
+					console.info("[MWITools Debug]", "module:begin", "src/features/guild-credit-advisor.js");
+				} catch {}
 				((CARD_ID = "mwitools-guild-credit-advisor"),
 					(LEGACY_STYLE_ID = "mwitools-guild-credit-advisor-style"),
 					(LEGACY_SUMMARY_CLASS = "mwi-guild-credit-recommendation"),
@@ -19453,6 +19909,9 @@ ${preview}`,
 					renderGuildCreditAdvisor,
 					renderGuildCreditRecommendations,
 				});
+				try {
+					console.info("[MWITools Debug]", "module:ready", "src/features/guild-credit-advisor.js");
+				} catch {}
 			},
 		});
 
@@ -20183,6 +20642,9 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
 				init_runtime();
 				init_localization();
 				init_game_assets();
+				try {
+					console.info("[MWITools Debug]", "module:begin", "src/features/production-profit-panel.js");
+				} catch {}
 				((PANEL_ID3 = "mwitools-production-profit-panel"),
 					(STYLE_ID7 = "mwitools-production-profit-panel-style"),
 					(VIEWPORT_MARGIN2 = 12),
@@ -20250,6 +20712,9 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
 					showLootChestPanel,
 					showProductionProfitPanel,
 				});
+				try {
+					console.info("[MWITools Debug]", "module:ready", "src/features/production-profit-panel.js");
+				} catch {}
 			},
 		});
 
@@ -20692,6 +21157,9 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
 			"src/features/item-tooltips.js"() {
 				init_runtime();
 				init_game_localization();
+				try {
+					console.info("[MWITools Debug]", "module:begin", "src/features/item-tooltips.js");
+				} catch {}
 				((TOUCH_PROFIT_LONG_PRESS_MS = 800),
 					(TOUCH_PROFIT_MOVE_TOLERANCE = 12),
 					(hoverPanelContext = null),
@@ -20978,6 +21446,9 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
 						runtime.api.hideEnhancementCostPanel?.(),
 						runtime.api.shouldSuppressMarketFeatures?.() && removeSuppressedTooltipContent());
 				});
+				try {
+					console.info("[MWITools Debug]", "module:ready", "src/features/item-tooltips.js");
+				} catch {}
 			},
 		});
 
@@ -21328,6 +21799,9 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
 			"src/features/action-panel.js"() {
 				init_runtime();
 				init_frame_scheduler();
+				try {
+					console.info("[MWITools Debug]", "module:begin", "src/features/action-panel.js");
+				} catch {}
 				((ACTION_PANEL_STYLE_ID = "mwitools-action-panel-style"),
 					(EFFICIENCY_BUFF_TYPE = "/buff_types/efficiency"),
 					(ACTION_LEVEL_BUFF_TYPE = "/buff_types/action_level"),
@@ -21470,6 +21944,9 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
 						});
 					},
 				});
+				try {
+					console.info("[MWITools Debug]", "module:ready", "src/features/action-panel.js");
+				} catch {}
 			},
 		});
 
@@ -21522,7 +21999,14 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
 		return `${duration}${finish}${offset}`;
 	}
 	var init_time_format = __esm({
-		"src/core/time-format.js"() {},
+		"src/core/time-format.js"() {
+			try {
+				console.info("[MWITools Debug]", "module:begin", "src/core/time-format.js");
+			} catch {}
+			try {
+				console.info("[MWITools Debug]", "module:ready", "src/core/time-format.js");
+			} catch {}
+		},
 	});
 
 	// src/features/action-dashboard.js
@@ -22511,6 +22995,9 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
 				init_time_format();
 				init_game_assets();
 				init_message_state();
+				try {
+					console.info("[MWITools Debug]", "module:begin", "src/features/action-dashboard.js");
+				} catch {}
 				((PRODUCTION_PROFILE_MESSAGES = Object.freeze([
 					"init_character_data",
 					"items_updated",
@@ -22690,6 +23177,9 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
 					removeProductionQuickInputs,
 					removeActionUi,
 				});
+				try {
+					console.info("[MWITools Debug]", "module:ready", "src/features/action-dashboard.js");
+				} catch {}
 			},
 		});
 
@@ -24740,6 +25230,9 @@ ${locks}`
 				init_market();
 				init_frame_scheduler();
 				init_game_assets();
+				try {
+					console.info("[MWITools Debug]", "module:begin", "src/features/procurement.js");
+				} catch {}
 				((STYLE_ID9 = "mwitools-procurement-style"),
 					(HOST_ID = "mwitools-procurement-host"),
 					(MARKET_NAV_ID = "mwitools-procurement-market-nav"),
@@ -24956,6 +25449,9 @@ ${locks}`
 					updateProcurementMarketUi: updateMarketUi,
 					openProcurementMarketplace: openMarketplace,
 				});
+				try {
+					console.info("[MWITools Debug]", "module:ready", "src/features/procurement.js");
+				} catch {}
 			},
 		});
 
@@ -25785,6 +26281,9 @@ ${locks}`
 				init_runtime();
 				init_game_localization();
 				init_frame_scheduler();
+				try {
+					console.info("[MWITools Debug]", "module:begin", "src/features/semi-auto-train.js");
+				} catch {}
 				((STYLE_ID10 = "mwitools-semi-auto-train-style"),
 					(CONTROL_CLASS = "mwi-train-controls"),
 					(DETAIL_CLASS = "mwi-train-detail-modal"),
@@ -25854,6 +26353,9 @@ ${locks}`
 						navigateToShop: navigateToTrainShop,
 					},
 				});
+				try {
+					console.info("[MWITools Debug]", "module:ready", "src/features/semi-auto-train.js");
+				} catch {}
 			},
 		});
 
@@ -26050,10 +26552,16 @@ ${locks}`
 				init_runtime();
 				init_game_localization();
 				init_market();
+				try {
+					console.info("[MWITools Debug]", "module:begin", "src/core/task-card-resolution.js");
+				} catch {}
 				((NAME_SELECTOR = '[class*="RandomTask_name"]'),
 					(cachedActionMap2 = null),
 					(cachedLocale = ""),
 					(cachedActionLabels = /* @__PURE__ */ new Map()));
+				try {
+					console.info("[MWITools Debug]", "module:ready", "src/core/task-card-resolution.js");
+				} catch {}
 			},
 		});
 
@@ -28105,6 +28613,9 @@ ${locks}`
 				init_frame_scheduler();
 				init_mutation_channel();
 				init_game_assets();
+				try {
+					console.info("[MWITools Debug]", "module:begin", "src/features/tasks.js");
+				} catch {}
 				((STYLE_ID11 = "mwitools-task-style"),
 					(TASK_SELECTOR = 'div[class*="RandomTask_randomTask"]:not([data-mwitools-task-mirror="true"])'),
 					(REROLL_OPTIONS_SELECTOR = '[class*="RandomTask_rerollOptionsContainer"]'),
@@ -28239,6 +28750,9 @@ ${locks}`
 					sortTasks,
 					restoreTaskOrder: sortTasks,
 				});
+				try {
+					console.info("[MWITools Debug]", "module:ready", "src/features/tasks.js");
+				} catch {}
 			},
 		});
 
@@ -28458,6 +28972,9 @@ ${locks}`
 				init_task_card_resolution();
 				init_frame_scheduler();
 				init_mutation_channel();
+				try {
+					console.info("[MWITools Debug]", "module:begin", "src/features/task-train-planner.js");
+				} catch {}
 				((STYLE_ID12 = "mwitools-task-train-planner-style"),
 					(CONTROL_CLASS2 = "mwi-task-train-planner"),
 					(TASK_SELECTOR2 = 'div[class*="RandomTask_randomTask"]:not([data-mwitools-task-mirror="true"])'),
@@ -28495,6 +29012,9 @@ ${locks}`
 					collectTaskTrainGroups,
 					createTaskTrainPlan,
 				});
+				try {
+					console.info("[MWITools Debug]", "module:ready", "src/features/task-train-planner.js");
+				} catch {}
 			},
 		});
 
@@ -28584,6 +29104,9 @@ ${locks}`
 				init_task_card_resolution();
 				init_frame_scheduler();
 				init_mutation_channel();
+				try {
+					console.info("[MWITools Debug]", "module:begin", "src/features/task-new-badge.js");
+				} catch {}
 				((STYLE_ID13 = "mwitools-task-new-style"),
 					(TASK_SELECTOR3 = 'div[class*="RandomTask_randomTask"]:not([data-mwitools-task-mirror="true"])'),
 					(OWNED_TASK_SELECTOR3 =
@@ -28664,6 +29187,9 @@ ${locks}`
 						writeTaskNewState(key, state);
 					},
 				});
+				try {
+					console.info("[MWITools Debug]", "module:ready", "src/features/task-new-badge.js");
+				} catch {}
 			},
 		});
 
@@ -28837,6 +29363,9 @@ ${locks}`
 				init_game_localization();
 				init_task_card_resolution();
 				init_mutation_channel();
+				try {
+					console.info("[MWITools Debug]", "module:begin", "src/features/task-auto-return.js");
+				} catch {}
 				((TASK_SELECTOR4 = '[class*="RandomTask_randomTask"]:not([data-mwitools-task-mirror="true"])'),
 					(TASK_LIST_SELECTOR = '[class*="TasksPanel_taskList"]'),
 					(ACTION_DETAIL_SELECTOR =
@@ -28959,6 +29488,9 @@ ${locks}`
 							}));
 					},
 				});
+				try {
+					console.info("[MWITools Debug]", "module:ready", "src/features/task-auto-return.js");
+				} catch {}
 			},
 		});
 
@@ -29262,6 +29794,9 @@ ${locks}`
 			"src/features/ability-book-calculator.js"() {
 				init_runtime();
 				init_game_localization();
+				try {
+					console.info("[MWITools Debug]", "module:begin", "src/features/ability-book-calculator.js");
+				} catch {}
 				((STYLE_ID14 = "mwitools-ability-book-calculator-style"),
 					(PANEL_CLASS = "mwi-ability-book-calculator"),
 					(DICTIONARY_SELECTOR = '[class*="ItemDictionary_modalContent"]'));
@@ -29337,6 +29872,9 @@ ${locks}`
 							refresh());
 					},
 				});
+				try {
+					console.info("[MWITools Debug]", "module:ready", "src/features/ability-book-calculator.js");
+				} catch {}
 			},
 		});
 
@@ -29376,6 +29914,9 @@ ${locks}`
 		"src/features/inventory-loot-double-click.js"() {
 			init_runtime();
 			init_game_localization();
+			try {
+				console.info("[MWITools Debug]", "module:begin", "src/features/inventory-loot-double-click.js");
+			} catch {}
 			runtime.features.register({
 				// Keep the persisted setting ID so existing users retain their choice.
 				id: "inventoryLootDoubleClick",
@@ -29483,6 +30024,9 @@ ${locks}`
 						));
 				},
 			});
+			try {
+				console.info("[MWITools Debug]", "module:ready", "src/features/inventory-loot-double-click.js");
+			} catch {}
 		},
 	});
 
@@ -29509,6 +30053,9 @@ ${locks}`
 			"src/features/inventory-market-double-click.js"() {
 				init_runtime();
 				init_game_localization();
+				try {
+					console.info("[MWITools Debug]", "module:begin", "src/features/inventory-market-double-click.js");
+				} catch {}
 				((INVENTORY_SELECTOR = 'div[class*="Inventory_items"]'), (ITEM_SELECTOR2 = 'div[class*="Item_itemContainer"]'));
 				runtime.features.register({
 					id: "inventoryMarketDoubleClick",
@@ -29530,6 +30077,9 @@ ${locks}`
 						);
 					},
 				});
+				try {
+					console.info("[MWITools Debug]", "module:ready", "src/features/inventory-market-double-click.js");
+				} catch {}
 			},
 		});
 
@@ -29555,8 +30105,30 @@ ${locks}`
 		AnnouncementStore,
 		init_announcements = __esm({
 			"src/features/opinion-center/announcements.js"() {
+				try {
+					console.info("[MWITools Debug]", "module:begin", "src/features/opinion-center/announcements.js");
+				} catch {}
 				((STORAGE_KEY = "MWITools_opinion_center_seen_announcements_v1"),
 					(ANNOUNCEMENTS = Object.freeze([
+						Object.freeze({
+							id: "26.4.22",
+							version: "26.4.22",
+							publishedAt: "2026-10-13",
+							title: Object.freeze({
+								zh: "26.4.22 更新公告",
+								en: "Version 26.4.22 update",
+							}),
+							body: Object.freeze({
+								zh: Object.freeze([
+									"存储与启动：启动时分批删除已移除的公会经验功能留下的本地历史、共享记录、压缩数据页、恢复副本、迁移标记与旧经验数据库，不读取或解压历史内容。其他设置、资产历史、DPS 历史及仍在使用的公会功能保留；清理失败会在下次启动重试，旧标签页占用数据库时会提示关闭。",
+									"备份与恢复：新备份不再包含已移除的公会经验历史，导入旧备份时跳过这部分数据，避免清理后的历史重新出现。",
+								]),
+								en: Object.freeze([
+									"Storage and startup: Startup deletes retired guild XP local history, shared records, compressed pages, recovery copies, migration markers and the old XP database in batches without reading or decompressing history. Other settings, asset history, DPS history and active guild features are preserved. Failed cleanup retries on the next startup; a database held by an old tab prompts you to close it.",
+									"Backup and recovery: New backups exclude retired guild XP history, and older backup imports skip it so removed archives cannot reappear.",
+								]),
+							}),
+						}),
 						Object.freeze({
 							id: "26.4.21",
 							version: "26.4.21",
@@ -29567,10 +30139,12 @@ ${locks}`
 							}),
 							body: Object.freeze({
 								zh: Object.freeze([
+									"启动诊断：提供可直接安装的 debug 版本，控制台输出启动阶段、错误、慢处理、卡顿和消息积压，支持跳过消息拦截的对照启动与安全启动，帮助定位脚本同时失效的问题。",
 									"公会：移除本地公会经验采样、经验总览、成员与公会榜经验速率、闲置成员显示及相关设置。公会信用点兑换、建筑提示和技能排行榜增强继续保留。",
 									"性能与存储：停止公会经验历史的自动读写和登录后台整理，消除该模块反复压缩历史造成的主线程阻塞。已有经验历史保留供统一备份与恢复使用。",
 								]),
 								en: Object.freeze([
+									"Startup diagnostics: Added an installable debug build with console output for startup phases, errors, slow processing, stalls and message backlog, plus comparison startup without message interception and safe startup to investigate scripts failing together.",
 									"Guild: Removed local guild XP sampling, XP overview, member and guild leaderboard XP rates, idle-member display and their settings. Guild credit exchange, building hints and skill leaderboard enhancements remain available.",
 									"Performance and storage: Stopped automatic guild XP history reads, writes and login-time archive processing, eliminating main-thread stalls from repeated history compression in this module. Existing XP archives remain available through unified backup and restore.",
 								]),
@@ -30136,6 +30710,9 @@ ${locks}`
 						return (this.setValue(STORAGE_KEY, [...this.seenIds]), unread.length);
 					}
 				};
+				try {
+					console.info("[MWITools Debug]", "module:ready", "src/features/opinion-center/announcements.js");
+				} catch {}
 			},
 		});
 
@@ -30311,6 +30888,9 @@ ${locks}`
 		init_client = __esm({
 			"src/features/opinion-center/client.js"() {
 				init_runtime();
+				try {
+					console.info("[MWITools Debug]", "module:begin", "src/features/opinion-center/client.js");
+				} catch {}
 				((API_BASE = "https://feedback.43.167.210.211.sslip.io/api/v1"),
 					(TOKEN_PREFIX = "MWITools_feedback_identity_v1"),
 					(REQUEST_TIMEOUT = 1e4),
@@ -30408,6 +30988,9 @@ ${locks}`
 						});
 					}
 				};
+				try {
+					console.info("[MWITools Debug]", "module:ready", "src/features/opinion-center/client.js");
+				} catch {}
 			},
 		});
 
@@ -30440,7 +31023,13 @@ ${locks}`
 	var HEADER_TOOLS_ID,
 		init_header_tools = __esm({
 			"src/features/header-tools.js"() {
+				try {
+					console.info("[MWITools Debug]", "module:begin", "src/features/header-tools.js");
+				} catch {}
 				HEADER_TOOLS_ID = "mwitools-header-tools";
+				try {
+					console.info("[MWITools Debug]", "module:ready", "src/features/header-tools.js");
+				} catch {}
 			},
 		});
 
@@ -30499,6 +31088,9 @@ ${locks}`
 				init_announcements();
 				init_runtime();
 				init_header_tools();
+				try {
+					console.info("[MWITools Debug]", "module:begin", "src/features/opinion-center/panel.js");
+				} catch {}
 				((ROOT_ID2 = "mwitools-feedback-root"),
 					(BUTTON_ID = "mwitools-feedback-button"),
 					(STYLE_ID15 = "mwitools-feedback-style"));
@@ -30919,6 +31511,9 @@ ${locks}`
 							document.getElementById(STYLE_ID15)?.remove());
 					}
 				};
+				try {
+					console.info("[MWITools Debug]", "module:ready", "src/features/opinion-center/panel.js");
+				} catch {}
 			},
 		});
 
@@ -30935,6 +31530,9 @@ ${locks}`
 				init_client();
 				init_announcements();
 				init_panel2();
+				try {
+					console.info("[MWITools Debug]", "module:begin", "src/features/opinion-center/index.js");
+				} catch {}
 				activeClient = null;
 				runtime.features.register({
 					id: "feedback",
@@ -31003,6 +31601,9 @@ ${locks}`
 					markRead: (...args) => activeClient?.markRead(...args),
 					quota: (...args) => activeClient?.quota(...args),
 				};
+				try {
+					console.info("[MWITools Debug]", "module:ready", "src/features/opinion-center/index.js");
+				} catch {}
 			},
 		});
 
@@ -31524,6 +32125,9 @@ ${locks}`
 			"src/features/game-widgets.js"() {
 				init_runtime();
 				init_game_localization();
+				try {
+					console.info("[MWITools Debug]", "module:begin", "src/features/game-widgets.js");
+				} catch {}
 				lastBattleSummaryMessage = null;
 				((onlyShowItemsAboveLevel = 1),
 					(onlyShowItemsBelowLevel = 1e3),
@@ -31630,6 +32234,9 @@ ${locks}`
 							scope.add(() => document.querySelectorAll(".script_mapIndex").forEach((node) => node.remove())));
 					},
 				});
+				try {
+					console.info("[MWITools Debug]", "module:ready", "src/features/game-widgets.js");
+				} catch {}
 			},
 		});
 
@@ -31881,6 +32488,9 @@ ${locks}`
 				init_runtime();
 				init_time_format();
 				init_message_state();
+				try {
+					console.info("[MWITools Debug]", "module:begin", "src/features/navigation-action-queue.js");
+				} catch {}
 				THIRD_PARTY_LINKS = [
 					{
 						zh: "插件合集 Q7",
@@ -31928,6 +32538,9 @@ ${locks}`
 					handleActionQueueMenueCalculateTime,
 					observeActionQueueMenus,
 				});
+				try {
+					console.info("[MWITools Debug]", "module:ready", "src/features/navigation-action-queue.js");
+				} catch {}
 			},
 		});
 
@@ -32561,6 +33174,9 @@ ${locks}`
 		init_enhancement_planner = __esm({
 			"src/features/enhancement-planner.js"() {
 				init_runtime();
+				try {
+					console.info("[MWITools Debug]", "module:begin", "src/features/enhancement-planner.js");
+				} catch {}
 				((ENHANCEMENT_PROFILE = Object.freeze({
 					playerLevel: 140,
 					houseLevel: 8,
@@ -32594,6 +33210,9 @@ ${locks}`
 					calculatePhilosopherEnhancementFlow,
 					getEnhancementProfileStats,
 				});
+				try {
+					console.info("[MWITools Debug]", "module:ready", "src/features/enhancement-planner.js");
+				} catch {}
 			},
 		});
 
@@ -32821,6 +33440,9 @@ ${locks}`
 		init_enhancement_cost_panel = __esm({
 			"src/features/enhancement-cost-panel.js"() {
 				init_runtime();
+				try {
+					console.info("[MWITools Debug]", "module:begin", "src/features/enhancement-cost-panel.js");
+				} catch {}
 				((PANEL_ID4 = "mwitools-enhancement-cost-panel"),
 					(STYLE_ID16 = "mwitools-enhancement-cost-panel-style"),
 					(VIEWPORT_MARGIN3 = 12),
@@ -32835,6 +33457,9 @@ ${locks}`
 					positionEnhancementCostPanel,
 					showEnhancementCostPanel,
 				});
+				try {
+					console.info("[MWITools Debug]", "module:ready", "src/features/enhancement-cost-panel.js");
+				} catch {}
 			},
 		});
 
@@ -32928,6 +33553,9 @@ ${locks}`
 			init_game_localization();
 			init_enhancement_planner();
 			init_enhancement_cost_panel();
+			try {
+				console.info("[MWITools Debug]", "module:begin", "src/features/enhancement-tooltip.js");
+			} catch {}
 			runtime.api.handleItemTooltipWithEnhancementLevel = handleEnhancedItemTooltip;
 			runtime.onMessage("init_character_data", () => {
 				runtime.api.shouldSuppressMarketFeatures?.() &&
@@ -32937,6 +33565,9 @@ ${locks}`
 				runtime.api.shouldSuppressMarketFeatures?.() &&
 					document.querySelectorAll('[data-mwitools-enhancement-market="true"]').forEach((row) => row.remove());
 			});
+			try {
+				console.info("[MWITools Debug]", "module:ready", "src/features/enhancement-tooltip.js");
+			} catch {}
 		},
 	});
 
@@ -34068,6 +34699,9 @@ ${locks}`
 				init_frame_scheduler();
 				init_mutation_channel();
 				init_header_tools();
+				try {
+					console.info("[MWITools Debug]", "module:begin", "src/features/settings-and-notifications.js");
+				} catch {}
 				((SETTINGS_V2_KEY = "MWITools_settings_v2"),
 					(BACK_MIRROR_DEFAULT_CORRECTION_KEY = "MWITools_back_mirror_default_disabled_v2"),
 					(SETTINGS_STYLE_ID = "mwitools-settings-style"),
@@ -34173,6 +34807,9 @@ ${locks}`
 					stored?.version === 2 &&
 						runtime.settings.applyBatch?.({ values: stored.values, preferences: stored.preferences }, { persist: !1 });
 				});
+				try {
+					console.info("[MWITools Debug]", "module:ready", "src/features/settings-and-notifications.js");
+				} catch {}
 			},
 		});
 
@@ -34414,6 +35051,9 @@ ${locks}`
 			"src/core/performance-profile.js"() {
 				init_shared_storage();
 				init_runtime();
+				try {
+					console.info("[MWITools Debug]", "module:begin", "src/core/performance-profile.js");
+				} catch {}
 				((PERFORMANCE_PROFILE_STORAGE_KEY = "MWITools_performance_profile_v1"),
 					(PERFORMANCE_PROFILE_VERSION = 1),
 					(USAGES = Object.freeze(["life", "combat", "balanced"])),
@@ -34459,6 +35099,9 @@ ${locks}`
 						shouldRun: shouldRunPerformanceOnboarding,
 					},
 				});
+				try {
+					console.info("[MWITools Debug]", "module:ready", "src/core/performance-profile.js");
+				} catch {}
 			},
 		});
 
@@ -34652,6 +35295,9 @@ ${locks}`
 			"src/features/performance-onboarding.js"() {
 				init_runtime();
 				init_performance_profile();
+				try {
+					console.info("[MWITools Debug]", "module:begin", "src/features/performance-onboarding.js");
+				} catch {}
 				((PERFORMANCE_ONBOARDING_ID = "mwitools-performance-onboarding"),
 					(PERFORMANCE_STYLE_ID = "mwitools-performance-onboarding-style"),
 					(TEXT = Object.freeze({
@@ -35173,6 +35819,9 @@ ${locks}`
 					openPerformanceOnboarding,
 					runPerformanceOnboardingIfNeeded,
 				});
+				try {
+					console.info("[MWITools Debug]", "module:ready", "src/features/performance-onboarding.js");
+				} catch {}
 			},
 		});
 
@@ -35181,7 +35830,7 @@ ${locks}`
 		return typeof value == "string" ? value : (value?.[runtime.config.isZH ? "zh" : "en"] ?? value?.en ?? "");
 	}
 	function currentVersion() {
-		return String(globalThis.GM_info?.script?.version ?? "26.4.21");
+		return String(globalThis.GM_info?.script?.version ?? "26.4.22");
 	}
 	function isTestBuild() {
 		let info = globalThis.GM_info?.script;
@@ -35380,6 +36029,9 @@ ${locks}`
 			"src/features/update-banner.js"() {
 				init_shared_storage();
 				init_runtime();
+				try {
+					console.info("[MWITools Debug]", "module:begin", "src/features/update-banner.js");
+				} catch {}
 				((MANIFEST_URL =
 					"https://raw.githubusercontent.com/YangLeda/Userscripts-For-MilkyWayIdle/main/release-manifest.json"),
 					(FALLBACK_MANIFEST_URL = "https://feedback.43.167.210.211.sslip.io/api/v1/release-manifest"),
@@ -35419,6 +36071,9 @@ ${locks}`
 					getImportantUpdateManifest,
 					updateDownloadUrl,
 				});
+				try {
+					console.info("[MWITools Debug]", "module:ready", "src/features/update-banner.js");
+				} catch {}
 			},
 		});
 
@@ -35590,6 +36245,9 @@ ${locks}`
 				init_runtime();
 				init_game_assets();
 				init_game_localization();
+				try {
+					console.info("[MWITools Debug]", "module:begin", "src/features/dps/00-bootstrap.js");
+				} catch {}
 				((pageWindow2 = globalThis.unsafeWindow ?? globalThis),
 					(MWI = pageWindow2.__MWI_DPS = pageWindow2.__MWI_DPS || {}));
 				MWI.__mwitoolsIntegrated = !0;
@@ -35788,6 +36446,9 @@ ${locks}`
 					}
 					return { dayStamp, resolve, matches };
 				})();
+				try {
+					console.info("[MWITools Debug]", "module:ready", "src/features/dps/00-bootstrap.js");
+				} catch {}
 			},
 		});
 
@@ -35809,6 +36470,9 @@ ${locks}`
 				init_bootstrap();
 				init_runtime();
 				init_game_localization();
+				try {
+					console.info("[MWITools Debug]", "module:begin", "src/features/dps/10-combat-sources.js");
+				} catch {}
 				((ClassSystem = (() => {
 					let UNKNOWN = "unknown",
 						bus = new EventTarget(),
@@ -37312,6 +37976,9 @@ ${locks}`
 						}
 						return { encode, decode, label, icon };
 					})()));
+				try {
+					console.info("[MWITools Debug]", "module:ready", "src/features/dps/10-combat-sources.js");
+				} catch {}
 			},
 		});
 
@@ -37323,6 +37990,9 @@ ${locks}`
 			"src/features/dps/20-session.js"() {
 				init_bootstrap();
 				init_combat_sources();
+				try {
+					console.info("[MWITools Debug]", "module:begin", "src/features/dps/20-session.js");
+				} catch {}
 				((Session = (() => {
 					let startTs = performance.now(),
 						elapsedOffset = 0,
@@ -38026,6 +38696,9 @@ ${locks}`
 							},
 						};
 					})()));
+				try {
+					console.info("[MWITools Debug]", "module:ready", "src/features/dps/20-session.js");
+				} catch {}
 			},
 		});
 
@@ -38118,6 +38791,9 @@ ${locks}`
 				init_bootstrap();
 				init_combat_sources();
 				init_session();
+				try {
+					console.info("[MWITools Debug]", "module:begin", "src/features/dps/40-socket-parser.js");
+				} catch {}
 				COMBAT_STYLES = /* @__PURE__ */ new Set(["stab", "slash", "smash", "ranged", "magic"]);
 				SocketHook = (() => {
 					let bus = new EventTarget(),
@@ -40243,6 +40919,9 @@ ${locks}`
 						scanForOutlierMiniUnit,
 					};
 				})();
+				try {
+					console.info("[MWITools Debug]", "module:ready", "src/features/dps/40-socket-parser.js");
+				} catch {}
 			},
 		});
 
@@ -40611,6 +41290,9 @@ ${locks}`
 				init_combat_sources();
 				init_game_localization();
 				init_session();
+				try {
+					console.info("[MWITools Debug]", "module:begin", "src/features/dps/30-history.js");
+				} catch {}
 				((langText = (zh, en) => (Settings.getLanguage() === "en" ? en : zh)), (UNATTRIBUTED_EPSILON = 1e-4));
 				((HistoryStore = /* @__PURE__ */ (() => {
 					let KEY = "kikimeter:history:v2",
@@ -41136,6 +41818,9 @@ ${locks}`
 					}
 					return { get };
 				})();
+				try {
+					console.info("[MWITools Debug]", "module:ready", "src/features/dps/30-history.js");
+				} catch {}
 			},
 		});
 
@@ -41637,6 +42322,9 @@ ${langText2("理论命中率", "Theoretical hit chance")}: ${pct.toFixed(2)}%`;
 				init_bootstrap();
 				init_combat_sources();
 				init_session();
+				try {
+					console.info("[MWITools Debug]", "module:begin", "src/features/dps/50-graph-components.js");
+				} catch {}
 				((BOSS_COLOR = "#FF3F34"),
 					(langText2 = (zh, en) => (Settings.getLanguage() === "en" ? en : zh)),
 					(formatRating = (value) => {
@@ -42001,6 +42689,9 @@ ${langText2("理论命中率", "Theoretical hit chance")}: ${pct.toFixed(2)}%`;
 						}
 						return { show, update, isOpenFor, scheduleClose, cancelClose, close };
 					})()));
+				try {
+					console.info("[MWITools Debug]", "module:ready", "src/features/dps/50-graph-components.js");
+				} catch {}
 			},
 		});
 
@@ -42013,6 +42704,9 @@ ${langText2("理论命中率", "Theoretical hit chance")}: ${pct.toFixed(2)}%`;
 				init_combat_sources();
 				init_history();
 				init_graph_components();
+				try {
+					console.info("[MWITools Debug]", "module:begin", "src/features/dps/60-main-panel.js");
+				} catch {}
 				KikiMeter = (() => {
 					let langText4 = (zh, en) => (Settings.getLanguage() === "en" ? en : zh),
 						localizeReason = (reason) =>
@@ -43490,6 +44184,9 @@ ${langText2("理论命中率", "Theoretical hit chance")}: ${pct.toFixed(2)}%`;
 						refreshSegments: () => refreshSegmentSelect(segmentSelect),
 					};
 				})();
+				try {
+					console.info("[MWITools Debug]", "module:ready", "src/features/dps/60-main-panel.js");
+				} catch {}
 			},
 		});
 
@@ -43500,6 +44197,12 @@ ${langText2("理论命中率", "Theoretical hit chance")}: ${pct.toFixed(2)}%`;
 			init_history();
 			init_graph_components();
 			init_main_panel();
+			try {
+				console.info("[MWITools Debug]", "module:begin", "src/features/dps/70-recount-compat.js");
+			} catch {}
+			try {
+				console.info("[MWITools Debug]", "module:ready", "src/features/dps/70-recount-compat.js");
+			} catch {}
 		},
 	});
 
@@ -43889,7 +44592,13 @@ ${langText2("理论命中率", "Theoretical hit chance")}: ${pct.toFixed(2)}%`;
 				init_graph_components();
 				init_main_panel();
 				init_recount_compat();
+				try {
+					console.info("[MWITools Debug]", "module:begin", "src/features/dps/90-application.js");
+				} catch {}
 				langText3 = (zh, en) => (Settings.getLanguage() === "en" ? en : zh);
+				try {
+					console.info("[MWITools Debug]", "module:ready", "src/features/dps/90-application.js");
+				} catch {}
 			},
 		});
 
@@ -43900,6 +44609,9 @@ ${langText2("理论命中率", "Theoretical hit chance")}: ${pct.toFixed(2)}%`;
 			init_bootstrap();
 			init_socket_parser();
 			init_application();
+			try {
+				console.info("[MWITools Debug]", "module:begin", "src/features/dps/index.js");
+			} catch {}
 			MWI.enabled = !1;
 			runtime.features.register({
 				id: "dps",
@@ -43926,6 +44638,9 @@ ${langText2("理论命中率", "Theoretical hit chance")}: ${pct.toFixed(2)}%`;
 			Object.assign(runtime.api, {
 				dps: MWI,
 			});
+			try {
+				console.info("[MWITools Debug]", "module:ready", "src/features/dps/index.js");
+			} catch {}
 		},
 	});
 
@@ -44750,6 +45465,9 @@ ${langText2("理论命中率", "Theoretical hit chance")}: ${pct.toFixed(2)}%`;
 		init_external_tools = __esm({
 			"src/features/external-tools.js"() {
 				init_runtime();
+				try {
+					console.info("[MWITools Debug]", "module:begin", "src/features/external-tools.js");
+				} catch {}
 				addImportButtonFor9Battles = addImportButtonForAmvoidguy;
 				Object.assign(runtime.api, {
 					addImportButtonFor9Battles,
@@ -44768,6 +45486,9 @@ ${langText2("理论命中率", "Theoretical hit chance")}: ${pct.toFixed(2)}%`;
 					hoursToReadableString,
 					addExportButton,
 				});
+				try {
+					console.info("[MWITools Debug]", "module:ready", "src/features/external-tools.js");
+				} catch {}
 			},
 		});
 
@@ -44808,6 +45529,9 @@ ${langText2("理论命中率", "Theoretical hit chance")}: ${pct.toFixed(2)}%`;
 				init_runtime();
 				init_frame_scheduler();
 				init_mutation_channel();
+				try {
+					console.info("[MWITools Debug]", "module:begin", "src/features/legacy-lifecycle.js");
+				} catch {}
 				adapters = {
 					invWorth: {
 						scope: "character",
@@ -44944,6 +45668,9 @@ ${langText2("理论命中率", "Theoretical hit chance")}: ${pct.toFixed(2)}%`;
 								adapter.cleanup?.();
 							},
 						});
+				try {
+					console.info("[MWITools Debug]", "module:ready", "src/features/legacy-lifecycle.js");
+				} catch {}
 			},
 		});
 
@@ -44970,6 +45697,9 @@ ${langText2("理论命中率", "Theoretical hit chance")}: ${pct.toFixed(2)}%`;
 		"src/features/message-effects.js"() {
 			init_shared_storage();
 			init_runtime();
+			try {
+				console.info("[MWITools Debug]", "module:begin", "src/features/message-effects.js");
+			} catch {}
 			runtime.onMessage("init_client_data", (payload, message) => {
 				(console.log(payload), GM_setValue("init_client_data", message));
 			});
@@ -45026,6 +45756,9 @@ ${langText2("理论命中率", "Theoretical hit chance")}: ${pct.toFixed(2)}%`;
 					runtime.api.addExportButton(payload),
 					runtime.settings.settingsMap.profileBuildScore.isTrue && runtime.api.showBuildScoreOnProfile(payload));
 			});
+			try {
+				console.info("[MWITools Debug]", "module:ready", "src/features/message-effects.js");
+			} catch {}
 		},
 	});
 
@@ -45065,12 +45798,13 @@ ${langText2("理论命中率", "Theoretical hit chance")}: ${pct.toFixed(2)}%`;
 		try {
 			await runtime.api.runPerformanceOnboardingIfNeeded();
 		} catch (error) {
-			console.error(
-				runtime.config.isZH
-					? "[MWITools] 性能引导启动失败，将继续使用当前设置。"
-					: "[MWITools] Performance setup failed; continuing with current settings.",
-				error,
-			);
+			(startupDiagnostics.error("performance-setup:failed", error),
+				console.error(
+					runtime.config.isZH
+						? "[MWITools] 性能引导启动失败，将继续使用当前设置。"
+						: "[MWITools] Performance setup failed; continuing with current settings.",
+					error,
+				));
 		}
 		(startupDiagnostics.mark("features:start"),
 			await runtime.start(),
@@ -45148,14 +45882,26 @@ ${langText2("理论命中率", "Theoretical hit chance")}: ${pct.toFixed(2)}%`;
 			init_external_tools();
 			init_legacy_lifecycle();
 			init_message_effects();
+			try {
+				console.info("[MWITools Debug]", "module:begin", "src/app.js");
+			} catch {}
+			try {
+				console.info("[MWITools Debug]", "module:ready", "src/app.js");
+			} catch {}
 		},
 	});
 
 	// src/main.js
 	init_startup_diagnostics();
-	startupDiagnostics.boot(() =>
-		Promise.resolve()
-			.then(() => (init_app(), app_exports))
-			.then((app) => app.startApp()),
-	);
+	init_retired_guild_storage();
+	try {
+		console.info("[MWITools Debug]", "module:begin", "src/main.js");
+	} catch {}
+	startupDiagnostics.boot(async () => {
+		let cleanup4 = cleanupRetiredGuildStorage();
+		(await (await Promise.resolve().then(() => (init_app(), app_exports))).startApp(), await cleanup4);
+	});
+	try {
+		console.info("[MWITools Debug]", "module:ready", "src/main.js");
+	} catch {}
 })();

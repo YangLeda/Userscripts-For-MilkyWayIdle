@@ -17,6 +17,7 @@ export function createStartupDiagnostics(host = globalThis) {
   };
   let enabled = false,
     safe = false,
+    skipSocket = false,
     runtime = null,
     previous = null;
   let report = null,
@@ -26,6 +27,31 @@ export function createStartupDiagnostics(host = globalThis) {
   let panel = null,
     statusNode = null;
   const sockets = new WeakSet();
+  let installedGetter = null;
+  const socketDescriptor = () => {
+    try {
+      const descriptor = Object.getOwnPropertyDescriptor(
+        host.MessageEvent?.prototype ?? {},
+        "data",
+      );
+      return {
+        present: !!descriptor,
+        configurable: !!descriptor?.configurable,
+        getter: typeof descriptor?.get === "function",
+        getterName: clean(descriptor?.get?.name),
+        ...(installedGetter
+          ? { stillInstalled: descriptor?.get === installedGetter }
+          : {}),
+      };
+    } catch {
+      return { inaccessible: true };
+    }
+  };
+  const print = (level, ...args) => {
+    try {
+      host.console?.[level]?.("[MWITools Debug]", ...args);
+    } catch {}
+  };
   const now = () => host.performance?.now?.() ?? Date.now();
   const read = (key) => {
     try {
@@ -52,6 +78,15 @@ export function createStartupDiagnostics(host = globalThis) {
     });
     if (report.events.length > LIMIT) report.events.shift();
     report.lastPhase = clean(phase);
+    print(
+      /failed|error|rejection/.test(phase)
+        ? "error"
+        : /slow|delay/.test(phase)
+          ? "warn"
+          : "info",
+      `+${Math.round(now() - report.started)}ms ${clean(phase)}`,
+      ...(detail === null ? [] : [clean(detail)]),
+    );
     if (statusNode)
       statusNode.textContent = `${langText("当前阶段", "Current phase")}: ${report.lastPhase}`;
     if (immediate) flush();
@@ -65,6 +100,7 @@ export function createStartupDiagnostics(host = globalThis) {
       ? {
           ...report,
           events: [...report.events],
+          socket: { ...report.socket, current: socketDescriptor() },
           features: (runtime?.features.list() ?? []).map(
             ({ id, status, error }) => ({
               id,
@@ -94,11 +130,13 @@ export function createStartupDiagnostics(host = globalThis) {
     link.click();
     host.setTimeout(() => host.URL.revokeObjectURL(url), 1000);
   };
-  const rescue = (value) => {
+  const rescue = (value, noSocket = false) => {
     write(RESCUE_KEY, value ? "1" : "0");
     const url = new host.URL(host.location.href);
     url.searchParams.delete("mwitoolsSafe");
     url.searchParams.set("mwitoolsDebug", "1");
+    if (noSocket) url.searchParams.set("mwitoolsNoSocket", "1");
+    else url.searchParams.delete("mwitoolsNoSocket");
     host.location.href = url.href;
   };
   const show = () => {
@@ -126,6 +164,11 @@ export function createStartupDiagnostics(host = globalThis) {
           "日志仅保存在本标签页，记录启动阶段、错误与卡顿，不记录游戏消息内容。",
           "Logs stay in this tab and record startup phases, errors and stalls without game payloads.",
         );
+    if (skipSocket && !safe)
+      help.textContent = langText(
+        "对照启动：暂停 MWITools 消息拦截，依赖游戏数据的功能不可用。观察其他脚本是否恢复。",
+        "Comparison start: MWITools message interception is bypassed; data-dependent features are unavailable. Check whether other scripts recover.",
+      );
     panel.append(title, help);
     const status = host.document.createElement("p");
     statusNode = status;
@@ -138,7 +181,15 @@ export function createStartupDiagnostics(host = globalThis) {
     panel.append(status);
     for (const [label, action] of [
       [langText("下载诊断报告", "Download report"), download],
+      [
+        langText("输出报告到控制台", "Print report to console"),
+        () => print("info", snapshot()),
+      ],
       [langText("正常加载并记录", "Start with debug"), () => rescue(false)],
+      [
+        langText("跳过消息拦截并记录", "Debug without message interception"),
+        () => rescue(false, true),
+      ],
       [langText("安全启动（暂停插件）", "Safe start"), () => rescue(true)],
       [
         langText("收起", "Close"),
@@ -171,6 +222,25 @@ export function createStartupDiagnostics(host = globalThis) {
     stop,
     attachRuntime(value) {
       runtime = value;
+    },
+    get skipSocket() {
+      return skipSocket;
+    },
+    socketHookInstalled(getter) {
+      if (!enabled || !report?.socket) return;
+      installedGetter = getter;
+      report.socket.installed = socketDescriptor();
+      mark(
+        "socket:descriptor-installed",
+        JSON.stringify(report.socket.installed),
+        true,
+      );
+    },
+    socketProgress(kind, pending) {
+      if (!enabled || !report?.socket) return;
+      report.socket[kind] += 1;
+      report.socket.pending = pending;
+      report.socket.maxPending = Math.max(report.socket.maxPending, pending);
     },
     get enabled() {
       return enabled;
@@ -211,8 +281,10 @@ export function createStartupDiagnostics(host = globalThis) {
       const params = new host.URL(host.location?.href ?? "https://localhost")
         .searchParams;
       safe = params.get("mwitoolsSafe") === "1" || read(RESCUE_KEY) === "1";
+      skipSocket = params.get("mwitoolsNoSocket") === "1";
       enabled =
         safe ||
+        skipSocket ||
         params.get("mwitoolsDebug") === "1" ||
         host.__MWITOOLS_DEBUG_BUILD__ === true;
       if (enabled) {
@@ -226,9 +298,30 @@ export function createStartupDiagnostics(host = globalThis) {
           host: host.location?.hostname,
           userAgent: clean(host.navigator?.userAgent),
           safe,
+          skipSocket,
+          manager: {
+            name: clean(host.GM_info?.scriptHandler),
+            version: clean(host.GM_info?.version),
+          },
+          socket: {
+            before: socketDescriptor(),
+            received: 0,
+            processed: 0,
+            failed: 0,
+            pending: 0,
+            maxPending: 0,
+          },
           events: [],
         };
         mark("bootstrap:ready", null, true);
+        print("info", "Environment", snapshot());
+        try {
+          const target = host.unsafeWindow ?? host;
+          target.__MWITOOLS_STARTUP_DEBUG__ = {
+            snapshot,
+            print: () => print("info", snapshot()),
+          };
+        } catch {}
         host.addEventListener?.("error", (event) =>
           error("page:error", event.error ?? event.message),
         );
@@ -237,11 +330,32 @@ export function createStartupDiagnostics(host = globalThis) {
         );
         host.addEventListener?.("pagehide", stop, { once: true });
         let last = now();
+        let ticks = 0;
+        let warnedReplaced = false;
         heartbeat = host.setInterval(() => {
           const gap = now() - last;
           last = now();
           if (!host.document?.hidden && gap > 1500)
             mark("main-thread:delay", `${Math.round(gap)} ms`);
+          const descriptor = socketDescriptor();
+          if (
+            installedGetter &&
+            descriptor.stillInstalled === false &&
+            !warnedReplaced
+          ) {
+            warnedReplaced = true;
+            mark("socket:hook-replaced", JSON.stringify(descriptor), true);
+          }
+          if (++ticks % 10 === 0) {
+            print("info", "Heartbeat", {
+              elapsedMs: Math.round(now() - report.started),
+              phase: report.lastPhase,
+              ...report.socket,
+              current: descriptor,
+              features: snapshot().current.features,
+            });
+            flush();
+          }
         }, 1000);
         stopTimer = host.setTimeout(stop, 90000);
         show();

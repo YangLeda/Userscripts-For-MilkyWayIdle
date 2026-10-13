@@ -261,12 +261,14 @@ test("XP samples remain whole records and bulk restore rolls back failed writes"
     2,
     "one compressed page and manifest, with no per-sample GM keys",
   );
+  const activeName = "MWITools_atomic_record_fixture";
+  a.sharedStorage.setItem(activeName, raw);
   const backup = a.exportSharedBackup();
   a.sharedStorage.setItem(
-    name,
+    activeName,
     JSON.stringify([{ objectKey: "member:atomic-test", at: 123, xp: 789 }]),
   );
-  const expected = a.sharedStorage.getItem(name);
+  const expected = a.sharedStorage.getItem(activeName);
   let fail = true;
   globalThis.GM_setValues = (values) => {
     for (const [key, value] of Object.entries(values)) {
@@ -282,9 +284,9 @@ test("XP samples remain whole records and bulk restore rolls back failed writes"
       () => a.restoreSharedBackup(backup),
       /simulated batch failure/,
     );
-    assert.equal(a.sharedStorage.getItem(name), expected);
+    assert.equal(a.sharedStorage.getItem(activeName), expected);
     a.restoreSharedBackup(backup);
-    assert.equal(a.sharedStorage.getItem(name), raw);
+    assert.equal(a.sharedStorage.getItem(activeName), raw);
   } finally {
     delete globalThis.GM_setValues;
   }

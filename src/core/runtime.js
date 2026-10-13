@@ -257,15 +257,17 @@ export const runtime = {
       try {
         startupDiagnostics.mark(`start-hook:${feature.name}`, null, true);
         const result = feature.start();
-        result?.catch?.((error) =>
+        result?.catch?.((error) => {
+          startupDiagnostics.error(`start-hook:${feature.name}:failed`, error);
           console.error(
             runtime.config.isZH
               ? `[MWITools] 启动钩子执行失败：${feature.name}`
               : `[MWITools] Startup hook failed: ${feature.name}`,
             error,
-          ),
-        );
+          );
+        });
       } catch (error) {
+        startupDiagnostics.error(`start-hook:${feature.name}:failed`, error);
         console.error(
           runtime.config.isZH
             ? `[MWITools] 启动钩子执行失败：${feature.name}`

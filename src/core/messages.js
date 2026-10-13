@@ -7,10 +7,18 @@ let scheduled = false;
 function drainMessages() {
   // Preserve frame order, yielding to the game between small batches.
   const batch = queue.splice(0, 4);
-  for (const message of batch) {
+  for (const [index, message] of batch.entries()) {
     try {
       handleMessage(message);
+      startupDiagnostics.socketProgress(
+        "processed",
+        queue.length + batch.length - index - 1,
+      );
     } catch (error) {
+      startupDiagnostics.socketProgress(
+        "failed",
+        queue.length + batch.length - index - 1,
+      );
       startupDiagnostics.error("socket:processing-failed", error);
       console.error("[MWITools] Game message processing failed", error);
     }
@@ -29,6 +37,10 @@ const GAME_SOCKET_HOSTS = [
 /** Installs the existing MessageEvent hook without changing the websocket payload. */
 function hookWS() {
   if (hooked) return;
+  if (startupDiagnostics.skipSocket) {
+    startupDiagnostics.mark("socket:hook-bypassed", null, true);
+    return;
+  }
   const dataProperty = Object.getOwnPropertyDescriptor(
     MessageEvent.prototype,
     "data",
@@ -53,6 +65,7 @@ function hookWS() {
       startupDiagnostics.watchSocket(socket);
       Object.defineProperty(this, "data", { value: message });
       queue.push(message);
+      startupDiagnostics.socketProgress("received", queue.length);
       if (!scheduled) {
         scheduled = true;
         setTimeout(drainMessages, 0);
@@ -65,6 +78,7 @@ function hookWS() {
 
   Object.defineProperty(MessageEvent.prototype, "data", dataProperty);
   hooked = true;
+  startupDiagnostics.socketHookInstalled(dataProperty.get);
   startupDiagnostics.mark("socket:hooked");
 }
 

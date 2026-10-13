@@ -144,7 +144,7 @@ test("compressed writes are paged, failed verification keeps the previous genera
   }
 });
 
-test("version-1 backup exports complete samples and imports into packed storage", async () => {
+test("version-1 backups exclude retired XP archives and preserve current stores", async () => {
   const name = "MWITools_xp_history_v2:member:backup";
   const rows = [{ objectKey: "member:backup", at: Date.now(), xp: 123 }];
   sharedStorage.setItem(name, JSON.stringify(rows));
@@ -155,9 +155,17 @@ test("version-1 backup exports complete samples and imports into packed storage"
       /:packed$|:page:|:commit:/.test(key),
     ),
   );
-  sharedStorage.setItem(name, JSON.stringify([{ ...rows[0], xp: 999 }]));
-  restoreSharedBackup(backup);
-  assert.deepEqual(JSON.parse(sharedStorage.getItem(name)), rows);
+  assert.ok(
+    !Object.keys(backup.data).some((key) =>
+      key.includes(encodeURIComponent(name)),
+    ),
+  );
+  const current = "MWITools_procurement_v1:production:backup";
+  sharedStorage.setItem(current, JSON.stringify({ quantity: 5 }));
+  const cleanBackup = exportSharedBackup();
+  sharedStorage.setItem(current, JSON.stringify({ quantity: 9 }));
+  restoreSharedBackup(cleanBackup);
+  assert.deepEqual(JSON.parse(sharedStorage.getItem(current)), { quantity: 5 });
   await scheduleSharedMigration();
 });
 
@@ -304,7 +312,7 @@ test("simultaneous publications retain both writers and consolidate on the next 
   assert.equal([...gm.keys()].filter((key) => key.startsWith(base)).length, 2);
 });
 
-test("startup leaves archived XP history untouched while migrating active settings", async () => {
+test("background migration skips retired XP and backups exclude it while migrating active settings", async () => {
   const name = "MWITools_xp_history_v2:member:inactive-archive";
   const raw = JSON.stringify([
     { objectKey: "member:inactive-archive", at: Date.now(), xp: 42 },
@@ -328,10 +336,10 @@ test("startup leaves archived XP history untouched while migrating active settin
     [...gm.keys()].some((key) => key.includes(encodeURIComponent(settings))),
     true,
   );
-  // Explicit backups still include archived data rather than silently deleting it.
+  // Cleanup happens before app imports; backup never reads or resurrects retired data.
   const backup = fresh.exportSharedBackup();
   assert.ok(
-    Object.keys(backup.data).some((key) =>
+    !Object.keys(backup.data).some((key) =>
       key.includes(encodeURIComponent(name)),
     ),
   );
