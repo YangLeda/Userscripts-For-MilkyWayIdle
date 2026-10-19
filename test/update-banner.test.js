@@ -106,45 +106,29 @@ test("latest version alone does not trigger an important update", () => {
   );
 });
 
-test("release 26.4.22 preserves the 26.4.18 important-update threshold", () => {
+test("release 26.4.23 marks memory fixes as an important update", () => {
   const releaseManifest = JSON.parse(
     readFileSync(new URL("../release-manifest.json", import.meta.url), "utf8"),
   );
-  assert.equal(releaseManifest.latestVersion, "26.4.22");
-  assert.equal(releaseManifest.importantVersion, "26.4.18");
-  assert.match(releaseManifest.title.zh, /26\.4\.18 重要更新/);
-  assert.match(releaseManifest.title.en, /Important MWITools 26\.4\.18 update/);
-  assert.match(
-    releaseManifest.message.zh,
-    /库存标签页.*4%.*强化物品价格步进.*共享材料.*跨站数据共享.*统一备份/,
-  );
+  assert.equal(releaseManifest.latestVersion, "26.4.23");
+  assert.equal(releaseManifest.importantVersion, "26.4.23");
+  assert.match(releaseManifest.title.zh, /26\.4\.23 重要更新/);
+  assert.match(releaseManifest.title.en, /Important MWITools 26\.4\.23 update/);
+  assert.match(releaseManifest.message.zh, /后台挂机战斗.*内存.*刷新/);
   assert.match(
     releaseManifest.message.en,
-    /inventory tabs.*4%.*enhanced-item.*shared material.*cross-site data sharing.*unified backups/i,
+    /background combat.*memory.*refresh/is,
   );
-  for (const version of [
-    "26.4.5",
-    "26.4.6",
-    "26.4.7",
-    "26.4.8",
-    "26.4.9",
-    "26.4.10",
-    "26.4.11",
-    "26.4.12",
-    "26.4.13",
-    "26.4.14",
-    "26.4.15",
-    "26.4.16",
-    "26.4.17",
-  ]) {
+  for (const version of ["26.4.5", "26.4.18", "26.4.21", "26.4.22"]) {
     assert.equal(
       runtime.api.shouldShowImportantUpdate(releaseManifest, version),
       true,
-      `${version} must see the 26.4.18 important-update banner`,
     );
   }
-  assert.equal(
-    runtime.api.shouldShowImportantUpdate(releaseManifest, "26.4.18"),
-    false,
-  );
+  for (const version of ["26.4.23", "26.4.24"]) {
+    assert.equal(
+      runtime.api.shouldShowImportantUpdate(releaseManifest, version),
+      false,
+    );
+  }
 });

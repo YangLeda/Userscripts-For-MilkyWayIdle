@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWITools
 // @namespace    http://tampermonkey.net/
-// @version      26.4.22
+// @version      26.4.23
 // @updateURL    https://update.greasyfork.org/scripts/494467/MWITools.meta.js
 // @downloadURL  https://update.greasyfork.org/scripts/494467/MWITools.user.js
 // @description  Tools for MilkyWayIdle. Includes a feedback center, action projections, market insights, asset history, DPS/HPS statistics, inventory tools, tasks, and guild utilities.
@@ -29768,6 +29768,31 @@ ${locks}`
 				((STORAGE_KEY = "MWITools_opinion_center_seen_announcements_v1"),
 					(ANNOUNCEMENTS = Object.freeze([
 						Object.freeze({
+							id: "26.4.23",
+							version: "26.4.23",
+							publishedAt: "2026-10-19",
+							title: Object.freeze({
+								zh: "26.4.23 重要更新",
+								en: "Version 26.4.23 important update",
+							}),
+							body: Object.freeze({
+								zh: Object.freeze([
+									"DPS：战斗历史改为有上限的快照，迁移校验后分批清理旧字段和删除标记，支持新旧备份导入；旧版游戏标签请刷新后继续记录。职业、武器缓存最多保留 256 人，不再反复写共享设置；手动采集增加条数与总大小限制，关闭 DPS 后释放。频繁重连的较早片段自动合并，保留累计统计。",
+									"后台战斗：消息处理不再依赖后台会变慢的定时器，避免挂机战斗时待处理消息持续堆积；保留消息顺序与完整性。",
+									"内存：人物资料面板未出现或已关闭时，着装评分与导出按钮共用有超时的等待，停止无限递归和长期轮询；较新的资料请求取代旧请求。意见中心复用页头入口，避免页头重建后保留旧页面；不再向控制台输出完整初始化数据。",
+									"任务：收到完整任务列表时移除已消失的旧任务 ID，避免已知任务集合长期累积，保留当前新任务标记。",
+									"意见中心：关闭功能或切换角色后停止后续轮询，晚到的响应不再更新旧面板或其他角色的入口。",
+								]),
+								en: Object.freeze([
+									"DPS: Battle history now uses bounded snapshots; migration verifies them before deleting legacy fields and tombstones in batches, with support for old and new backup imports. Refresh older game tabs to continue recording. Class and weapon caches keep at most 256 players without repeatedly writing shared settings. Manual captures have message and size limits and are released when DPS is disabled. Earlier reconnect fragments are combined while preserving cumulative statistics.",
+									"Background combat: Message processing no longer relies on timers that can slow down in background tabs, preventing a growing backlog during idle combat while preserving every message in order.",
+									"Memory: Gear scores and export buttons now share a timed wait when the profile panel is missing or closed, avoiding endless promise recursion and polling. Newer profile requests supersede older ones. The feedback center reuses its header launcher so rebuilt headers can be released, and full initialization payloads are no longer printed to the console.",
+									"Tasks: Full task snapshots discard missing old task IDs, preventing the known-task set from accumulating while retaining current NEW markers.",
+									"Feedback center: Disabling the feature or switching characters stops further polling; late responses cannot update a destroyed panel or another character’s launcher.",
+								]),
+							}),
+						}),
+						Object.freeze({
 							id: "26.4.22",
 							version: "26.4.22",
 							publishedAt: "2026-10-13",
@@ -29777,24 +29802,14 @@ ${locks}`
 							}),
 							body: Object.freeze({
 								zh: Object.freeze([
-									"DPS：战斗历史改为有上限的快照，迁移校验后分批清理旧字段和删除标记，支持新旧备份导入；旧版游戏标签请刷新后继续记录。职业、武器缓存最多保留 256 人，不再反复写共享设置；手动采集增加条数与总大小限制，关闭 DPS 后释放。频繁重连的较早片段自动合并，保留累计统计。",
-									"后台战斗：消息处理不再依赖后台会变慢的定时器，避免挂机战斗时待处理消息持续堆积；保留消息顺序与完整性。",
-									"内存：人物资料面板未出现或已关闭时，着装评分与导出按钮共用有超时的等待，停止无限递归和长期轮询；较新的资料请求取代旧请求。意见中心复用页头入口，避免页头重建后保留旧页面；不再向控制台输出完整初始化数据。",
 									"发布：移除调试专用脚本、构建入口、启动诊断面板和详细追踪，正式版保留自动清理旧公会经验存储的功能。",
 									"存储与启动：启动时分批删除已移除的公会经验功能留下的本地历史、共享记录、压缩数据页、恢复副本、迁移标记与旧经验数据库，不读取或解压历史内容。其他设置、资产历史、DPS 历史及仍在使用的公会功能保留；清理失败会在下次启动重试，旧标签页占用数据库时会提示关闭。",
 									"备份与恢复：新备份不再包含已移除的公会经验历史，导入旧备份时跳过这部分数据，避免清理后的历史重新出现。",
-									"任务：收到完整任务列表时移除已消失的旧任务 ID，避免已知任务集合长期累积，保留当前新任务标记。",
-									"意见中心：关闭功能或切换角色后停止后续轮询，晚到的响应不再更新旧面板或其他角色的入口。",
 								]),
 								en: Object.freeze([
-									"DPS: Battle history now uses bounded snapshots; migration verifies them before deleting legacy fields and tombstones in batches, with support for old and new backup imports. Refresh older game tabs to continue recording. Class and weapon caches keep at most 256 players without repeatedly writing shared settings. Manual captures have message and size limits and are released when DPS is disabled. Earlier reconnect fragments are combined while preserving cumulative statistics.",
-									"Background combat: Message processing no longer relies on timers that can slow down in background tabs, preventing a growing backlog during idle combat while preserving every message in order.",
-									"Memory: Gear scores and export buttons now share a timed wait when the profile panel is missing or closed, avoiding endless promise recursion and polling. Newer profile requests supersede older ones. The feedback center reuses its header launcher so rebuilt headers can be released, and full initialization payloads are no longer printed to the console.",
 									"Release: Removed the dedicated debug script, build entry, startup diagnostic panel and detailed tracing. The production release retains automatic cleanup of retired guild XP storage.",
 									"Storage and startup: Startup deletes retired guild XP local history, shared records, compressed pages, recovery copies, migration markers and the old XP database in batches without reading or decompressing history. Other settings, asset history, DPS history and active guild features are preserved. Failed cleanup retries on the next startup; a database held by an old tab prompts you to close it.",
 									"Backup and recovery: New backups exclude retired guild XP history, and older backup imports skip it so removed archives cannot reappear.",
-									"Tasks: Full task snapshots discard missing old task IDs, preventing the known-task set from accumulating while retaining current NEW markers.",
-									"Feedback center: Disabling the feature or switching characters stops further polling; late responses cannot update a destroyed panel or another character’s launcher.",
 								]),
 							}),
 						}),
@@ -35442,7 +35457,7 @@ ${locks}`
 		return typeof value == "string" ? value : (value?.[runtime.config.isZH ? "zh" : "en"] ?? value?.en ?? "");
 	}
 	function currentVersion() {
-		return String(globalThis.GM_info?.script?.version ?? "26.4.22");
+		return String(globalThis.GM_info?.script?.version ?? "26.4.23");
 	}
 	function isTestBuild() {
 		let info = globalThis.GM_info?.script;
