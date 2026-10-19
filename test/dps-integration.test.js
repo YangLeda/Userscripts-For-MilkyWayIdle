@@ -338,5 +338,13 @@ test("DPS feature reuses settings and cleans repeated enable-disable cycles", as
   assert.equal(document.querySelectorAll("#kikimeter-panel").length, 1);
   assert.equal(document.querySelectorAll("#kikimeter-tab-btn").length, 1);
 
+  window.__MWI_DPS.captureStart();
+  window.__MWI_DPS.startClassProbe();
+  runtime.dispatchMessage({ type: "capture_cleanup_fixture" });
+  assert.equal(window.__MWI_DPS.captureSize(), 1);
+  assert.ok(window.__MWI_DPS.getClassProbeStatus().fullMessageCount > 0);
   await runtime.features.disable("dps");
+  assert.equal(window.__MWI_DPS.captureSize(), 0);
+  assert.equal(window.__MWI_DPS.getClassProbeStatus().active, false);
+  assert.equal(window.__MWI_DPS.getClassProbeStatus().fullMessageCount, 0);
 });

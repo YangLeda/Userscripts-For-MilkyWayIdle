@@ -1,5 +1,6 @@
 import { Settings, el } from "./00-bootstrap.js";
 import { ClassSystem, DamageSources } from "./10-combat-sources.js";
+import { compactCombatFragments } from "../../core/combat-fragments.js";
 
 // ─── Session ──────────────────────────────────────────────────────────────────
 // DPS = dégâts cumulés / temps écoulé depuis le dernier reset.
@@ -256,6 +257,7 @@ const Session = (() => {
     if (part) {
       if (reason) part.endReason = reason;
       fragments.push(part);
+      fragments = compactCombatFragments(fragments, 99);
     }
     fragmentStart = null;
     fragmentBase = null;
@@ -475,7 +477,7 @@ const Session = (() => {
       restoreMap(playerKills, s.players && s.players.kills);
       restoreAccuracy(playerAccuracy, s.players && s.players.accuracy);
       ClassSystem.applyClasses(s.classes);
-      fragments = Array.isArray(s.fragments) ? s.fragments : [];
+      fragments = compactCombatFragments(s.fragments, 99);
       fragmentStart = null;
       fragmentBase = null;
       fragmentPrefix = null;
@@ -789,14 +791,18 @@ const Diagnostics = (() => {
 
 // ─── Capture ──────────────────────────────────────────────────────────────────
 const Capture = (() => {
+  const MAX_MESSAGES = 1000,
+    MAX_CHARS = 1_000_000;
   let active = false,
     log = [],
-    counts = {};
+    counts = {},
+    chars = 0;
   return {
     start() {
       active = true;
       log = [];
       counts = {};
+      chars = 0;
       console.info("[MWI DPS Tracker] 已开始抓取战斗消息。");
     },
     stop() {
@@ -807,12 +813,39 @@ const Capture = (() => {
     },
     record(type, payload) {
       if (!active) return;
+      let encoded;
+      try {
+        encoded = JSON.stringify({ t: Date.now(), payload });
+      } catch {
+        active = false;
+        return;
+      }
+      if (log.length >= MAX_MESSAGES || chars + encoded.length > MAX_CHARS) {
+        active = false;
+        console.warn(
+          "[MWI DPS Tracker] 战斗消息抓取已达到容量上限，已自动停止。 / Combat capture reached its size limit and stopped.",
+        );
+        return;
+      }
       counts[type] = (counts[type] || 0) + 1;
-      log.push({ t: Date.now(), payload });
+      // Keep bounded strings, never references into the game's object graph.
+      log.push(encoded);
+      chars += encoded.length;
+    },
+    clear() {
+      active = false;
+      log = [];
+      counts = {};
+      chars = 0;
     },
     download(fn) {
       const blob = new Blob(
-        [JSON.stringify({ typeCounts: counts, combatLog: log })],
+        [
+          JSON.stringify({
+            typeCounts: counts,
+            combatLog: log.map((entry) => JSON.parse(entry)),
+          }),
+        ],
         { type: "application/json" },
       );
       const url = URL.createObjectURL(blob);

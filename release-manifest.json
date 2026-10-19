@@ -1,13 +1,13 @@
 {
   "version": 1,
-  "latestVersion": "26.4.22",
-  "importantVersion": "26.4.18",
+  "latestVersion": "26.4.23",
+  "importantVersion": "26.4.23",
   "title": {
-    "zh": "MWITools 26.4.18 重要更新",
-    "en": "Important MWITools 26.4.18 update"
+    "zh": "MWITools 26.4.23 重要更新",
+    "en": "Important MWITools 26.4.23 update"
   },
   "message": {
-    "zh": "26.4.18 是重要更新：适配 9 月 28 日库存标签页、最爱分类、4% 市场税率与强化物品价格步进；修复任务返回、购物车轮转和共享材料计算，新增跨站数据共享与统一备份、公会兑换购物入口、每日盈亏类别及聊天字号设置。建议前往 Greasy Fork 更新。",
-    "en": "Version 26.4.18 is an important update for September 28 inventory tabs, favorites, the 4% market tax and enhanced-item price increments. It fixes task return, cart navigation and shared material calculations, and adds cross-site data sharing, unified backups, guild exchange shopping, daily P/L categories and chat font sizing. Update on Greasy Fork."
+    "zh": "修复后台挂机战斗消息堆积及多处内存持续增长，限制 DPS 历史、玩家缓存和采集数据，清理旧存储。建议更新到 26.4.23，并刷新所有已打开的游戏标签页。",
+    "en": "Fixes background combat message backlogs and several causes of growing memory use. Bounds DPS history, player caches and captures, and cleans up legacy storage. Update to 26.4.23 and refresh all open game tabs."
   }
 }

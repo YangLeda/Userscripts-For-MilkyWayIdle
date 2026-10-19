@@ -115,3 +115,22 @@ test("completed, claimed, and deleted tasks clear their new marker", () => {
   assert.equal(state.fresh.size, 0);
   assert.equal(state.known.size, 0);
 });
+
+test("repeated authoritative snapshots discard missing task IDs without losing NEW markers", () => {
+  const state = {
+    initialized: true,
+    known: new Set(["stale"]),
+    fresh: new Set(),
+  };
+  initializeQuestState(state, [{ id: "current" }]);
+  assert.deepEqual([...state.known], ["current"]);
+  assert.deepEqual([...state.fresh], ["current"]);
+  let previous = new Set(["current"]);
+  for (let index = 0; index < 5000; index++)
+    previous = syncQuestSnapshot(state, previous, [{ id: String(index) }]);
+  assert.deepEqual([...state.known], ["4999"]);
+  assert.deepEqual([...state.fresh], ["4999"]);
+  syncQuestSnapshot(state, previous, []);
+  assert.equal(state.known.size, 0);
+  assert.equal(state.fresh.size, 0);
+});

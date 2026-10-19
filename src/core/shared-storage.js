@@ -13,6 +13,11 @@ import {
   compactHistoryEntries,
   expiredHistoryPath,
 } from "./packed-history.js";
+import {
+  DPS_HISTORY_KEY,
+  boundDpsHistory,
+  mergeDpsHistory,
+} from "./bounded-dps-history.js";
 
 const PREFIX = "MWITools_shared_v1:";
 const bases = new Map();
@@ -20,6 +25,9 @@ const observed = new Set();
 
 // Cache immutable read snapshots; revisions invalidate only the changed store.
 const snapshots = new Map();
+const historyBases = new Map();
+const historyCleanups = new Map();
+const cleanedHistories = new Set();
 let indexedNames = null;
 const forbidden = new Set(["__proto__", "prototype", "constructor"]);
 const equal = (a, b) => JSON.stringify(a) === JSON.stringify(b);
@@ -131,7 +139,17 @@ function indexRecordName(name) {
 function listNames() {
   if (!indexedNames) {
     indexedNames = new Map();
-    for (const name of globalThis.GM_listValues()) indexRecordName(name);
+    const historyMigrated =
+      globalThis.GM_getValue(historyHeadKey(), null) !== null;
+    const historyPrefix = recordPrefix(DPS_HISTORY_KEY);
+    for (const name of globalThis.GM_listValues()) {
+      if (
+        isDerivedPlayerCacheName(name) ||
+        (historyMigrated && name.startsWith(historyPrefix))
+      )
+        continue;
+      indexRecordName(name);
+    }
   }
   return indexedNames;
 }
@@ -177,6 +195,10 @@ function setValues(values) {
   }
 }
 function entriesFor(key, prepared = null) {
+  if (key === DPS_HISTORY_KEY) {
+    const head = globalThis.GM_getValue(historyHeadKey(), null);
+    if (head) return new Map([["[]", historyMirror(head)]]);
+  }
   const prefix = recordPrefix(key);
   const revision = globalThis.GM_getValue(revisionKey(key), null);
   const cached = snapshots.get(prefix);
@@ -189,7 +211,14 @@ function entriesFor(key, prepared = null) {
       typeof globalThis.GM_addValueChangeListener !== "function")
   )
     indexedNames = null;
-  const names = [...(listNames().get(prefix) ?? [])];
+  const names = [...(listNames().get(prefix) ?? [])].filter(
+    (name) =>
+      !isDerivedPlayerCachePath(
+        key,
+        decodeURIComponent(name.slice(prefix.length)),
+      ),
+  );
+  if (/^kikimeter:settings:v[34]$/.test(key)) cleanupPlayerCacheFields(key);
   const values =
     prepared?.values ??
     getValues(
@@ -239,6 +268,190 @@ function entriesFor(key, prepared = null) {
   return entries;
 }
 
+const historyHeadKey = () => `${root()}bounded:dps-history:v1`;
+const historyMirrorKey = () =>
+  recordPrefix(DPS_HISTORY_KEY) + encodeURIComponent("[]");
+const historyMirror = (head) => ({
+  type: "value",
+  value: head.entries,
+  updatedAt: head.updatedAt,
+});
+
+function isDerivedPlayerCachePath(key, path) {
+  return (
+    /^kikimeter:settings:v[34]$/.test(key) &&
+    /^\["(?:classCache|weaponCache)"(?:,|\])/.test(path)
+  );
+}
+
+function isDerivedPlayerCacheName(name) {
+  const match = name.match(/(?:^|:)record:([^:]+):(.+)$/);
+  if (!match) return false;
+  try {
+    return isDerivedPlayerCachePath(
+      decodeURIComponent(match[1]),
+      decodeURIComponent(match[2]),
+    );
+  } catch {
+    return false;
+  }
+}
+
+function cleanupPlayerCacheFields(key) {
+  const prefix = recordPrefix(key);
+  if (historyCleanups.has(prefix) || cleanedHistories.has(prefix)) return;
+  const work = (async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const names = globalThis
+      .GM_listValues()
+      .filter(
+        (name) =>
+          name.startsWith(prefix) &&
+          isDerivedPlayerCachePath(
+            key,
+            decodeURIComponent(name.slice(prefix.length)),
+          ),
+      );
+    const size = typeof globalThis.GM_deleteValues === "function" ? 128 : 32;
+    for (let index = 0; index < names.length; index += size) {
+      deleteStorageNames(names.slice(index, index + size));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    indexedNames = null;
+    cleanedHistories.add(prefix);
+  })()
+    .catch((error) => {
+      indexedNames = null;
+      cleanedHistories.add(prefix);
+      console.error(
+        "[MWITools] Player cache cleanup failed; retrying next startup",
+        error,
+      );
+    })
+    .finally(() => historyCleanups.delete(prefix));
+  historyCleanups.set(prefix, work);
+}
+
+function cleanupHistoryFields() {
+  const name = historyHeadKey();
+  if (cleanedHistories.has(name) || historyCleanups.has(name)) return;
+  const prefix = recordPrefix(DPS_HISTORY_KEY),
+    mirror = historyMirrorKey();
+  const recoveryPrefix = `${root()}recovery:`;
+  const work = (async () => {
+    // Snapshot only key names, and yield before touching legacy storage.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const names = globalThis
+      .GM_listValues()
+      .filter(
+        (key) =>
+          (key.startsWith(prefix) && key !== mirror) ||
+          (key.startsWith(recoveryPrefix) &&
+            key.includes(encodeURIComponent(DPS_HISTORY_KEY))),
+      );
+    const size = typeof globalThis.GM_deleteValues === "function" ? 128 : 32;
+    for (let index = 0; index < names.length; index += size) {
+      deleteStorageNames(names.slice(index, index + size));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    indexedNames = null;
+    cleanedHistories.add(name);
+  })()
+    .catch((error) => {
+      indexedNames = null;
+      cleanedHistories.add(name);
+      console.error(
+        "[MWITools] DPS history cleanup failed; retrying next startup",
+        error,
+      );
+    })
+    .finally(() => historyCleanups.delete(name));
+  historyCleanups.set(name, work);
+}
+
+function makeHistoryHead(entries, previous) {
+  const bounded = boundDpsHistory(entries),
+    ids = new Set(
+      bounded.map((entry) =>
+        String(entry.id || entry.combatKey || entry.date || entry.startedAt),
+      ),
+    );
+  let removedThrough = previous?.removedThrough ?? 0;
+  for (const entry of previous?.entries ?? []) {
+    if (
+      !ids.has(
+        String(entry.id || entry.combatKey || entry.date || entry.startedAt),
+      )
+    )
+      removedThrough = Math.max(
+        removedThrough,
+        Date.parse(entry.endedAt ?? entry.date ?? entry.startedAt) || 0,
+      );
+  }
+  return {
+    version: 1,
+    entries: bounded,
+    removedThrough,
+    updatedAt: Date.now(),
+  };
+}
+
+function commitHistory(
+  entries,
+  previous = globalThis.GM_getValue(historyHeadKey(), null),
+) {
+  const head = makeHistoryHead(entries, previous);
+  // The authoritative snapshot is a single atomic GM write. Old releases can
+  // read the mirror, but their per-field writes cannot overwrite this head.
+  globalThis.GM_setValue(historyHeadKey(), head);
+  if (!equal(globalThis.GM_getValue(historyHeadKey(), null), head))
+    throw new Error(
+      (native()?.getItem("i18nextLng") ?? "").startsWith("zh")
+        ? "DPS 战斗历史快照校验失败"
+        : "DPS history snapshot verification failed",
+    );
+  bases.delete(recordPrefix(DPS_HISTORY_KEY));
+  snapshots.delete(recordPrefix(DPS_HISTORY_KEY));
+  indexedNames = null;
+  historyBases.set(historyHeadKey(), head.entries);
+  try {
+    globalThis.GM_setValue(historyMirrorKey(), historyMirror(head));
+    globalThis.GM_setValue(
+      revisionKey(DPS_HISTORY_KEY),
+      `${Date.now()}:${Math.random()}`,
+    );
+    globalThis.GM_setValue(`${root()}changed`, {
+      key: DPS_HISTORY_KEY,
+      at: Date.now(),
+      nonce: Math.random(),
+    });
+  } catch (error) {
+    // The complete snapshot is already durable; never discard it because an
+    // optional compatibility mirror or notification could not be written.
+    console.error("[MWITools] DPS history mirror update failed", error);
+  }
+  cleanupHistoryFields();
+  return head;
+}
+
+function readHistoryHead() {
+  let head = globalThis.GM_getValue(historyHeadKey(), null);
+  if (!head) {
+    migrate(DPS_HISTORY_KEY);
+    const legacy = inflate(entriesFor(DPS_HISTORY_KEY));
+    if (legacy === undefined) return null;
+    head = commitHistory(boundDpsHistory(legacy));
+  }
+  if (head.version !== 1 || !Array.isArray(head.entries))
+    throw new TypeError("Invalid DPS history snapshot");
+  cleanupHistoryFields();
+  return head;
+}
+
+function readHistory() {
+  return readHistoryHead()?.entries ?? null;
+}
+
 function write(key, raw, { migration = false } = {}) {
   const before = bases.get(recordPrefix(key)) ?? entriesFor(key);
   const next = raw === null ? new Map() : flatten(parse(raw));
@@ -246,6 +459,7 @@ function write(key, raw, { migration = false } = {}) {
   const updates = {};
   const merged = new Map(current);
   for (const path of new Set([...before.keys(), ...next.keys()])) {
+    if (isDerivedPlayerCachePath(key, path)) continue;
     const previous = before.get(path);
     const value = next.get(path) ?? { deleted: true };
     const strip = (entry) =>
@@ -341,6 +555,13 @@ function migrate(key) {
 export const sharedStorage = {
   getItem(key) {
     if (!available() || !shared(key)) return native()?.getItem(key) ?? null;
+    if (key === DPS_HISTORY_KEY) {
+      observed.add(key);
+      const entries = readHistory();
+      if (entries === null) return null;
+      historyBases.set(historyHeadKey(), entries);
+      return JSON.stringify(entries);
+    }
     migrate(key);
     observed.add(canonical(key));
     const entries = entriesFor(key);
@@ -359,11 +580,30 @@ export const sharedStorage = {
   },
   setItem(key, value) {
     if (!available() || !shared(key)) return native()?.setItem(key, value);
+    if (key === DPS_HISTORY_KEY) {
+      const before = historyBases.get(historyHeadKey());
+      const head = readHistoryHead(),
+        current = head?.entries ?? [];
+      commitHistory(
+        mergeDpsHistory(
+          current,
+          before ?? current,
+          boundDpsHistory(JSON.parse(String(value))),
+          head?.removedThrough ?? 0,
+        ),
+        head,
+      );
+      return;
+    }
     migrate(key);
     write(key, String(value));
   },
   removeItem(key) {
     if (!available() || !shared(key)) return native()?.removeItem(key);
+    if (key === DPS_HISTORY_KEY) {
+      commitHistory([]);
+      return;
+    }
     migrate(key);
     write(key, null);
   },
@@ -372,7 +612,8 @@ export function exportSharedBackup() {
   const data = {};
   if (available()) {
     // Explicit backup includes inactive characters even if background import has not finished.
-    for (const key of localKeys()) migrate(key);
+    for (const key of localKeys()) if (key !== DPS_HISTORY_KEY) migrate(key);
+    const history = readHistory();
     const names = globalThis
       .GM_listValues()
       .filter(
@@ -380,6 +621,15 @@ export function exportSharedBackup() {
           key.startsWith(root()) &&
           /:(record|recovery):/.test(key) &&
           !isRetiredGuildStorageName(key),
+      )
+      .filter(
+        (key) =>
+          !key.startsWith(recordPrefix(DPS_HISTORY_KEY)) &&
+          !isDerivedPlayerCacheName(key) &&
+          !(
+            key.startsWith(`${root()}recovery:`) &&
+            key.includes(encodeURIComponent(DPS_HISTORY_KEY))
+          ),
       );
     const values = getValues(
       names.filter((name) => !/:page:|:commit:|:packed$/.test(name)),
@@ -392,6 +642,11 @@ export function exportSharedBackup() {
         : values[key]?.key;
       if (shared(logical)) data[relative] = values[key];
     }
+    if (history !== null)
+      data[historyMirrorKey().slice(root().length)] = historyMirror({
+        entries: history,
+        updatedAt: Date.now(),
+      });
     const prefixes = new Set(
       names
         .filter((name) => name.endsWith(":packed") || name.includes(":commit:"))
@@ -435,10 +690,12 @@ export function restoreSharedBackup(backup) {
   )
     throw new TypeError("Invalid MWITools backup or environment");
   // Older backups may contain the retired sampler; never resurrect its archives.
-  const entries = Object.entries(backup.data).filter(([key]) =>
-    key.startsWith("local:")
-      ? !isRetiredGuildStorageName(key.slice(6))
-      : !isRetiredGuildStorageName(root() + key),
+  const entries = Object.entries(backup.data).filter(
+    ([key]) =>
+      !isDerivedPlayerCacheName(key) &&
+      (key.startsWith("local:")
+        ? !isRetiredGuildStorageName(key.slice(6))
+        : !isRetiredGuildStorageName(root() + key)),
   );
   for (const [key, value] of entries) {
     if (key.startsWith("local:")) {
@@ -473,6 +730,37 @@ export function restoreSharedBackup(backup) {
         ? "脚本管理器共享存储不可用"
         : "Shared userscript storage unavailable",
     );
+  const historyPrefix = recordPrefix(DPS_HISTORY_KEY).slice(root().length);
+  const historyRecords = entries.filter(([key]) =>
+    key.startsWith(historyPrefix),
+  );
+  let restoredHistory = null;
+  if (historyRecords.length) {
+    const value = inflate(
+      new Map(
+        historyRecords.map(([key, value]) => [
+          decodeURIComponent(key.slice(historyPrefix.length)),
+          value,
+        ]),
+      ),
+    );
+    if (
+      value === undefined &&
+      !historyRecords.some(
+        ([key, entry]) =>
+          decodeURIComponent(key.slice(historyPrefix.length)) === "[]" &&
+          entry.deleted === true,
+      )
+    )
+      throw new TypeError("Incomplete DPS history backup");
+    restoredHistory = boundDpsHistory(value ?? []);
+  }
+  const oldHistoryHead = available()
+    ? globalThis.GM_getValue(historyHeadKey(), null)
+    : null;
+  const oldHistoryMirror = available()
+    ? globalThis.GM_getValue(historyMirrorKey(), null)
+    : null;
   const previous = entries.map(([key]) => [
     key,
     key.startsWith("local:")
@@ -487,7 +775,13 @@ export function restoreSharedBackup(backup) {
     const updates = {};
     for (const [key, value] of entries) {
       if (key.startsWith("local:")) sharedStorage.setItem(key.slice(6), value);
+      else if (key.startsWith(historyPrefix)) continue;
       else updates[root() + key] = { ...value, updatedAt: Date.now() };
+    }
+    if (restoredHistory !== null) {
+      const head = makeHistoryHead(restoredHistory, oldHistoryHead);
+      updates[historyHeadKey()] = head;
+      updates[historyMirrorKey()] = historyMirror(head);
     }
     setValues(updates);
   } catch (error) {
@@ -497,16 +791,24 @@ export function restoreSharedBackup(backup) {
         value === null
           ? sharedStorage.removeItem(key.slice(6))
           : sharedStorage.setItem(key.slice(6), value);
+      else if (key.startsWith(historyPrefix)) continue;
       else rollback[root() + key] = value ?? { deleted: true };
+    }
+    if (restoredHistory !== null) {
+      rollback[historyHeadKey()] = oldHistoryHead;
+      rollback[historyMirrorKey()] = oldHistoryMirror;
     }
     setValues(rollback);
     snapshots.clear();
+    historyBases.clear();
     indexedNames = null;
     throw error;
   }
   bases.clear();
   snapshots.clear();
+  historyBases.clear();
   indexedNames = null;
+  if (restoredHistory !== null) cleanupHistoryFields();
   const changedKeys = new Set(
     entries
       .map(([key]) =>
@@ -539,6 +841,8 @@ if (typeof globalThis.GM_addValueChangeListener === "function") {
     (_name, _old, value, remote) => {
       if (!remote) return;
       indexedNames = null;
+      if (value?.key === DPS_HISTORY_KEY)
+        cleanedHistories.delete(historyHeadKey());
       // Also handle events from an older release that has no revision key.
       snapshots.delete(recordPrefix(value?.key));
       if (!observed.has(value?.key)) return;
@@ -609,8 +913,19 @@ export function scheduleSharedMigration() {
   if (migrationRun) return migrationRun;
   // Guild XP tracking was removed. Archived history is only read or migrated
   // by explicit backup/restore operations, never as background startup work.
-  const keys = localKeys().filter((key) => !isPackedHistory(key));
+  const keys = localKeys().filter(
+    (key) => !isPackedHistory(key) && key !== DPS_HISTORY_KEY,
+  );
   migrationRun = (async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    try {
+      readHistory();
+    } catch (error) {
+      console.error(
+        "[MWITools] DPS history migration failed; will retry",
+        error,
+      );
+    }
     for (const key of keys) {
       await new Promise((resolve) => setTimeout(resolve, 0));
       try {

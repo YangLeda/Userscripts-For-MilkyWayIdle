@@ -22,7 +22,11 @@ export {
   DamageSources,
   TakenSources,
 } from "../src/features/dps/10-combat-sources.js";
-export { Diagnostics, Session } from "../src/features/dps/20-session.js";
+export {
+  Capture,
+  Diagnostics,
+  Session,
+} from "../src/features/dps/20-session.js";
 export {
   HistoryStore,
   SegmentSelection,

@@ -1,4 +1,5 @@
 import { runtime } from "../core/runtime.js";
+import { waitForProfilePanel } from "./profile-panel.js";
 
 /* 为 https://amvoidguy.github.io/MWICombatSimulatorTest/ 添加导入按钮 */
 // Parts of code regarding group export are by Ratatatata (https://greasyfork.org/en/scripts/507255).
@@ -1136,85 +1137,81 @@ function hoursToReadableString(hours) {
   return runtime.api.timeReadable?.(sec) ?? `${Math.round(hours)}h`;
 }
 
-function addExportButton(obj) {
-  const checkElem = () => {
-    const selectedElement = document.querySelector(
-      `div.SharableProfile_overviewTab__W4dCV`,
-    );
-    if (selectedElement) {
-      clearInterval(timer);
+let profileExportRequest = 0;
+async function addExportButton(obj) {
+  const request = ++profileExportRequest;
+  const selectedElement = await waitForProfilePanel();
+  if (!selectedElement?.isConnected || request !== profileExportRequest) return;
+  selectedElement.querySelector("[data-mwitools-profile-export]")?.remove();
 
-      const button = document.createElement("button");
-      selectedElement.appendChild(button);
-      button.textContent = runtime.config.isZH
-        ? "导出人物到剪贴板"
-        : "Export to clipboard";
-      button.style.borderRadius = "5px";
-      button.style.height = "30px";
-      button.style.backgroundColor = runtime.config.SCRIPT_COLOR_MAIN;
-      button.style.color = "black";
-      button.style.boxShadow = "none";
-      button.style.border = "0px";
-      button.onclick = function () {
-        let exportString = "";
-        const playerID = obj.profile.characterSkills[0].characterID;
-        const clientObj = JSON.parse(GM_getValue("init_client_data", ""));
-        const characterObj = JSON.parse(GM_getValue("init_character_data", ""));
+  const button = document.createElement("button");
+  button.dataset.mwitoolsProfileExport = "true";
+  selectedElement.appendChild(button);
+  button.textContent = runtime.config.isZH
+    ? "导出人物到剪贴板"
+    : "Export to clipboard";
+  button.style.borderRadius = "5px";
+  button.style.height = "30px";
+  button.style.backgroundColor = runtime.config.SCRIPT_COLOR_MAIN;
+  button.style.color = "black";
+  button.style.boxShadow = "none";
+  button.style.border = "0px";
+  button.onclick = function () {
+    let exportString = "";
+    const playerID = obj.profile.characterSkills[0].characterID;
+    const clientObj = JSON.parse(GM_getValue("init_client_data", ""));
+    const characterObj = JSON.parse(GM_getValue("init_character_data", ""));
 
-        if (playerID === characterObj.character.id) {
-          exportString = JSON.stringify(
-            constructSelfPlayerExportObjFromInitCharacterData(
-              characterObj,
-              clientObj,
-            ),
-          );
-        } else {
-          const storedProfileList = JSON.parse(
-            GM_getValue("profile_export_list", "[]"),
-          );
-          const profileList = storedProfileList.filter(
-            (item) => item.characterID === playerID,
-          );
-          let profile = null;
-          if (profileList.length !== 1) {
-            console.log(
-              runtime.config.isZH
-                ? `[MWITools] 找不到角色 ${playerID} 的已保存资料。`
-                : `[MWITools] Cannot find a saved profile for character ${playerID}.`,
-            );
-            return;
-          }
-          profile = profileList[0];
+    if (playerID === characterObj.character.id) {
+      exportString = JSON.stringify(
+        constructSelfPlayerExportObjFromInitCharacterData(
+          characterObj,
+          clientObj,
+        ),
+      );
+    } else {
+      const storedProfileList = JSON.parse(
+        GM_getValue("profile_export_list", "[]"),
+      );
+      const profileList = storedProfileList.filter(
+        (item) => item.characterID === playerID,
+      );
+      let profile = null;
+      if (profileList.length !== 1) {
+        console.log(
+          runtime.config.isZH
+            ? `[MWITools] 找不到角色 ${playerID} 的已保存资料。`
+            : `[MWITools] Cannot find a saved profile for character ${playerID}.`,
+        );
+        return;
+      }
+      profile = profileList[0];
 
-          let battlePlayer = null;
-          if (GM_getValue("new_battle", "")) {
-            const battleObj = JSON.parse(GM_getValue("new_battle", ""));
-            const battlePlayerList = battleObj.players.filter(
-              (item) => item.character.id === playerID,
-            );
-            if (battlePlayerList.length === 1) {
-              battlePlayer = battlePlayerList[0];
-            }
-          }
-
-          exportString = JSON.stringify(
-            constructPlayerExportObjFromStoredProfile(
-              profile,
-              clientObj,
-              battlePlayer,
-            ),
-          );
+      let battlePlayer = null;
+      if (GM_getValue("new_battle", "")) {
+        const battleObj = JSON.parse(GM_getValue("new_battle", ""));
+        const battlePlayerList = battleObj.players.filter(
+          (item) => item.character.id === playerID,
+        );
+        if (battlePlayerList.length === 1) {
+          battlePlayer = battlePlayerList[0];
         }
+      }
 
-        console.log(exportString);
-        navigator.clipboard.writeText(exportString);
-        button.textContent = runtime.config.isZH ? "已复制" : "Copied";
-        return false;
-      };
-      return false;
+      exportString = JSON.stringify(
+        constructPlayerExportObjFromStoredProfile(
+          profile,
+          clientObj,
+          battlePlayer,
+        ),
+      );
     }
+
+    console.log(exportString);
+    navigator.clipboard.writeText(exportString);
+    button.textContent = runtime.config.isZH ? "已复制" : "Copied";
+    return false;
   };
-  let timer = setInterval(checkElem, 200);
 }
 
 // The legacy router retained a mwisim branch but no separate implementation;

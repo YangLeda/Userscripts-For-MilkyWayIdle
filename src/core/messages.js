@@ -4,7 +4,8 @@ let hooked = false;
 const queue = [];
 let scheduled = false;
 function drainMessages() {
-  // Preserve frame order, yielding to the game between small batches.
+  // Preserve frame order after the native listener returns. Microtasks keep
+  // draining when background tabs throttle timers while sockets still deliver.
   const batch = queue.splice(0, 4);
   for (const message of batch) {
     try {
@@ -13,7 +14,7 @@ function drainMessages() {
       console.error("[MWITools] Game message processing failed", error);
     }
   }
-  if (queue.length) setTimeout(drainMessages, 0);
+  if (queue.length) globalThis.queueMicrotask(drainMessages);
   else scheduled = false;
 }
 
@@ -54,7 +55,7 @@ function hookWS() {
 
       if (!scheduled) {
         scheduled = true;
-        setTimeout(drainMessages, 0);
+        globalThis.queueMicrotask(drainMessages);
       }
     } catch (error) {
       console.error("[MWITools] Message hook failed", error);

@@ -79,6 +79,7 @@ export function writeTaskNewState(storageKey, state) {
 export function initializeQuestState(state, quests) {
   const firstBaseline = state.initialized !== true;
   const currentIds = new Set((quests ?? []).map(questId).filter(Boolean));
+  for (const id of state.known) if (!currentIds.has(id)) state.known.delete(id);
   for (const id of currentIds) {
     if (!firstBaseline && !state.known.has(id)) state.fresh.add(id);
     state.known.add(id);
@@ -109,6 +110,7 @@ export function syncQuestSnapshot(state, previousIds, quests) {
   const before =
     previousIds instanceof Set ? previousIds : new Set(previousIds);
   const current = new Set((quests ?? []).map(questId).filter(Boolean));
+  for (const id of state.known) if (!current.has(id)) state.known.delete(id);
   for (const id of current) {
     if (!before.has(id)) state.fresh.add(id);
     state.known.add(id);

@@ -1338,8 +1338,8 @@ const KikiMeter = (() => {
         marginBottom: "7px",
       });
       hint.textContent = langText(
-        "全量探针会从点击开始持续被动记录全部游戏入站消息，直到你手动结束；不会主动发送任何请求。聊天正文和凭证字段会脱敏，结束后请在刷新页面前下载。",
-        "The full probe passively records all incoming game messages after you start it until you stop it manually. It sends no requests. Chat content and credential fields are redacted; download the capture before refreshing the page.",
+        "手动采集最多保存 1,000 条消息，消息与页面快照合计最多 100 万字符，到上限自动停止。聊天正文和凭证字段会脱敏；关闭 DPS 会清空采集，请先下载。",
+        "Manual capture stores up to 1,000 messages and 1,000,000 characters across messages and page snapshots, then stops automatically. Chat content and credentials are redacted. Download before disabling DPS, which clears the capture.",
       );
       const probeStatus = ClassProbe.status();
       const probeButtons = el("div", {
@@ -1415,8 +1415,8 @@ const KikiMeter = (() => {
       });
       report.textContent = probeStatus.active
         ? langText(
-            `全量探针正在采集，已记录 ${probeStatus.messageCount} 条消息，正文约 ${(probeStatus.captureChars / 1024 / 1024).toFixed(2)} MB；点击“结束采集”才会停止。`,
-            `The full probe is capturing. ${probeStatus.messageCount} messages recorded (${(probeStatus.captureChars / 1024 / 1024).toFixed(2)} MB). Click “Stop capture” to stop it.`,
+            `正在采集，已保存 ${probeStatus.fullMessageCount} 条消息、${probeStatus.captureChars.toLocaleString()} 字符；可随时结束，到容量上限自动停止。`,
+            `Capturing: ${probeStatus.fullMessageCount} messages and ${probeStatus.captureChars.toLocaleString()} characters saved. Stop at any time; capture stops automatically at its size limit.`,
           )
         : probeStatus.startedAt
           ? ClassProbe.report().slice(0, 6000)

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWITools
 // @namespace    http://tampermonkey.net/
-// @version      26.4.22
+// @version      26.4.23
 // @updateURL    https://update.greasyfork.org/scripts/494467/MWITools.meta.js
 // @downloadURL  https://update.greasyfork.org/scripts/494467/MWITools.user.js
 // @description  Tools for MilkyWayIdle. Includes a feedback center, action projections, market insights, asset history, DPS/HPS statistics, inventory tools, tasks, and guild utilities.
@@ -240,15 +240,15 @@
 				return (observer.observe(target, options), add(() => observer.disconnect()), observer);
 			},
 			interval(callback, delay) {
-				let id = setInterval(callback, delay);
-				return (add(() => clearInterval(id)), id);
+				let id2 = setInterval(callback, delay);
+				return (add(() => clearInterval(id2)), id2);
 			},
 			timeout(callback, delay) {
-				let id = setTimeout(() => {
+				let id2 = setTimeout(() => {
 						(callbacks.delete(cancel), callback());
 					}, delay),
-					cancel = () => clearTimeout(id);
-				return (add(cancel), id);
+					cancel = () => clearTimeout(id2);
+				return (add(cancel), id2);
 			},
 			cleanup() {
 				if (!cleaned) {
@@ -267,11 +267,11 @@
 			},
 		};
 	}
-	function emitFeatureStatus(id) {
-		let snapshot = runtime.features.getStatus(id);
+	function emitFeatureStatus(id2) {
+		let snapshot = runtime.features.getStatus(id2);
 		for (let listener of featureStatusListeners)
 			try {
-				listener(id, snapshot);
+				listener(id2, snapshot);
 			} catch (error) {
 				console.error(
 					runtime.config.isZH ? "[MWITools] 功能状态监听器执行失败" : "[MWITools] Feature status listener failed",
@@ -279,25 +279,25 @@
 				);
 			}
 	}
-	function setFeatureStatus(id, status, error = null) {
-		let previous = featureStates.get(id) ?? {};
-		(featureStates.set(id, { ...previous, status, error }), emitFeatureStatus(id));
+	function setFeatureStatus(id2, status, error = null) {
+		let previous = featureStates.get(id2) ?? {};
+		(featureStates.set(id2, { ...previous, status, error }), emitFeatureStatus(id2));
 	}
 	function isFeatureEnabled(definition) {
 		return definition.setting
 			? (runtime.settings.get?.(definition.setting) ?? definition.defaultEnabled !== !1)
 			: definition.defaultEnabled !== !1;
 	}
-	async function initializeFeature(id) {
-		let definition = featureDefinitions.get(id);
+	async function initializeFeature(id2) {
+		let definition = featureDefinitions.get(id2);
 		if (!definition) return !1;
-		let current = featureStates.get(id);
+		let current = featureStates.get(id2);
 		if (current?.status === "active" || current?.status === "initializing") return !0;
-		if (!isFeatureEnabled(definition)) return (setFeatureStatus(id, "disabled"), !1);
+		if (!isFeatureEnabled(definition)) return (setFeatureStatus(id2, "disabled"), !1);
 		if (definition.scope === "character" && !activeCharacterId)
 			return (
 				setFeatureStatus(
-					id,
+					id2,
 					"waiting",
 					new Error(
 						runtime.config.isZH
@@ -315,7 +315,7 @@
 			if (!(await initializeFeature(dependencyId)))
 				return (
 					setFeatureStatus(
-						id,
+						id2,
 						"waiting",
 						new Error(
 							runtime.config.isZH
@@ -325,10 +325,10 @@
 					),
 					!1
 				);
-		setFeatureStatus(id, "initializing");
+		setFeatureStatus(id2, "initializing");
 		let scope = createCleanupScope();
-		featureStates.set(id, {
-			...featureStates.get(id),
+		featureStates.set(id2, {
+			...featureStates.get(id2),
 			status: "initializing",
 			scope,
 			instanceCleanup: null,
@@ -339,60 +339,60 @@
 					scope,
 					characterId: activeCharacterId || null,
 				}),
-				state = featureStates.get(id) ?? {};
+				state = featureStates.get(id2) ?? {};
 			return state.scope !== scope || !isFeatureEnabled(definition)
 				? (scope.cleanup(), typeof instanceCleanup == "function" && (await instanceCleanup()), !1)
-				: (featureStates.set(id, {
+				: (featureStates.set(id2, {
 						...state,
 						status: "active",
 						error: null,
 						scope,
 						instanceCleanup: typeof instanceCleanup == "function" ? instanceCleanup : null,
 					}),
-					emitFeatureStatus(id),
+					emitFeatureStatus(id2),
 					!0);
 		} catch (error) {
 			return (
 				scope.cleanup(),
-				featureStates.set(id, {
+				featureStates.set(id2, {
 					status: "failed",
 					error,
 					scope: null,
 					instanceCleanup: null,
 				}),
 				console.error(
-					runtime.config.isZH ? `[MWITools] 功能 ${id} 启动失败` : `[MWITools] Failed to initialize feature ${id}`,
+					runtime.config.isZH ? `[MWITools] 功能 ${id2} 启动失败` : `[MWITools] Failed to initialize feature ${id2}`,
 					error,
 				),
-				emitFeatureStatus(id),
+				emitFeatureStatus(id2),
 				!1
 			);
 		}
 	}
-	async function disableFeature(id) {
+	async function disableFeature(id2) {
 		for (let [dependentId, dependent] of featureDefinitions)
-			dependent.dependsOn?.includes(id) && (await disableFeature(dependentId));
-		let definition = featureDefinitions.get(id),
-			state = featureStates.get(id);
+			dependent.dependsOn?.includes(id2) && (await disableFeature(dependentId));
+		let definition = featureDefinitions.get(id2),
+			state = featureStates.get(id2);
 		if (["active", "failed", "initializing"].includes(state?.status)) {
 			try {
 				(await state.instanceCleanup?.(), await definition?.cleanup?.({ runtime, characterId: activeCharacterId }));
 			} catch (error) {
 				console.error(
-					runtime.config.isZH ? `[MWITools] 功能 ${id} 清理失败` : `[MWITools] Failed to clean up feature ${id}`,
+					runtime.config.isZH ? `[MWITools] 功能 ${id2} 清理失败` : `[MWITools] Failed to clean up feature ${id2}`,
 					error,
 				);
 			}
 			state.scope?.cleanup();
 		}
 		return (
-			featureStates.set(id, {
+			featureStates.set(id2, {
 				status: "disabled",
 				error: null,
 				scope: null,
 				instanceCleanup: null,
 			}),
-			emitFeatureStatus(id),
+			emitFeatureStatus(id2),
 			!0
 		);
 	}
@@ -498,13 +498,13 @@
 							);
 						},
 						async initializeAll(scope = null) {
-							for (let [id, definition] of featureDefinitions)
-								(scope && definition.scope !== scope) || (await initializeFeature(id));
+							for (let [id2, definition] of featureDefinitions)
+								(scope && definition.scope !== scope) || (await initializeFeature(id2));
 						},
 						enable: initializeFeature,
 						disable: disableFeature,
-						async restart(id) {
-							return (await disableFeature(id), initializeFeature(id));
+						async restart(id2) {
+							return (await disableFeature(id2), initializeFeature(id2));
 						},
 						async syncSetting(settingId) {
 							return this.syncSettings([settingId]);
@@ -512,28 +512,28 @@
 						async syncSettings(settingIds) {
 							let changed = new Set(settingIds ?? []),
 								affected = /* @__PURE__ */ new Set();
-							for (let [id, definition] of featureDefinitions) changed.has(definition.setting) && affected.add(id);
+							for (let [id2, definition] of featureDefinitions) changed.has(definition.setting) && affected.add(id2);
 							let expanded = !0;
 							for (; expanded;) {
 								expanded = !1;
-								for (let [id, definition] of featureDefinitions)
-									!affected.has(id) &&
+								for (let [id2, definition] of featureDefinitions)
+									!affected.has(id2) &&
 										definition.dependsOn?.some((dependencyId) => affected.has(dependencyId)) &&
-										(affected.add(id), (expanded = !0));
+										(affected.add(id2), (expanded = !0));
 							}
 							if (featureInitializationPaused) return [...affected];
-							for (let [id, definition] of [...featureDefinitions].reverse())
-								!affected.has(id) || isFeatureEnabled(definition) || (await disableFeature(id));
-							for (let [id, definition] of featureDefinitions)
-								!affected.has(id) || !isFeatureEnabled(definition) || (await initializeFeature(id));
+							for (let [id2, definition] of [...featureDefinitions].reverse())
+								!affected.has(id2) || isFeatureEnabled(definition) || (await disableFeature(id2));
+							for (let [id2, definition] of featureDefinitions)
+								!affected.has(id2) || !isFeatureEnabled(definition) || (await initializeFeature(id2));
 							return [...affected];
 						},
 						async handleCharacterData(payload) {
 							let nextCharacterId = resolveCharacterId(payload);
 							if (!nextCharacterId) return;
 							if (activeCharacterId && activeCharacterId !== nextCharacterId)
-								for (let [id, definition] of featureDefinitions)
-									definition.scope === "character" && (await disableFeature(id));
+								for (let [id2, definition] of featureDefinitions)
+									definition.scope === "character" && (await disableFeature(id2));
 							let changed = activeCharacterId !== nextCharacterId;
 							((activeCharacterId = nextCharacterId),
 								changed && !featureInitializationPaused && (await this.initializeAll("character")));
@@ -544,8 +544,8 @@
 						resumeInitialization() {
 							featureInitializationPaused = !1;
 						},
-						getStatus(id) {
-							let state = featureStates.get(id) ?? {
+						getStatus(id2) {
+							let state = featureStates.get(id2) ?? {
 									status: "unregistered",
 									error: null,
 								},
@@ -553,7 +553,7 @@
 									state.status === "initializing" &&
 									(!runtime.state.initData_itemDetailMap || !runtime.state.initData_actionDetailMap);
 							return {
-								id,
+								id: id2,
 								status: staticDataMissing ? "waiting" : state.status,
 								error:
 									state.error?.message ??
@@ -565,7 +565,7 @@
 							};
 						},
 						list() {
-							return [...featureDefinitions.keys()].map((id) => this.getStatus(id));
+							return [...featureDefinitions.keys()].map((id2) => this.getStatus(id2));
 						},
 						onStatusChange(listener) {
 							return (featureStatusListeners.add(listener), () => featureStatusListeners.delete(listener));
@@ -1096,6 +1096,116 @@
 			},
 		});
 
+	// src/core/combat-fragments.js
+	function compactCombatFragments(parts, limit = 100) {
+		if (!Array.isArray(parts)) return [];
+		let valid = parts.filter((part) => part && typeof part == "object");
+		if (valid.length <= limit) return valid;
+		let count = valid.length - limit + 1;
+		return [
+			valid.slice(0, count).reduce((left, right) => ({
+				startedAt: left.startedAt || right.startedAt,
+				endedAt: right.endedAt,
+				reason: "较早重连片段（合并） / Earlier reconnect fragments (combined)",
+				durationMs: (Number(left.durationMs) || 0) + (Number(right.durationMs) || 0),
+				teamDamage: (Number(left.teamDamage) || 0) + (Number(right.teamDamage) || 0),
+				players: sumStats(left.players, right.players),
+				combinedFragments: (left.combinedFragments || 1) + (right.combinedFragments || 1),
+			})),
+			...valid.slice(count),
+		];
+	}
+	var sumStats,
+		init_combat_fragments = __esm({
+			"src/core/combat-fragments.js"() {
+				sumStats = (left, right) =>
+					typeof left == "number" || typeof right == "number"
+						? (Number(left) || 0) + (Number(right) || 0)
+						: (left && typeof left == "object") || (right && typeof right == "object")
+							? Object.fromEntries(
+									[.../* @__PURE__ */ new Set([...Object.keys(left || {}), ...Object.keys(right || {})])].map((key) => [
+										key,
+										sumStats(left?.[key], right?.[key]),
+									]),
+								)
+							: right || left;
+			},
+		});
+
+	// src/core/bounded-dps-history.js
+	function boundDpsHistory(entries) {
+		if (!Array.isArray(entries)) throw new TypeError("Invalid DPS history");
+		let counts = /* @__PURE__ */ new Map(),
+			seen = /* @__PURE__ */ new Set(),
+			result = [],
+			bytes = 2,
+			size = (raw) =>
+				typeof globalThis.TextEncoder == "function"
+					? new globalThis.TextEncoder().encode(raw).length
+					: new Blob([raw]).size;
+		for (let entry of [...entries].sort((a, b) => timestamp(b) - timestamp(a))) {
+			let key = id(entry);
+			if (!entry || typeof entry != "object" || !key || seen.has(key)) continue;
+			seen.add(key);
+			let type = entry.type || "combat",
+				count = counts.get(type) || 0;
+			if (entry.favorite !== !0 && count >= 10) continue;
+			let boundedEntry = Array.isArray(entry.fragments)
+					? { ...entry, fragments: compactCombatFragments(entry.fragments) }
+					: entry,
+				cost = size(JSON.stringify(boundedEntry)) + (result.length ? 1 : 0);
+			bytes + cost > MAX_DPS_HISTORY_BYTES ||
+				((bytes += cost), entry.favorite !== !0 && counts.set(type, count + 1), result.push(boundedEntry));
+		}
+		return result;
+	}
+	function mergeDpsHistory(current, before, incoming, removedThrough = 0) {
+		let base = new Map(before.map((entry) => [id(entry), entry])),
+			next = new Map(incoming.map((entry) => [id(entry), entry])),
+			merged = new Map(current.map((entry) => [id(entry), entry]));
+		for (let key of base.keys()) next.has(key) || merged.delete(key);
+		for (let [key, entry] of next) {
+			if (!base.has(key)) {
+				if (removedThrough > 0 && !merged.has(key) && timestamp(entry) <= removedThrough) continue;
+				merged.set(key, entry);
+				continue;
+			}
+			if (!merged.has(key)) continue;
+			let previous = base.get(key),
+				value = { ...merged.get(key) };
+			for (let field of /* @__PURE__ */ new Set([...Object.keys(previous), ...Object.keys(entry)]))
+				equal(previous[field], entry[field]) ||
+					(Object.hasOwn(entry, field)
+						? Object.defineProperty(value, field, {
+								value: entry[field],
+								enumerable: !0,
+								configurable: !0,
+								writable: !0,
+							})
+						: delete value[field]);
+			merged.set(key, value);
+		}
+		return boundDpsHistory([...merged.values()].sort((a, b) => timestamp(b) - timestamp(a)));
+	}
+	var DPS_HISTORY_KEY,
+		MAX_DPS_HISTORY_BYTES,
+		equal,
+		id,
+		timestamp,
+		init_bounded_dps_history = __esm({
+			"src/core/bounded-dps-history.js"() {
+				init_combat_fragments();
+				((DPS_HISTORY_KEY = "kikimeter:history:v2"),
+					(MAX_DPS_HISTORY_BYTES = 1e6),
+					(equal = (a, b) => JSON.stringify(a) === JSON.stringify(b)),
+					(id = (entry) => String(entry?.id || entry?.combatKey || entry?.date || entry?.startedAt || "")),
+					(timestamp = (entry) => {
+						let value = Date.parse(entry?.endedAt ?? entry?.date ?? entry?.startedAt ?? "");
+						return Number.isFinite(value) ? value : 0;
+					}));
+			},
+		});
+
 	// src/core/shared-storage.js
 	function flatten(value, path = [], output = /* @__PURE__ */ new Map()) {
 		let key = JSON.stringify(path);
@@ -1159,7 +1269,10 @@
 	function listNames() {
 		if (!indexedNames) {
 			indexedNames = /* @__PURE__ */ new Map();
-			for (let name of globalThis.GM_listValues()) indexRecordName(name);
+			let historyMigrated = globalThis.GM_getValue(historyHeadKey(), null) !== null,
+				historyPrefix = recordPrefix(DPS_HISTORY_KEY);
+			for (let name of globalThis.GM_listValues())
+				isDerivedPlayerCacheName(name) || (historyMigrated && name.startsWith(historyPrefix)) || indexRecordName(name);
 		}
 		return indexedNames;
 	}
@@ -1195,14 +1308,21 @@
 		if ((flush(), indexedNames)) for (let [key] of entries) indexRecordName(key);
 	}
 	function entriesFor(key, prepared = null) {
+		if (key === DPS_HISTORY_KEY) {
+			let head = globalThis.GM_getValue(historyHeadKey(), null);
+			if (head) return /* @__PURE__ */ new Map([["[]", historyMirror(head)]]);
+		}
 		let prefix = recordPrefix(key),
 			revision = globalThis.GM_getValue(revisionKey(key), null),
 			cached = snapshots.get(prefix);
 		if (cached && cached.revision === revision && !prepared) return cached.entries;
 		(cached || (revision !== null && typeof globalThis.GM_addValueChangeListener != "function")) &&
 			(indexedNames = null);
-		let names = [...(listNames().get(prefix) ?? [])],
-			values = prepared?.values ?? getValues(names.filter((name) => name.slice(prefix.length).startsWith("%5B"))),
+		let names = [...(listNames().get(prefix) ?? [])].filter(
+			(name) => !isDerivedPlayerCachePath(key, decodeURIComponent(name.slice(prefix.length))),
+		);
+		/^kikimeter:settings:v[34]$/.test(key) && cleanupPlayerCacheFields(key);
+		let values = prepared?.values ?? getValues(names.filter((name) => name.slice(prefix.length).startsWith("%5B"))),
 			packed = isPackedHistory(key) ? readPackedHistory(prefix) : null,
 			entries = packed ?? /* @__PURE__ */ new Map(),
 			floor = packed?.get("[]")?.xpFloor ?? 0;
@@ -1225,6 +1345,124 @@
 		}
 		return (snapshots.set(prefix, { revision, entries }), entries);
 	}
+	function isDerivedPlayerCachePath(key, path) {
+		return /^kikimeter:settings:v[34]$/.test(key) && /^\["(?:classCache|weaponCache)"(?:,|\])/.test(path);
+	}
+	function isDerivedPlayerCacheName(name) {
+		let match = name.match(/(?:^|:)record:([^:]+):(.+)$/);
+		if (!match) return !1;
+		try {
+			return isDerivedPlayerCachePath(decodeURIComponent(match[1]), decodeURIComponent(match[2]));
+		} catch {
+			return !1;
+		}
+	}
+	function cleanupPlayerCacheFields(key) {
+		let prefix = recordPrefix(key);
+		if (historyCleanups.has(prefix) || cleanedHistories.has(prefix)) return;
+		let work = (async () => {
+			await new Promise((resolve) => setTimeout(resolve, 0));
+			let names = globalThis
+					.GM_listValues()
+					.filter(
+						(name) =>
+							name.startsWith(prefix) && isDerivedPlayerCachePath(key, decodeURIComponent(name.slice(prefix.length))),
+					),
+				size = typeof globalThis.GM_deleteValues == "function" ? 128 : 32;
+			for (let index = 0; index < names.length; index += size)
+				(deleteStorageNames(names.slice(index, index + size)), await new Promise((resolve) => setTimeout(resolve, 0)));
+			((indexedNames = null), cleanedHistories.add(prefix));
+		})()
+			.catch((error) => {
+				((indexedNames = null),
+					cleanedHistories.add(prefix),
+					console.error("[MWITools] Player cache cleanup failed; retrying next startup", error));
+			})
+			.finally(() => historyCleanups.delete(prefix));
+		historyCleanups.set(prefix, work);
+	}
+	function cleanupHistoryFields() {
+		let name = historyHeadKey();
+		if (cleanedHistories.has(name) || historyCleanups.has(name)) return;
+		let prefix = recordPrefix(DPS_HISTORY_KEY),
+			mirror = historyMirrorKey(),
+			recoveryPrefix = `${root()}recovery:`,
+			work = (async () => {
+				await new Promise((resolve) => setTimeout(resolve, 0));
+				let names = globalThis
+						.GM_listValues()
+						.filter(
+							(key) =>
+								(key.startsWith(prefix) && key !== mirror) ||
+								(key.startsWith(recoveryPrefix) && key.includes(encodeURIComponent(DPS_HISTORY_KEY))),
+						),
+					size = typeof globalThis.GM_deleteValues == "function" ? 128 : 32;
+				for (let index = 0; index < names.length; index += size)
+					(deleteStorageNames(names.slice(index, index + size)),
+						await new Promise((resolve) => setTimeout(resolve, 0)));
+				((indexedNames = null), cleanedHistories.add(name));
+			})()
+				.catch((error) => {
+					((indexedNames = null),
+						cleanedHistories.add(name),
+						console.error("[MWITools] DPS history cleanup failed; retrying next startup", error));
+				})
+				.finally(() => historyCleanups.delete(name));
+		historyCleanups.set(name, work);
+	}
+	function makeHistoryHead(entries, previous) {
+		let bounded = boundDpsHistory(entries),
+			ids = new Set(bounded.map((entry) => String(entry.id || entry.combatKey || entry.date || entry.startedAt))),
+			removedThrough = previous?.removedThrough ?? 0;
+		for (let entry of previous?.entries ?? [])
+			ids.has(String(entry.id || entry.combatKey || entry.date || entry.startedAt)) ||
+				(removedThrough = Math.max(removedThrough, Date.parse(entry.endedAt ?? entry.date ?? entry.startedAt) || 0));
+		return {
+			version: 1,
+			entries: bounded,
+			removedThrough,
+			updatedAt: Date.now(),
+		};
+	}
+	function commitHistory(entries, previous = globalThis.GM_getValue(historyHeadKey(), null)) {
+		let head = makeHistoryHead(entries, previous);
+		if ((globalThis.GM_setValue(historyHeadKey(), head), !equal2(globalThis.GM_getValue(historyHeadKey(), null), head)))
+			throw new Error(
+				(native()?.getItem("i18nextLng") ?? "").startsWith("zh")
+					? "DPS 战斗历史快照校验失败"
+					: "DPS history snapshot verification failed",
+			);
+		(bases.delete(recordPrefix(DPS_HISTORY_KEY)),
+			snapshots.delete(recordPrefix(DPS_HISTORY_KEY)),
+			(indexedNames = null),
+			historyBases.set(historyHeadKey(), head.entries));
+		try {
+			(globalThis.GM_setValue(historyMirrorKey(), historyMirror(head)),
+				globalThis.GM_setValue(revisionKey(DPS_HISTORY_KEY), `${Date.now()}:${Math.random()}`),
+				globalThis.GM_setValue(`${root()}changed`, {
+					key: DPS_HISTORY_KEY,
+					at: Date.now(),
+					nonce: Math.random(),
+				}));
+		} catch (error) {
+			console.error("[MWITools] DPS history mirror update failed", error);
+		}
+		return (cleanupHistoryFields(), head);
+	}
+	function readHistoryHead() {
+		let head = globalThis.GM_getValue(historyHeadKey(), null);
+		if (!head) {
+			migrate(DPS_HISTORY_KEY);
+			let legacy = inflate(entriesFor(DPS_HISTORY_KEY));
+			if (legacy === void 0) return null;
+			head = commitHistory(boundDpsHistory(legacy));
+		}
+		if (head.version !== 1 || !Array.isArray(head.entries)) throw new TypeError("Invalid DPS history snapshot");
+		return (cleanupHistoryFields(), head);
+	}
+	function readHistory() {
+		return readHistoryHead()?.entries ?? null;
+	}
 	function write(key, raw, { migration = !1 } = {}) {
 		let before = bases.get(recordPrefix(key)) ?? entriesFor(key),
 			next = raw === null ? /* @__PURE__ */ new Map() : flatten(parse(raw)),
@@ -1232,10 +1470,11 @@
 			updates = {},
 			merged = new Map(current);
 		for (let path of /* @__PURE__ */ new Set([...before.keys(), ...next.keys()])) {
+			if (isDerivedPlayerCachePath(key, path)) continue;
 			let previous = before.get(path),
 				value = next.get(path) ?? { deleted: !0 };
 			if (
-				equal(
+				equal2(
 					((entry2) =>
 						entry2 &&
 						Object.fromEntries(
@@ -1310,11 +1549,16 @@
 	function exportSharedBackup() {
 		let data = {};
 		if (available()) {
-			for (let key of localKeys()) migrate(key);
-			let names = globalThis
+			for (let key of localKeys()) key !== DPS_HISTORY_KEY && migrate(key);
+			let history = readHistory(),
+				names = globalThis
 					.GM_listValues()
+					.filter((key) => key.startsWith(root()) && /:(record|recovery):/.test(key) && !isRetiredGuildStorageName(key))
 					.filter(
-						(key) => key.startsWith(root()) && /:(record|recovery):/.test(key) && !isRetiredGuildStorageName(key),
+						(key) =>
+							!key.startsWith(recordPrefix(DPS_HISTORY_KEY)) &&
+							!isDerivedPlayerCacheName(key) &&
+							!(key.startsWith(`${root()}recovery:`) && key.includes(encodeURIComponent(DPS_HISTORY_KEY))),
 					),
 				values = getValues(names.filter((name) => !/:page:|:commit:|:packed$/.test(name)));
 			for (let key of names) {
@@ -1325,6 +1569,11 @@
 						: values[key]?.key;
 				shared(logical) && (data[relative] = values[key]);
 			}
+			history !== null &&
+				(data[historyMirrorKey().slice(root().length)] = historyMirror({
+					entries: history,
+					updatedAt: Date.now(),
+				}));
 			let prefixes = new Set(
 				names
 					.filter((name) => name.endsWith(":packed") || name.includes(":commit:"))
@@ -1361,8 +1610,12 @@
 			backup.environment !== environment()
 		)
 			throw new TypeError("Invalid MWITools backup or environment");
-		let entries = Object.entries(backup.data).filter(([key]) =>
-			key.startsWith("local:") ? !isRetiredGuildStorageName(key.slice(6)) : !isRetiredGuildStorageName(root() + key),
+		let entries = Object.entries(backup.data).filter(
+			([key]) =>
+				!isDerivedPlayerCacheName(key) &&
+				(key.startsWith("local:")
+					? !isRetiredGuildStorageName(key.slice(6))
+					: !isRetiredGuildStorageName(root() + key)),
 		);
 		for (let [key, value] of entries) {
 			if (key.startsWith("local:")) {
@@ -1385,34 +1638,71 @@
 					? "脚本管理器共享存储不可用"
 					: "Shared userscript storage unavailable",
 			);
-		let previous = entries.map(([key]) => [
-			key,
-			key.startsWith("local:")
-				? sharedStorage.getItem(key.slice(6))
-				: key.startsWith("record:")
-					? (entriesFor(decodeURIComponent(key.slice(7, key.indexOf(":", 7)))).get(
-							decodeURIComponent(key.slice(key.indexOf(":", 7) + 1)),
-						) ?? null)
-					: globalThis.GM_getValue(root() + key, null),
-		]);
+		let historyPrefix = recordPrefix(DPS_HISTORY_KEY).slice(root().length),
+			historyRecords = entries.filter(([key]) => key.startsWith(historyPrefix)),
+			restoredHistory = null;
+		if (historyRecords.length) {
+			let value = inflate(
+				new Map(historyRecords.map(([key, value2]) => [decodeURIComponent(key.slice(historyPrefix.length)), value2])),
+			);
+			if (
+				value === void 0 &&
+				!historyRecords.some(
+					([key, entry]) => decodeURIComponent(key.slice(historyPrefix.length)) === "[]" && entry.deleted === !0,
+				)
+			)
+				throw new TypeError("Incomplete DPS history backup");
+			restoredHistory = boundDpsHistory(value ?? []);
+		}
+		let oldHistoryHead = available() ? globalThis.GM_getValue(historyHeadKey(), null) : null,
+			oldHistoryMirror = available() ? globalThis.GM_getValue(historyMirrorKey(), null) : null,
+			previous = entries.map(([key]) => [
+				key,
+				key.startsWith("local:")
+					? sharedStorage.getItem(key.slice(6))
+					: key.startsWith("record:")
+						? (entriesFor(decodeURIComponent(key.slice(7, key.indexOf(":", 7)))).get(
+								decodeURIComponent(key.slice(key.indexOf(":", 7) + 1)),
+							) ?? null)
+						: globalThis.GM_getValue(root() + key, null),
+			]);
 		try {
 			let updates = {};
 			for (let [key, value] of entries)
-				key.startsWith("local:")
-					? sharedStorage.setItem(key.slice(6), value)
-					: (updates[root() + key] = { ...value, updatedAt: Date.now() });
+				if (key.startsWith("local:")) sharedStorage.setItem(key.slice(6), value);
+				else {
+					if (key.startsWith(historyPrefix)) continue;
+					updates[root() + key] = { ...value, updatedAt: Date.now() };
+				}
+			if (restoredHistory !== null) {
+				let head = makeHistoryHead(restoredHistory, oldHistoryHead);
+				((updates[historyHeadKey()] = head), (updates[historyMirrorKey()] = historyMirror(head)));
+			}
 			setValues(updates);
 		} catch (error) {
 			let rollback = {};
 			for (let [key, value] of previous)
-				key.startsWith("local:")
-					? value === null
-						? sharedStorage.removeItem(key.slice(6))
-						: sharedStorage.setItem(key.slice(6), value)
-					: (rollback[root() + key] = value ?? { deleted: !0 });
-			throw (setValues(rollback), snapshots.clear(), (indexedNames = null), error);
+				if (key.startsWith("local:"))
+					value === null ? sharedStorage.removeItem(key.slice(6)) : sharedStorage.setItem(key.slice(6), value);
+				else {
+					if (key.startsWith(historyPrefix)) continue;
+					rollback[root() + key] = value ?? { deleted: !0 };
+				}
+			throw (
+				restoredHistory !== null &&
+					((rollback[historyHeadKey()] = oldHistoryHead), (rollback[historyMirrorKey()] = oldHistoryMirror)),
+				setValues(rollback),
+				snapshots.clear(),
+				historyBases.clear(),
+				(indexedNames = null),
+				error
+			);
 		}
-		(bases.clear(), snapshots.clear(), (indexedNames = null));
+		(bases.clear(),
+			snapshots.clear(),
+			historyBases.clear(),
+			(indexedNames = null),
+			restoredHistory !== null && cleanupHistoryFields());
 		let changedKeys = new Set(
 			entries
 				.map(([key]) =>
@@ -1441,9 +1731,15 @@
 	function scheduleSharedMigration() {
 		if (!available()) return Promise.resolve();
 		if (migrationRun) return migrationRun;
-		let keys = localKeys().filter((key) => !isPackedHistory(key));
+		let keys = localKeys().filter((key) => !isPackedHistory(key) && key !== DPS_HISTORY_KEY);
 		return (
 			(migrationRun = (async () => {
+				await new Promise((resolve) => setTimeout(resolve, 0));
+				try {
+					readHistory();
+				} catch (error) {
+					console.error("[MWITools] DPS history migration failed; will retry", error);
+				}
 				for (let key of keys) {
 					await new Promise((resolve) => setTimeout(resolve, 0));
 					try {
@@ -1463,9 +1759,12 @@
 		bases,
 		observed,
 		snapshots,
+		historyBases,
+		historyCleanups,
+		cleanedHistories,
 		indexedNames,
 		forbidden,
-		equal,
+		equal2,
 		canonical,
 		environment,
 		root,
@@ -1474,19 +1773,26 @@
 		native,
 		parse,
 		identity,
+		historyHeadKey,
+		historyMirrorKey,
+		historyMirror,
 		sharedStorage,
 		migrationRun,
 		init_shared_storage = __esm({
 			"src/core/shared-storage.js"() {
 				init_retired_guild_storage();
 				init_packed_history();
+				init_bounded_dps_history();
 				((PREFIX = "MWITools_shared_v1:"),
 					(bases = /* @__PURE__ */ new Map()),
 					(observed = /* @__PURE__ */ new Set()),
 					(snapshots = /* @__PURE__ */ new Map()),
+					(historyBases = /* @__PURE__ */ new Map()),
+					(historyCleanups = /* @__PURE__ */ new Map()),
+					(cleanedHistories = /* @__PURE__ */ new Set()),
 					(indexedNames = null),
 					(forbidden = /* @__PURE__ */ new Set(["__proto__", "prototype", "constructor"])),
-					(equal = (a, b) => JSON.stringify(a) === JSON.stringify(b)),
+					(equal2 = (a, b) => JSON.stringify(a) === JSON.stringify(b)),
 					(canonical = (key) => String(key).replace(/(^|:)china:/g, "$1production:")),
 					(environment = () => (String(globalThis.location?.hostname ?? "").startsWith("test.") ? "test" : "live")),
 					(root = () => `${PREFIX}${environment()}:`),
@@ -1519,9 +1825,23 @@
 										: value.day || value.date
 											? `day:${value.day ?? value.date}`
 											: null));
+				((historyHeadKey = () => `${root()}bounded:dps-history:v1`),
+					(historyMirrorKey = () => recordPrefix(DPS_HISTORY_KEY) + encodeURIComponent("[]")),
+					(historyMirror = (head) => ({
+						type: "value",
+						value: head.entries,
+						updatedAt: head.updatedAt,
+					})));
 				sharedStorage = {
 					getItem(key) {
 						if (!available() || !shared(key)) return native()?.getItem(key) ?? null;
+						if (key === DPS_HISTORY_KEY) {
+							observed.add(key);
+							let entries2 = readHistory();
+							return entries2 === null
+								? null
+								: (historyBases.set(historyHeadKey(), entries2), JSON.stringify(entries2));
+						}
 						(migrate(key), observed.add(canonical(key)));
 						let entries = entriesFor(key);
 						bases.set(recordPrefix(key), entries);
@@ -1534,10 +1854,29 @@
 					},
 					setItem(key, value) {
 						if (!available() || !shared(key)) return native()?.setItem(key, value);
+						if (key === DPS_HISTORY_KEY) {
+							let before = historyBases.get(historyHeadKey()),
+								head = readHistoryHead(),
+								current = head?.entries ?? [];
+							commitHistory(
+								mergeDpsHistory(
+									current,
+									before ?? current,
+									boundDpsHistory(JSON.parse(String(value))),
+									head?.removedThrough ?? 0,
+								),
+								head,
+							);
+							return;
+						}
 						(migrate(key), write(key, String(value)));
 					},
 					removeItem(key) {
 						if (!available() || !shared(key)) return native()?.removeItem(key);
+						if (key === DPS_HISTORY_KEY) {
+							commitHistory([]);
+							return;
+						}
 						(migrate(key), write(key, null));
 					},
 				};
@@ -1545,6 +1884,7 @@
 					globalThis.GM_addValueChangeListener(`${root()}changed`, (_name, _old, value, remote) => {
 						remote &&
 							((indexedNames = null),
+							value?.key === DPS_HISTORY_KEY && cleanedHistories.delete(historyHeadKey()),
 							snapshots.delete(recordPrefix(value?.key)),
 							observed.has(value?.key) &&
 								globalThis.dispatchEvent?.(new CustomEvent("mwitools-shared-storage", { detail: value })));
@@ -1791,11 +2131,11 @@
 			? fallback
 			: String(value).trim().slice(0, 256) || fallback;
 	}
-	function getSetting(id) {
-		return settingsMap[id]?.isTrue;
+	function getSetting(id2) {
+		return settingsMap[id2]?.isTrue;
 	}
-	function normalizePreference(id, value) {
-		let definition = preferenceDefinitions[id];
+	function normalizePreference(id2, value) {
+		let definition = preferenceDefinitions[id2];
 		if (definition)
 			return typeof definition.normalize == "function"
 				? definition.normalize(value)
@@ -1803,29 +2143,29 @@
 					? value
 					: definition.defaultValue;
 	}
-	function getPreference(id) {
-		return preferenceValues[id];
+	function getPreference(id2) {
+		return preferenceValues[id2];
 	}
-	async function setPreference(id, value, options = {}) {
-		let normalized = normalizePreference(id, value);
+	async function setPreference(id2, value, options = {}) {
+		let normalized = normalizePreference(id2, value);
 		if (normalized === void 0) return !1;
-		let previous = preferenceValues[id];
-		if (((preferenceValues[id] = normalized), previous === normalized && !options.force)) return !0;
+		let previous = preferenceValues[id2];
+		if (((preferenceValues[id2] = normalized), previous === normalized && !options.force)) return !0;
 		options.persist !== !1 && runtime.api.persistSettings?.();
-		for (let listener of preferenceListeners.get(id) ?? [])
+		for (let listener of preferenceListeners.get(id2) ?? [])
 			try {
 				listener(normalized, previous);
 			} catch (error) {
 				console.error(
-					isZH ? `[MWITools] 偏好设置 ${id} 的监听器执行失败` : `[MWITools] Preference listener failed for ${id}`,
+					isZH ? `[MWITools] 偏好设置 ${id2} 的监听器执行失败` : `[MWITools] Preference listener failed for ${id2}`,
 					error,
 				);
 			}
 		return !0;
 	}
-	function onPreferenceChange(id, listener) {
-		let listeners2 = preferenceListeners.get(id) ?? /* @__PURE__ */ new Set();
-		return (listeners2.add(listener), preferenceListeners.set(id, listeners2), () => listeners2.delete(listener));
+	function onPreferenceChange(id2, listener) {
+		let listeners2 = preferenceListeners.get(id2) ?? /* @__PURE__ */ new Set();
+		return (listeners2.add(listener), preferenceListeners.set(id2, listeners2), () => listeners2.delete(listener));
 	}
 	function isIronCowCharacter() {
 		return ["ironcow", "legacy_ironcow"].includes(String(runtime.state.currentCharacterGameMode ?? "").toLowerCase());
@@ -1833,25 +2173,25 @@
 	function shouldSuppressMarketFeatures() {
 		return !!(settingsMap.adaptIronCowMarketFeatures?.isTrue && isIronCowCharacter());
 	}
-	async function setSetting(id, value, options = {}) {
-		if (!settingsMap[id]) return !1;
-		id === "adaptIronCowMarketFeatures" &&
+	async function setSetting(id2, value, options = {}) {
+		if (!settingsMap[id2]) return !1;
+		id2 === "adaptIronCowMarketFeatures" &&
 			!options.automatic &&
 			sharedStorage.setItem("MWITools_ironCowChoice", value ? "on" : "off");
 		let normalized = !!value,
-			previous = settingsMap[id].isTrue;
-		if (((settingsMap[id].isTrue = normalized), previous === normalized && !options.force)) return !0;
+			previous = settingsMap[id2].isTrue;
+		if (((settingsMap[id2].isTrue = normalized), previous === normalized && !options.force)) return !0;
 		options.persist !== !1 && runtime.api.persistSettings?.();
-		for (let listener of settingListeners.get(id) ?? [])
+		for (let listener of settingListeners.get(id2) ?? [])
 			try {
 				listener(normalized, previous);
 			} catch (error) {
 				console.error(
-					isZH ? `[MWITools] 设置 ${id} 的监听器执行失败` : `[MWITools] Setting listener failed for ${id}`,
+					isZH ? `[MWITools] 设置 ${id2} 的监听器执行失败` : `[MWITools] Setting listener failed for ${id2}`,
 					error,
 				);
 			}
-		return (await runtime.features.syncSetting(id), !0);
+		return (await runtime.features.syncSetting(id2), !0);
 	}
 	async function applySettingsBatch({ values = {}, preferences = {} } = {}, options = {}) {
 		let settingChanges = [],
@@ -1861,31 +2201,31 @@
 			!Object.hasOwn(nextValues, "productionSummary") &&
 			(nextValues.productionSummary =
 				normalizePreference("productionSummaryMode", preferences.productionSummaryMode) !== "off");
-		for (let [id, value] of Object.entries(nextValues)) {
-			if (!settingsMap[id]) throw new TypeError(`Unknown MWITools setting: ${id}`);
-			if (typeof value != "boolean") throw new TypeError(`MWITools setting ${id} must be boolean`);
+		for (let [id2, value] of Object.entries(nextValues)) {
+			if (!settingsMap[id2]) throw new TypeError(`Unknown MWITools setting: ${id2}`);
+			if (typeof value != "boolean") throw new TypeError(`MWITools setting ${id2} must be boolean`);
 		}
-		for (let [id, value] of Object.entries(preferences)) {
-			if (!preferenceDefinitions[id]) throw new TypeError(`Unknown MWITools preference: ${id}`);
-			let definition = preferenceDefinitions[id];
+		for (let [id2, value] of Object.entries(preferences)) {
+			if (!preferenceDefinitions[id2]) throw new TypeError(`Unknown MWITools preference: ${id2}`);
+			let definition = preferenceDefinitions[id2];
 			if (
 				(definition.values && !definition.values.includes(value)) ||
 				(definition.normalize && typeof value != "string")
 			)
-				throw new TypeError(`Invalid MWITools preference value for ${id}`);
+				throw new TypeError(`Invalid MWITools preference value for ${id2}`);
 		}
-		for (let [id, value] of Object.entries(nextValues)) {
+		for (let [id2, value] of Object.entries(nextValues)) {
 			let normalized = value,
-				previous = settingsMap[id].isTrue;
-			((settingsMap[id].isTrue = normalized),
-				(previous !== normalized || options.force) && settingChanges.push({ id, value: normalized, previous }));
+				previous = settingsMap[id2].isTrue;
+			((settingsMap[id2].isTrue = normalized),
+				(previous !== normalized || options.force) && settingChanges.push({ id: id2, value: normalized, previous }));
 		}
-		for (let [id, value] of Object.entries(preferences)) {
-			let normalized = normalizePreference(id, value);
+		for (let [id2, value] of Object.entries(preferences)) {
+			let normalized = normalizePreference(id2, value);
 			if (normalized === void 0) continue;
-			let previous = preferenceValues[id];
-			((preferenceValues[id] = normalized),
-				(previous !== normalized || options.force) && preferenceChanges.push({ id, value: normalized, previous }));
+			let previous = preferenceValues[id2];
+			((preferenceValues[id2] = normalized),
+				(previous !== normalized || options.force) && preferenceChanges.push({ id: id2, value: normalized, previous }));
 		}
 		options.persist !== !1 && runtime.api.persistSettings?.();
 		for (let change of preferenceChanges)
@@ -1913,16 +2253,16 @@
 					);
 				}
 		return (
-			await runtime.features.syncSettings(settingChanges.map(({ id }) => id)),
+			await runtime.features.syncSettings(settingChanges.map(({ id: id2 }) => id2)),
 			{
-				settings: settingChanges.map(({ id }) => id),
-				preferences: preferenceChanges.map(({ id }) => id),
+				settings: settingChanges.map(({ id: id2 }) => id2),
+				preferences: preferenceChanges.map(({ id: id2 }) => id2),
 			}
 		);
 	}
-	function onSettingChange(id, listener) {
-		let listeners2 = settingListeners.get(id) ?? /* @__PURE__ */ new Set();
-		return (listeners2.add(listener), settingListeners.set(id, listeners2), () => listeners2.delete(listener));
+	function onSettingChange(id2, listener) {
+		let listeners2 = settingListeners.get(id2) ?? /* @__PURE__ */ new Set();
+		return (listeners2.add(listener), settingListeners.set(id2, listeners2), () => listeners2.delete(listener));
 	}
 	var isZH,
 		SCRIPT_COLOR_MAIN,
@@ -2975,10 +3315,10 @@
 					"Right-click inventory loot to open all available using current stock and keys; off by default.",
 				]);
 				settingsCatalog = Object.fromEntries(
-					catalogRows.map(([id, group, zhTitle, enTitle, zhSummary, enSummary]) => [
-						id,
+					catalogRows.map(([id2, group, zhTitle, enTitle, zhSummary, enSummary]) => [
+						id2,
 						{
-							id,
+							id: id2,
 							group,
 							title: { zh: zhTitle, en: enTitle },
 							summary: { zh: zhSummary, en: enSummary },
@@ -3080,8 +3420,8 @@
 					taskTrainPlanner: "semiAutoTrain",
 					leaderboardBadgeGlint: "leaderboardOverlay",
 				};
-				for (let [id, parent] of Object.entries(settingParents))
-					settingsCatalog[id] && (settingsCatalog[id].parent = parent);
+				for (let [id2, parent] of Object.entries(settingParents))
+					settingsCatalog[id2] && (settingsCatalog[id2].parent = parent);
 				((settingListeners = /* @__PURE__ */ new Map()), (preferenceListeners = /* @__PURE__ */ new Map()));
 				((preferenceDefinitions = Object.freeze({
 					productionSummaryMode: Object.freeze({
@@ -3114,7 +3454,7 @@
 					}),
 				})),
 					(preferenceValues = Object.fromEntries(
-						Object.entries(preferenceDefinitions).map(([id, definition]) => [id, definition.defaultValue]),
+						Object.entries(preferenceDefinitions).map(([id2, definition]) => [id2, definition.defaultValue]),
 					)));
 				Object.defineProperties(runtime.config, {
 					THOUSAND_SEPERATOR: {
@@ -5886,7 +6226,7 @@
 	function normalizeAllocations(value, fallbackQuantity = 0) {
 		let projects = Object.fromEntries(
 				Object.entries(value?.projects ?? {})
-					.map(([id, quantity]) => [id, Math.max(0, Math.ceil(Number(quantity) || 0))])
+					.map(([id2, quantity]) => [id2, Math.max(0, Math.ceil(Number(quantity) || 0))])
 					.filter(([, quantity]) => quantity > 0),
 			),
 			normalized = {
@@ -5965,13 +6305,13 @@
 	function getSettings() {
 		return clone(settings);
 	}
-	function setSetting2(id, value) {
-		if (!Object.hasOwn(DEFAULT_SETTINGS, id)) return !1;
-		let previous = settings[id];
+	function setSetting2(id2, value) {
+		if (!Object.hasOwn(DEFAULT_SETTINGS, id2)) return !1;
+		let previous = settings[id2];
 		return (
-			(settings = normalizeSettings({ ...settings, [id]: value })),
+			(settings = normalizeSettings({ ...settings, [id2]: value })),
 			saveSettings(),
-			emit("settings:change", { id, value: settings[id], previous }),
+			emit("settings:change", { id: id2, value: settings[id2], previous }),
 			!0
 		);
 	}
@@ -6493,8 +6833,8 @@
 					String(right.id).localeCompare(String(left.id)),
 			)
 			.map((plan) => String(plan.id));
-		for (let id of newestProjects) take({ kind: "project", id });
-		for (let id of Object.keys(row.allocations.projects ?? {})) take({ kind: "project", id });
+		for (let id2 of newestProjects) take({ kind: "project", id: id2 });
+		for (let id2 of Object.keys(row.allocations.projects ?? {})) take({ kind: "project", id: id2 });
 		row.quantity = allocationTotal(row.allocations);
 	}
 	function consumeCartAllocations(row, quantity) {
@@ -6511,9 +6851,9 @@
 						String(left.id).localeCompare(String(right.id)),
 				)
 				.map((plan) => String(plan.id));
-		for (let id of oldestProjects) take({ kind: "project", id });
+		for (let id2 of oldestProjects) take({ kind: "project", id: id2 });
 		(take({ kind: "planning" }), take({ kind: "manual" }));
-		for (let id of Object.keys(row.allocations.projects ?? {})) take({ kind: "project", id });
+		for (let id2 of Object.keys(row.allocations.projects ?? {})) take({ kind: "project", id: id2 });
 		row.quantity = allocationTotal(row.allocations);
 	}
 	function getCartAllocationSummary(itemHrid, enhancementLevel = 0) {
@@ -6532,9 +6872,9 @@
 	}
 	function deleteProjectsWithoutCartAllocations(candidateIds) {
 		let changed = !1;
-		for (let id of new Set(candidateIds ?? []))
-			![...cart.values()].some((row) => Number(row.allocations?.projects?.[id]) > 0) &&
-				plans.delete(id) &&
+		for (let id2 of new Set(candidateIds ?? []))
+			![...cart.values()].some((row) => Number(row.allocations?.projects?.[id2]) > 0) &&
+				plans.delete(id2) &&
 				(changed = !0);
 		return (changed && savePlansAndEmit(), changed);
 	}
@@ -6667,7 +7007,7 @@
 		let affectedProjects = /* @__PURE__ */ new Set();
 		for (let [key, row] of cart)
 			(includeStarred || !row.starred) &&
-				(projectIdsFromCartRow(row).forEach((id) => affectedProjects.add(id)), cart.delete(key));
+				(projectIdsFromCartRow(row).forEach((id2) => affectedProjects.add(id2)), cart.delete(key));
 		return (saveCartAndEmit(), deleteProjectsWithoutCartAllocations(affectedProjects), { ok: !0 });
 	}
 	function applyAcquisition(itemHrid, enhancementLevel, quantity, options = {}) {
@@ -6779,9 +7119,9 @@
 				current = normalizeAllocations(row.allocations, row.quantity).projects,
 				desired = desiredByKey.get(key) ?? {},
 				projectIds = /* @__PURE__ */ new Set([...Object.keys(current), ...Object.keys(desired)]);
-			for (let id of projectIds) {
-				let delta = (desired[id] ?? 0) - (current[id] ?? 0);
-				delta && (changeAllocation(row, { kind: "project", id }, delta), (changed = !0), (rowChanged = !0));
+			for (let id2 of projectIds) {
+				let delta = (desired[id2] ?? 0) - (current[id2] ?? 0);
+				delta && (changeAllocation(row, { kind: "project", id: id2 }, delta), (changed = !0), (rowChanged = !0));
 			}
 			rowChanged &&
 				((row.baselineStock = getInventoryCount2(row.itemHrid, row.enhancementLevel)),
@@ -6934,9 +7274,9 @@
 			);
 		if (matching) return clone({ ...matching, reused: !0 });
 		let output = runtime.api.getExpectedOutputs?.(detail)?.[0] ?? null,
-			id = globalThis.crypto?.randomUUID?.() ?? `plan-${Date.now()}-${Math.random()}`,
+			id2 = globalThis.crypto?.randomUUID?.() ?? `plan-${Date.now()}-${Math.random()}`,
 			plan = {
-				id,
+				id: id2,
 				actionHrid,
 				name: detail.name ?? actionHrid.split("/").at(-1),
 				targetCount,
@@ -6950,7 +7290,7 @@
 				createdAt: /* @__PURE__ */ new Date().toISOString(),
 				updatedAt: /* @__PURE__ */ new Date().toISOString(),
 			};
-		return (plans.set(id, plan), savePlansAndEmit(), clone(plan));
+		return (plans.set(id2, plan), savePlansAndEmit(), clone(plan));
 	}
 	function addProjectRequirementsToCart(planId) {
 		let plan = plans.get(planId);
@@ -7037,8 +7377,8 @@
 			}
 		changed && savePlansAndEmit();
 	}
-	function updatePlan(id, patch) {
-		let plan = plans.get(id);
+	function updatePlan(id2, patch) {
+		let plan = plans.get(id2);
 		if (!plan) return !1;
 		if (Object.hasOwn(patch, "targetCount")) {
 			plan.targetCount = Math.max(1, Math.ceil(Number(patch.targetCount) || 1));
@@ -7064,9 +7404,9 @@
 			!0
 		);
 	}
-	function removePlan(id) {
-		releaseCartAllocation({ kind: "project", id: String(id) });
-		let removed = plans.delete(id);
+	function removePlan(id2) {
+		releaseCartAllocation({ kind: "project", id: String(id2) });
+		let removed = plans.delete(id2);
 		return (removed && (savePlansAndEmit(), runtime.api.planning?.reconcilePlanningCart?.()), removed);
 	}
 	function parsePurchaseConfirmation(payload) {
@@ -7355,31 +7695,31 @@
 			goal
 		);
 	}
-	function updateGoal(id, patch) {
+	function updateGoal(id2, patch) {
 		let state = getState(),
-			index = state.goals.findIndex((goal) => goal.id === id);
+			index = state.goals.findIndex((goal) => goal.id === id2);
 		if (index < 0) return !1;
 		let previous = state.goals[index],
 			next = normalizeGoal({
 				...previous,
 				...patch,
-				id,
+				id: id2,
 				updatedAt: /* @__PURE__ */ new Date().toISOString(),
 			});
 		return next
 			? ((state.goals[index] = next),
-				Object.hasOwn(patch ?? {}, "policy") && delete state.overrides[id],
+				Object.hasOwn(patch ?? {}, "policy") && delete state.overrides[id2],
 				saveState(state, "goal"),
 				!0)
 			: !1;
 	}
-	function removeGoal(id) {
+	function removeGoal(id2) {
 		let state = getState(),
-			next = state.goals.filter((goal) => goal.id !== id);
+			next = state.goals.filter((goal) => goal.id !== id2);
 		return next.length === state.goals.length
 			? !1
 			: ((state.goals = next),
-				delete state.overrides[id],
+				delete state.overrides[id2],
 				saveState(state, "goal"),
 				reconcilePlanningCart(calculate()),
 				!0);
@@ -8426,8 +8766,8 @@
 		let entryKeyItemHrid = `/items/${match[1]}_entry_key`;
 		return getItemDetails(entryKeyItemHrid) ? entryKeyItemHrid : null;
 	}
-	function settingEnabled(id) {
-		return !!(runtime.settings.get?.(id) ?? runtime.settings.settingsMap?.[id]?.isTrue);
+	function settingEnabled(id2) {
+		return !!(runtime.settings.get?.(id2) ?? runtime.settings.settingsMap?.[id2]?.isTrue);
 	}
 	function shouldIncludeCowbellsInAssets() {
 		return settingEnabled("includeCowbellsInAssets");
@@ -9611,8 +9951,8 @@
 		if (!Array.isArray(updates)) return;
 		let quests = [...runtime.state.characterQuests];
 		for (let update of updates) {
-			let id = getQuestId(update),
-				index = quests.findIndex((quest) => getQuestId(quest) === id);
+			let id2 = getQuestId(update),
+				index = quests.findIndex((quest) => getQuestId(quest) === id2);
 			if (
 				update.isClaimed ||
 				update.claimed ||
@@ -9653,10 +9993,10 @@
 		(!characters.length &&
 			characterMap &&
 			typeof characterMap == "object" &&
-			(characters = Object.entries(characterMap).map(([id, character]) => ({
-				...sharableMap[id],
+			(characters = Object.entries(characterMap).map(([id2, character]) => ({
+				...sharableMap[id2],
 				...character,
-				characterID: character.characterID ?? Number(id),
+				characterID: character.characterID ?? Number(id2),
 			}))),
 			characters.length && (runtime.state.guildCharacters = characters),
 			(runtime.state.guildStateUpdatedAt = Date.now()));
@@ -9692,12 +10032,12 @@
 			idless = [];
 		for (let [index, action] of (Array.isArray(actions) ? actions : []).entries()) {
 			if (!action) continue;
-			let id = action.id;
-			if (id == null) {
+			let id2 = action.id;
+			if (id2 == null) {
 				idless.push({ action, index });
 				continue;
 			}
-			let key = String(id),
+			let key = String(id2),
 				previous = keyed.get(key);
 			keyed.set(key, {
 				action: previous ? { ...previous.action, ...action } : action,
@@ -9714,12 +10054,12 @@
 		let current = normalizeActionList(runtime.state.currentActionsHridList);
 		for (let update of updates) {
 			if (!update) continue;
-			let id = update.id;
-			if (id == null) {
+			let id2 = update.id;
+			if (id2 == null) {
 				update.isDone !== !0 && current.push(update);
 				continue;
 			}
-			let key = String(id),
+			let key = String(id2),
 				index = current.findIndex(
 					(action) => action?.id !== null && action?.id !== void 0 && String(action.id) === key,
 				);
@@ -9734,7 +10074,7 @@
 	function applyActionCompleted(payload) {
 		let action = payload.endCharacterAction;
 		if (!action || action.isDone === !0) return;
-		let currentAction = runtime.state.currentActionsHridList.find(({ id }) => String(id) === String(action.id));
+		let currentAction = runtime.state.currentActionsHridList.find(({ id: id2 }) => String(id2) === String(action.id));
 		if (!currentAction) return;
 		let currentCount = Number(action.currentCount ?? action.completedCount ?? action.progressCount);
 		Number.isFinite(currentCount) && (currentAction.currentCount = currentCount);
@@ -9764,9 +10104,9 @@
 		if (!Array.isArray(updates)) return;
 		let current = [...(runtime.state.initData_characterAbilities ?? [])];
 		for (let update of updates) {
-			let id = update.id ?? update.characterAbilityID ?? update.abilityHrid,
+			let id2 = update.id ?? update.characterAbilityID ?? update.abilityHrid,
 				index = current.findIndex(
-					(ability) => (ability.id ?? ability.characterAbilityID ?? ability.abilityHrid) === id,
+					(ability) => (ability.id ?? ability.characterAbilityID ?? ability.abilityHrid) === id2,
 				);
 			update.isDeleted || update.deleted
 				? index >= 0 && current.splice(index, 1)
@@ -9902,7 +10242,7 @@
 			} catch (error) {
 				console.error("[MWITools] Game message processing failed", error);
 			}
-		queue.length ? setTimeout(drainMessages, 0) : (scheduled = !1);
+		queue.length ? globalThis.queueMicrotask(drainMessages) : (scheduled = !1);
 	}
 	function hookWS() {
 		if (hooked) return;
@@ -9920,7 +10260,7 @@
 			try {
 				(Object.defineProperty(this, "data", { value: message }),
 					queue.push(message),
-					scheduled || ((scheduled = !0), setTimeout(drainMessages, 0)));
+					scheduled || ((scheduled = !0), globalThis.queueMicrotask(drainMessages)));
 			} catch (error) {
 				console.error("[MWITools] Message hook failed", error);
 			}
@@ -9962,6 +10302,39 @@
 					"api-test.milkywayidlecn.com/ws",
 				];
 				Object.assign(runtime.api, { hookWS, handleMessage });
+			},
+		});
+
+	// src/features/profile-panel.js
+	function waitForProfilePanel() {
+		let documentRef = globalThis.document;
+		if (!documentRef) return Promise.resolve(null);
+		let panel = documentRef.querySelector(PROFILE_PANEL_SELECTOR);
+		if (panel) return Promise.resolve(panel);
+		if (pendingPanels.has(documentRef)) return pendingPanels.get(documentRef);
+		let started = Date.now(),
+			attempts = 0,
+			pending = new Promise((resolve) => {
+				let poll = () => {
+					let current = documentRef.querySelector(PROFILE_PANEL_SELECTOR);
+					if (current) return resolve(current);
+					if (Date.now() - started >= MAX_WAIT_MS || ++attempts > MAX_WAIT_MS / POLL_MS) return resolve(null);
+					setTimeout(poll, POLL_MS);
+				};
+				poll();
+			}).finally(() => pendingPanels.delete(documentRef));
+		return (pendingPanels.set(documentRef, pending), pending);
+	}
+	var pendingPanels,
+		PROFILE_PANEL_SELECTOR,
+		MAX_WAIT_MS,
+		POLL_MS,
+		init_profile_panel = __esm({
+			"src/features/profile-panel.js"() {
+				((pendingPanels = /* @__PURE__ */ new WeakMap()),
+					(PROFILE_PANEL_SELECTOR = "div.SharableProfile_overviewTab__W4dCV"),
+					(MAX_WAIT_MS = 5e3),
+					(POLL_MS = 100));
 			},
 		});
 
@@ -10175,21 +10548,15 @@
 			(price /= 1e6)
 		);
 	}
-	function getInfoPanel() {
-		let selectedElement = document.querySelector("div.SharableProfile_overviewTab__W4dCV");
-		return (
-			selectedElement ||
-			new Promise((resolve) => {
-				setTimeout(() => resolve(getInfoPanel()), 500);
-			})
-		);
-	}
 	async function showBuildScoreOnProfile(profile_shared_obj) {
-		let scores = await getBuildScoreByProfile(profile_shared_obj),
-			hiddenText = scores.equipmentHidden ? (runtime.config.isZH ? "（装备隐藏）" : " (Equipment hidden)") : "",
+		let request2 = ++profileScoreRequest,
+			scores = await getBuildScoreByProfile(profile_shared_obj);
+		if (request2 !== profileScoreRequest) return;
+		let hiddenText = scores.equipmentHidden ? (runtime.config.isZH ? "（装备隐藏）" : " (Equipment hidden)") : "",
 			hiddenValue = scores.equipmentHidden ? "-" : null,
 			optionalScore = (value) => (Number.isFinite(value) ? runtime.api.formatScore(value) : "—"),
 			panel = await getInfoPanel();
+		if (!panel?.isConnected || request2 !== profileScoreRequest) return;
 		((panel.style.height = "auto"),
 			panel.querySelector("#script_profile_gear_scores")?.remove(),
 			panel.insertAdjacentHTML(
@@ -10333,10 +10700,14 @@
 			: createEmptyGearScores();
 	}
 	var SCORE_UNIT,
+		getInfoPanel,
+		profileScoreRequest,
 		init_build_score = __esm({
 			"src/features/build-score.js"() {
 				init_runtime();
+				init_profile_panel();
 				SCORE_UNIT = 1e6;
+				((getInfoPanel = waitForProfilePanel), (profileScoreRequest = 0));
 				Object.assign(runtime.api, {
 					getSelfBuildScores,
 					getHouseFullBuildPrice,
@@ -10484,7 +10855,7 @@
 				if (((pending = !1), destroyed || dismissed)) return;
 				if (usesStoredMuted) {
 					muted.clear();
-					for (let id of readMutedDuplicateScriptIds(options.storage)) muted.add(id);
+					for (let id2 of readMutedDuplicateScriptIds(options.storage)) muted.add(id2);
 				}
 				let current = detect();
 				if (!current.some((name) => duplicateScriptId(name) === "mwi-task-manager"))
@@ -10986,8 +11357,8 @@
 	function isValidDayKey(dayKey) {
 		let value = String(dayKey ?? "");
 		if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return !1;
-		let timestamp = parseDayKey(value);
-		return Number.isFinite(timestamp) && new Date(timestamp).toISOString().slice(0, 10) === value;
+		let timestamp2 = parseDayKey(value);
+		return Number.isFinite(timestamp2) && new Date(timestamp2).toISOString().slice(0, 10) === value;
 	}
 	function dayGap(left, right) {
 		return Math.round((parseDayKey(right) - parseDayKey(left)) / 864e5);
@@ -11690,7 +12061,7 @@
 		let firstValue = values[0]?.[1]?.values?.total,
 			latestValue = values.at(-1)?.[1]?.values?.total,
 			age = values.length > 1 ? dayGap(values[0][0], values.at(-1)[0]) : 0;
-		return ACHIEVEMENT_DEFINITIONS.map(([id, icon, zhName, enName, zhDescription, enDescription, kind, target]) => {
+		return ACHIEVEMENT_DEFINITIONS.map(([id2, icon, zhName, enName, zhDescription, enDescription, kind, target]) => {
 			let match = null;
 			if (kind === "networth") match = values.find(([, record]) => record.values.total >= target);
 			else if (kind === "profit") match = changes.find((change) => change.totalChange >= target);
@@ -11739,10 +12110,10 @@
 													);
 												}),
 											));
-			let saved = persisted[id],
+			let saved = persisted[id2],
 				unlocked = !!(match || saved?.unlocked);
 			return {
-				id,
+				id: id2,
 				icon,
 				zhName,
 				enName,
@@ -12020,11 +12391,11 @@
 			schedule() {
 				if (!active || pending) return !1;
 				if (((pending = !0), typeof globalThis.requestAnimationFrame == "function")) {
-					let id = globalThis.requestAnimationFrame(run);
-					cancelPending = () => globalThis.cancelAnimationFrame?.(id);
+					let id2 = globalThis.requestAnimationFrame(run);
+					cancelPending = () => globalThis.cancelAnimationFrame?.(id2);
 				} else {
-					let id = globalThis.setTimeout(run, 0);
-					cancelPending = () => globalThis.clearTimeout(id);
+					let id2 = globalThis.setTimeout(run, 0);
+					cancelPending = () => globalThis.clearTimeout(id2);
 				}
 				return !0;
 			},
@@ -14620,7 +14991,7 @@ ${preview}`,
 	}
 	function goalSources(ids, goals) {
 		let byId = new Map(goals.map((goal) => [goal.id, goalLabel(goal)]));
-		return ids.map((id) => byId.get(id) ?? id).join(t4("、", ", "));
+		return ids.map((id2) => byId.get(id2) ?? id2).join(t4("、", ", "));
 	}
 	function policyLabel(policy) {
 		if (policy === "mixed") return t4("混合", "Mixed");
@@ -20933,11 +21304,11 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
 				(tillLevelNumber.className = "mwi-level-progress-result"),
 				row.append(label, tillLevelInput, tillLevelNumber),
 				levelCard.append(row));
-			let addNativeStat = (id, labelText, valueText) => {
+			let addNativeStat = (id2, labelText, valueText) => {
 				let statLabel = document.createElement("div");
 				((statLabel.className = `${nativeLabel.className} mwi-native-level-stat`), (statLabel.textContent = labelText));
 				let statValue = document.createElement("div");
-				((statValue.id = id),
+				((statValue.id = id2),
 					(statValue.className = `${nativeValue.className} mwi-native-level-stat`),
 					(statValue.textContent = valueText),
 					infoContainer.append(statLabel, statValue));
@@ -21330,14 +21701,14 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
 		}
 		return parts.join(isZH3 ? "" : " ");
 	}
-	function format24HourClock(timestamp, isZH3 = !0) {
-		return Number.isFinite(timestamp)
+	function format24HourClock(timestamp2, isZH3 = !0) {
+		return Number.isFinite(timestamp2)
 			? new Intl.DateTimeFormat(isZH3 ? "zh-CN" : "en-US", {
 					hour: "2-digit",
 					hourCycle: "h23",
 					minute: "2-digit",
 					second: "2-digit",
-				}).format(new Date(timestamp))
+				}).format(new Date(timestamp2))
 			: "—";
 	}
 	function calendarDayOffset(fromTimestamp, toTimestamp) {
@@ -21982,9 +22353,9 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
 		for (; count > 1 && Math.round((count - 1) / efficiencyMultiplier) >= targetCycles;) count -= 1;
 		return count;
 	}
-	function createProductionQuickRow({ panel, input, id, label, values, resolveCount }) {
+	function createProductionQuickRow({ panel, input, id: id2, label, values, resolveCount }) {
 		let row = document.createElement("div");
-		((row.id = id), (row.className = "mwi-production-quick-row"));
+		((row.id = id2), (row.className = "mwi-production-quick-row"));
 		let caption = document.createElement("span");
 		((caption.className = "mwi-production-quick-label"), (caption.textContent = label));
 		let buttons = document.createElement("div");
@@ -23039,10 +23410,10 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
 	function syncProcurementSettings(body) {
 		let settings2 = procurement3.getSettings();
 		for (let control of body.querySelectorAll("[data-procurement-setting]")) {
-			let id = control.dataset.procurementSetting,
+			let id2 = control.dataset.procurementSetting,
 				type = control.dataset.procurementSettingType;
 			if (type === "bool") {
-				let enabled = !!settings2[id];
+				let enabled = !!settings2[id2];
 				((control.dataset.on = String(enabled)), control.setAttribute("aria-checked", String(enabled)));
 				let state = control.closest(".setting-row")?.querySelector(".switch-state");
 				state &&
@@ -23050,7 +23421,7 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
 			} else if (type === "shortcut")
 				control.textContent = formatShortcut(settings2.nextItemShortcut) || t9("录制", "Record");
 			else if (type !== "button") {
-				let value = String(settings2[id]);
+				let value = String(settings2[id2]);
 				control.value !== value && !control.matches(":focus") && (control.value = value);
 			}
 		}
@@ -23069,29 +23440,29 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
 			((heading.className = "setting-section-title"),
 				(heading.textContent = t9(...sectionDefinition.title)),
 				section.append(heading));
-			for (let [id, zh, en, type] of sectionDefinition.rows) {
+			for (let [id2, zh, en, type] of sectionDefinition.rows) {
 				let row = document.createElement("div");
 				row.className = "setting-row";
 				let label = document.createElement("span");
 				label.className = "setting-label";
-				let description = SETTING_DESCRIPTIONS[id];
+				let description = SETTING_DESCRIPTIONS[id2];
 				((label.innerHTML = `${escapeHtml5(t9(zh, en))}${description ? `<small>${escapeHtml5(t9(...description))}</small>` : ""}`),
 					row.append(label));
 				let control;
 				if (type === "bool") {
 					let state = document.createElement("span");
 					((state.className = "switch-state"),
-						(state.dataset.on = String(!!settings2[id])),
-						(state.textContent = settings2[id] ? t9("开", "On") : t9("关", "Off")),
+						(state.dataset.on = String(!!settings2[id2])),
+						(state.textContent = settings2[id2] ? t9("开", "On") : t9("关", "Off")),
 						row.append(state),
 						(control = document.createElement("button")),
 						(control.type = "button"),
 						(control.className = "switch"),
-						(control.dataset.on = String(!!settings2[id])),
+						(control.dataset.on = String(!!settings2[id2])),
 						control.setAttribute("role", "switch"),
-						control.setAttribute("aria-checked", String(!!settings2[id])),
+						control.setAttribute("aria-checked", String(!!settings2[id2])),
 						control.setAttribute("aria-label", t9(zh, en)),
-						control.addEventListener("click", () => procurement3.setSetting(id, !procurement3.getSettings()[id])));
+						control.addEventListener("click", () => procurement3.setSetting(id2, !procurement3.getSettings()[id2])));
 				} else if (type === "safety") {
 					control = document.createElement("select");
 					for (let [value, text] of [
@@ -23103,10 +23474,10 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
 						let option = document.createElement("option");
 						((option.value = value),
 							(option.textContent = text),
-							(option.selected = String(settings2[id]) === value),
+							(option.selected = String(settings2[id2]) === value),
 							control.append(option));
 					}
-					control.addEventListener("change", () => procurement3.setSetting(id, control.value));
+					control.addEventListener("change", () => procurement3.setSetting(id2, control.value));
 				} else
 					type === "shortcut"
 						? ((control = document.createElement("button")),
@@ -23124,17 +23495,17 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
 								(control.textContent = t9("重置", "Reset")),
 								control.addEventListener("click", () => {
 									procurement3.setSetting(
-										id === "resetHandle" ? "handleY" : "drawerWidth",
-										id === "resetHandle" ? 180 : 360,
+										id2 === "resetHandle" ? "handleY" : "drawerWidth",
+										id2 === "resetHandle" ? 180 : 360,
 									);
 								}))
 							: ((control = document.createElement("input")),
 								(control.type = "number"),
-								(control.min = id === "guzzlingPouchLevel" ? "-1" : "0"),
+								(control.min = id2 === "guzzlingPouchLevel" ? "-1" : "0"),
 								type === "pouch" && (control.max = "20"),
-								(control.value = String(settings2[id])),
-								control.addEventListener("change", () => procurement3.setSetting(id, Number(control.value))));
-				((control.dataset.procurementSetting = id),
+								(control.value = String(settings2[id2])),
+								control.addEventListener("change", () => procurement3.setSetting(id2, Number(control.value))));
+				((control.dataset.procurementSetting = id2),
 					(control.dataset.procurementSettingType = type),
 					row.append(control),
 					section.append(row));
@@ -24493,14 +24864,14 @@ ${locks}`
 			scope.add(procurement3.on("plan:change", rerender)),
 			scope.add(procurement3.on("inventory:change", rerender)),
 			scope.add(
-				procurement3.on("settings:change", ({ id, value }) => {
-					(id === "badgesEnabled" && !value && clearProductionUi(),
-						id === "locateEnabled" &&
+				procurement3.on("settings:change", ({ id: id2, value }) => {
+					(id2 === "badgesEnabled" && !value && clearProductionUi(),
+						id2 === "locateEnabled" &&
 							!value &&
 							document
 								.querySelectorAll(".mwi-procurement-market-target")
 								.forEach((node) => node.classList.remove("mwi-procurement-market-target")),
-						id === "purchaseNavEnabled" && !value && document.getElementById(MARKET_NAV_ID)?.remove(),
+						id2 === "purchaseNavEnabled" && !value && document.getElementById(MARKET_NAV_ID)?.remove(),
 						renderShell(),
 						(lastProductionSignature = ""));
 				}),
@@ -25792,7 +26163,7 @@ ${locks}`
 					remaining: taskRemaining3(task),
 				};
 			}),
-			byId = new Map(questMetadata.map((candidate) => [candidate.taskId, candidate]).filter(([id]) => id)),
+			byId = new Map(questMetadata.map((candidate) => [candidate.taskId, candidate]).filter(([id2]) => id2)),
 			semanticIndex = /* @__PURE__ */ new Map();
 		for (let candidate of questMetadata)
 			for (let label of candidate.labels) {
@@ -26639,18 +27010,18 @@ ${locks}`
 	}
 	function assignStablePageSlots(cards, tasks) {
 		let activeTaskIds = new Set(tasks.map(taskId).filter(Boolean)),
-			knownSlotByTaskId = new Map([...pageTaskIds].map(([slot, id]) => [id, slot])),
+			knownSlotByTaskId = new Map([...pageTaskIds].map(([slot, id2]) => [id2, slot])),
 			replacementSlots = [...pendingResetSlots].filter((slot) => {
 				let previousId = pageTaskIds.get(slot);
 				return !previousId || !activeTaskIds.has(previousId);
 			}),
 			usedSlots = /* @__PURE__ */ new Set();
 		cards.forEach((card, index) => {
-			let id = taskId(tasks[index]),
+			let id2 = taskId(tasks[index]),
 				existingSlot = Number(card.dataset.mwitoolsOriginalIndex),
 				slot = Number.isInteger(existingSlot) ? existingSlot : void 0;
 			if (
-				(slot === void 0 && id && (slot = knownSlotByTaskId.get(id)),
+				(slot === void 0 && id2 && (slot = knownSlotByTaskId.get(id2)),
 				slot === void 0 && replacementSlots.length && (slot = replacementSlots.shift()),
 				slot === void 0 || usedSlots.has(slot))
 			)
@@ -26665,13 +27036,13 @@ ${locks}`
 			return (
 				pageNewTaskIds.clear(),
 				cards.forEach((card, index) => {
-					let id = taskId(tasks[index]);
-					if (!id) return;
+					let id2 = taskId(tasks[index]);
+					if (!id2) return;
 					let slot = Number(card.dataset.mwitoolsOriginalIndex ?? index),
 						previousId = pageTaskIds.get(slot);
-					(previousId && previousId !== id && pendingResetSlots.delete(slot),
-						pageTaskIds.set(slot, id),
-						card.dataset.mwitoolsTaskId !== id && (card.dataset.mwitoolsTaskId = id));
+					(previousId && previousId !== id2 && pendingResetSlots.delete(slot),
+						pageTaskIds.set(slot, id2),
+						card.dataset.mwitoolsTaskId !== id2 && (card.dataset.mwitoolsTaskId = id2));
 				}),
 				(runtime.state.mwitoolsPageNewTaskIds = /* @__PURE__ */ new Set()),
 				!1
@@ -26680,25 +27051,25 @@ ${locks}`
 			freshIds = new Set(runtime.api.getNewTaskIds?.() ?? []),
 			activeIds = /* @__PURE__ */ new Set();
 		cards.forEach((card, index) => {
-			let id = taskId(tasks[index]);
-			if (!id) return;
+			let id2 = taskId(tasks[index]);
+			if (!id2) return;
 			let slot = Number(card.dataset.mwitoolsOriginalIndex ?? index);
-			activeIds.add(id);
+			activeIds.add(id2);
 			let previousId = pageTaskIds.get(slot);
 			(enteredNewTaskPage || !previousId
-				? freshIds.has(id) && pageNewTaskIds.add(id)
-				: previousId && previousId !== id
-					? (freshIds.has(id) && pageNewTaskIds.add(id), pendingResetSlots.delete(slot))
-					: freshIds.has(id) && pageNewTaskIds.add(id),
-				pageTaskIds.set(slot, id),
-				card.dataset.mwitoolsTaskId !== id && (card.dataset.mwitoolsTaskId = id));
+				? freshIds.has(id2) && pageNewTaskIds.add(id2)
+				: previousId && previousId !== id2
+					? (freshIds.has(id2) && pageNewTaskIds.add(id2), pendingResetSlots.delete(slot))
+					: freshIds.has(id2) && pageNewTaskIds.add(id2),
+				pageTaskIds.set(slot, id2),
+				card.dataset.mwitoolsTaskId !== id2 && (card.dataset.mwitoolsTaskId = id2));
 		});
-		for (let id of [...pageNewTaskIds]) activeIds.has(id) || pageNewTaskIds.delete(id);
+		for (let id2 of [...pageNewTaskIds]) activeIds.has(id2) || pageNewTaskIds.delete(id2);
 		runtime.state.mwitoolsPageNewTaskIds = new Set(pageNewTaskIds);
-		let activeFresh = [...freshIds].filter((id) => activeIds.has(id));
+		let activeFresh = [...freshIds].filter((id2) => activeIds.has(id2));
 		return (
 			activeFresh.length && runtime.api.acknowledgeNewTaskIds?.(activeFresh),
-			previousNewTaskIds.size !== pageNewTaskIds.size || [...pageNewTaskIds].some((id) => !previousNewTaskIds.has(id))
+			previousNewTaskIds.size !== pageNewTaskIds.size || [...pageNewTaskIds].some((id2) => !previousNewTaskIds.has(id2))
 		);
 	}
 	function cleanupListDecorations({ restoreOrder = !0 } = {}) {
@@ -28045,7 +28416,7 @@ ${locks}`
 							}));
 					},
 				});
-				for (let id of [
+				for (let id2 of [
 					"taskMaterials",
 					"taskQueueProgress",
 					"taskAutoSort",
@@ -28056,8 +28427,8 @@ ${locks}`
 					"taskMergeActions",
 				])
 					runtime.features.register({
-						id,
-						setting: id,
+						id: id2,
+						setting: id2,
 						scope: "character",
 						dependsOn: ["taskInsights"],
 						initialize() {
@@ -28367,15 +28738,17 @@ ${locks}`
 	function initializeQuestState(state, quests) {
 		let firstBaseline = state.initialized !== !0,
 			currentIds = new Set((quests ?? []).map(questId).filter(Boolean));
-		for (let id of currentIds) (!firstBaseline && !state.known.has(id) && state.fresh.add(id), state.known.add(id));
-		for (let id of [...state.fresh]) currentIds.has(id) || state.fresh.delete(id);
+		for (let id2 of state.known) currentIds.has(id2) || state.known.delete(id2);
+		for (let id2 of currentIds) (!firstBaseline && !state.known.has(id2) && state.fresh.add(id2), state.known.add(id2));
+		for (let id2 of [...state.fresh]) currentIds.has(id2) || state.fresh.delete(id2);
 		return ((state.initialized = !0), state);
 	}
 	function syncQuestSnapshot(state, previousIds, quests) {
 		let before = previousIds instanceof Set ? previousIds : new Set(previousIds),
 			current = new Set((quests ?? []).map(questId).filter(Boolean));
-		for (let id of current) (before.has(id) || state.fresh.add(id), state.known.add(id));
-		for (let id of [...state.fresh]) current.has(id) || state.fresh.delete(id);
+		for (let id2 of state.known) current.has(id2) || state.known.delete(id2);
+		for (let id2 of current) (before.has(id2) || state.fresh.add(id2), state.known.add(id2));
+		for (let id2 of [...state.fresh]) current.has(id2) || state.fresh.delete(id2);
 		return ((state.initialized = !0), current);
 	}
 	function addStyles11() {
@@ -28443,8 +28816,8 @@ ${locks}`
 								let quests = runtime.state.characterQuests ?? [],
 									activeIds = new Set(quests.map(questId).filter(Boolean)),
 									changed = !1;
-								for (let id of [...state.fresh])
-									activeIds.has(id) || (state.fresh.delete(id), state.known.delete(id), (changed = !0));
+								for (let id2 of [...state.fresh])
+									activeIds.has(id2) || (state.fresh.delete(id2), state.known.delete(id2), (changed = !0));
 								changed && writeTaskNewState(storageKey, state);
 								let cards = [...document.querySelectorAll(TASK_SELECTOR3)];
 								resolveTaskCards(cards, quests, {
@@ -28452,8 +28825,8 @@ ${locks}`
 									taskRemaining: (task) => runtime.api.taskRemaining?.(task) ?? 0,
 								}).forEach(({ card, resolved, task }) => {
 									if (!resolved) return;
-									let id = questId(task),
-										fresh = !!(id && runtime.state.mwitoolsPageNewTaskIds?.has?.(id));
+									let id2 = questId(task),
+										fresh = !!(id2 && runtime.state.mwitoolsPageNewTaskIds?.has?.(id2));
 									card.classList.toggle("mwi-task-is-new", !!fresh);
 									let badge = card.querySelector(":scope > .mwi-task-new-badge");
 									fresh && !badge
@@ -28497,7 +28870,7 @@ ${locks}`
 					acknowledgeNewTaskIds(ids) {
 						let key = taskNewStorageKey(runtime.state.currentCharacterId),
 							state = liveTaskNewStates.get(key) ?? readTaskNewState(key);
-						for (let id of ids ?? []) state.fresh.delete(String(id));
+						for (let id2 of ids ?? []) state.fresh.delete(String(id2));
 						writeTaskNewState(key, state);
 					},
 				});
@@ -29395,6 +29768,31 @@ ${locks}`
 				((STORAGE_KEY = "MWITools_opinion_center_seen_announcements_v1"),
 					(ANNOUNCEMENTS = Object.freeze([
 						Object.freeze({
+							id: "26.4.23",
+							version: "26.4.23",
+							publishedAt: "2026-10-19",
+							title: Object.freeze({
+								zh: "26.4.23 重要更新",
+								en: "Version 26.4.23 important update",
+							}),
+							body: Object.freeze({
+								zh: Object.freeze([
+									"DPS：战斗历史改为有上限的快照，迁移校验后分批清理旧字段和删除标记，支持新旧备份导入；旧版游戏标签请刷新后继续记录。职业、武器缓存最多保留 256 人，不再反复写共享设置；手动采集增加条数与总大小限制，关闭 DPS 后释放。频繁重连的较早片段自动合并，保留累计统计。",
+									"后台战斗：消息处理不再依赖后台会变慢的定时器，避免挂机战斗时待处理消息持续堆积；保留消息顺序与完整性。",
+									"内存：人物资料面板未出现或已关闭时，着装评分与导出按钮共用有超时的等待，停止无限递归和长期轮询；较新的资料请求取代旧请求。意见中心复用页头入口，避免页头重建后保留旧页面；不再向控制台输出完整初始化数据。",
+									"任务：收到完整任务列表时移除已消失的旧任务 ID，避免已知任务集合长期累积，保留当前新任务标记。",
+									"意见中心：关闭功能或切换角色后停止后续轮询，晚到的响应不再更新旧面板或其他角色的入口。",
+								]),
+								en: Object.freeze([
+									"DPS: Battle history now uses bounded snapshots; migration verifies them before deleting legacy fields and tombstones in batches, with support for old and new backup imports. Refresh older game tabs to continue recording. Class and weapon caches keep at most 256 players without repeatedly writing shared settings. Manual captures have message and size limits and are released when DPS is disabled. Earlier reconnect fragments are combined while preserving cumulative statistics.",
+									"Background combat: Message processing no longer relies on timers that can slow down in background tabs, preventing a growing backlog during idle combat while preserving every message in order.",
+									"Memory: Gear scores and export buttons now share a timed wait when the profile panel is missing or closed, avoiding endless promise recursion and polling. Newer profile requests supersede older ones. The feedback center reuses its header launcher so rebuilt headers can be released, and full initialization payloads are no longer printed to the console.",
+									"Tasks: Full task snapshots discard missing old task IDs, preventing the known-task set from accumulating while retaining current NEW markers.",
+									"Feedback center: Disabling the feature or switching characters stops further polling; late responses cannot update a destroyed panel or another character’s launcher.",
+								]),
+							}),
+						}),
+						Object.freeze({
 							id: "26.4.22",
 							version: "26.4.22",
 							publishedAt: "2026-10-13",
@@ -30239,8 +30637,8 @@ ${locks}`
 					list() {
 						return this.call("/feedback");
 					}
-					detail(id) {
-						return this.call(`/feedback/${encodeURIComponent(id)}`);
+					detail(id2) {
+						return this.call(`/feedback/${encodeURIComponent(id2)}`);
 					}
 					submit(value) {
 						return this.call("/feedback", {
@@ -30248,20 +30646,20 @@ ${locks}`
 							body: appendFeedbackForm(new globalThis.FormData(), value),
 						});
 					}
-					edit(id, value) {
-						return this.call(`/feedback/${encodeURIComponent(id)}`, {
+					edit(id2, value) {
+						return this.call(`/feedback/${encodeURIComponent(id2)}`, {
 							method: "PUT",
 							body: appendFeedbackForm(new globalThis.FormData(), value),
 						});
 					}
-					reply(id, body) {
-						return this.call(`/feedback/${encodeURIComponent(id)}/messages`, {
+					reply(id2, body) {
+						return this.call(`/feedback/${encodeURIComponent(id2)}/messages`, {
 							method: "POST",
 							body: { body },
 						});
 					}
-					markRead(id) {
-						return this.call(`/feedback/${encodeURIComponent(id)}/seen`, {
+					markRead(id2) {
+						return this.call(`/feedback/${encodeURIComponent(id2)}/seen`, {
 							method: "POST",
 						});
 					}
@@ -30417,9 +30815,10 @@ ${locks}`
 							this.renderAnnouncements());
 					}
 					ensureButton() {
+						if (this.destroyed) return null;
 						let host = ensureHeaderToolsHost();
-						if (!host) return null;
-						let button = document.getElementById(BUTTON_ID);
+						if (!host) return (this.launcher?.remove(), null);
+						let button = document.getElementById(BUTTON_ID) ?? this.launcher;
 						if (!button) {
 							((button = document.createElement("button")), (button.type = "button"), (button.id = BUTTON_ID));
 							let icon = makeElement("span", "", "✉"),
@@ -30430,6 +30829,7 @@ ${locks}`
 								this.scope.event(button, "click", () => this.open()));
 						}
 						return (
+							(this.launcher = button),
 							(button.querySelector(".mwi-opinion-label").textContent = "MWITools"),
 							(button.parentElement !== host || button !== host.lastElementChild) && host.append(button),
 							this.updateUnreadIndicator(),
@@ -30443,6 +30843,7 @@ ${locks}`
 						((this.feedbackUnread = Math.max(0, Number(count) || 0)), this.updateUnreadIndicator());
 					}
 					updateUnreadIndicator() {
+						if (this.destroyed) return;
 						let button = document.getElementById(BUTTON_ID);
 						if (!button) return;
 						let hasUnread = this.feedbackUnread > 0 || this.announcementUnread > 0;
@@ -30457,9 +30858,11 @@ ${locks}`
 							));
 					}
 					async open() {
+						if (this.destroyed) return;
 						let hadAnnouncementUnread = this.announcementUnread > 0,
 							hadFeedbackUnread = this.feedbackUnread > 0;
-						(this.root.hidden && (this.previousBodyOverflow = document.body.style.overflow),
+						if (
+							(this.root.hidden && (this.previousBodyOverflow = document.body.style.overflow),
 							(document.body.style.overflow = "hidden"),
 							(this.root.hidden = !1),
 							this.showTab(hadAnnouncementUnread ? "announcements" : hadFeedbackUnread ? "mine" : "submit"),
@@ -30467,7 +30870,10 @@ ${locks}`
 							(this.announcementUnread = 0),
 							(this.feedbackUnread = 0),
 							this.updateUnreadIndicator(),
-							await this.refresh({ keepIndicatorClear: !0 }));
+							await this.refresh({ keepIndicatorClear: !0 }),
+							this.destroyed)
+						)
+							return;
 						let discoveredFeedbackUnread = this.feedbackUnread > 0;
 						!hadAnnouncementUnread && !hadFeedbackUnread && discoveredFeedbackUnread && this.showTab("mine");
 						let unreadItems = this.items.filter((item) => item.unread && !this.acknowledgedFeedbackIds.has(item.id));
@@ -30561,38 +30967,40 @@ ${locks}`
 									.catch(() => {}));
 					}
 					retryPendingReads() {
-						for (let id of [...this.pendingReadIds])
+						for (let id2 of [...this.pendingReadIds])
 							Promise.resolve()
-								.then(() => this.client.markRead(id))
+								.then(() => this.client.markRead(id2))
 								.then(() => {
-									(this.pendingReadIds.delete(id), this.acknowledgedFeedbackIds.delete(id));
-									let item = this.items.find((candidate) => candidate.id === id);
+									(this.pendingReadIds.delete(id2), this.acknowledgedFeedbackIds.delete(id2));
+									let item = this.items.find((candidate) => candidate.id === id2);
 									item && (item.unread = !1);
 								})
 								.catch(() => {});
 					}
 					async refresh({ keepIndicatorClear = !1 } = {}) {
+						if (this.destroyed) return !1;
 						try {
 							let result = await this.client.list();
-							return (
-								(this.items = result.items ?? []),
-								(this.quota = result.quota),
-								(this.feedbackUnread = this.unreadFeedbackCount(result)),
-								keepIndicatorClear || this.updateUnreadIndicator(),
-								this.renderQuota(),
-								this.root.querySelectorAll(".mwi-feedback-error").forEach((node) => {
-									node.classList.contains("mwi-feedback-success") || (node.textContent = "");
-								}),
-								this.currentDetailId && !this.root.hidden
-									? await this.openDetail(this.currentDetailId)
-									: this.renderList(),
-								this.retryPendingReads(),
-								!0
-							);
+							return this.destroyed
+								? !1
+								: ((this.items = result.items ?? []),
+									(this.quota = result.quota),
+									(this.feedbackUnread = this.unreadFeedbackCount(result)),
+									keepIndicatorClear || this.updateUnreadIndicator(),
+									this.renderQuota(),
+									this.root.querySelectorAll(".mwi-feedback-error").forEach((node) => {
+										node.classList.contains("mwi-feedback-success") || (node.textContent = "");
+									}),
+									this.currentDetailId && !this.root.hidden
+										? await this.openDetail(this.currentDetailId)
+										: this.renderList(),
+									this.retryPendingReads(),
+									!0);
 						} catch (error) {
 							return (
-								this.renderQuota(error.message),
-								(this.root.querySelector('[data-view="mine"] .mwi-feedback-error').textContent = error.message),
+								this.destroyed ||
+									(this.renderQuota(error.message),
+									(this.root.querySelector('[data-view="mine"] .mwi-feedback-error').textContent = error.message)),
 								!1
 							);
 						}
@@ -30662,12 +31070,12 @@ ${locks}`
 								host.append(card));
 						}
 					}
-					async openDetail(id) {
+					async openDetail(id2) {
 						let host = this.root.querySelector(".mwi-feedback-list"),
 							detail = this.root.querySelector(".mwi-feedback-detail");
 						try {
-							let item = await this.client.detail(id);
-							((this.currentDetailId = id), (host.hidden = !0), (detail.hidden = !1), detail.replaceChildren());
+							let item = await this.client.detail(id2);
+							((this.currentDetailId = id2), (host.hidden = !0), (detail.hidden = !1), detail.replaceChildren());
 							let back = makeElement("button", "mwi-feedback-detail-back", `← ${t15("返回列表", "Back")}`);
 							((back.type = "button"), back.addEventListener("click", () => this.renderList(), { once: !0 }));
 							let title = makeElement("h3", "", item.title),
@@ -30770,8 +31178,13 @@ ${locks}`
 							this.showTab("submit"));
 					}
 					destroy() {
-						(this.root?.hidden || this.close(),
+						this.destroyed ||
+							((this.destroyed = !0),
+							(this.items = []),
+							this.root?.hidden || this.close(),
 							document.getElementById(BUTTON_ID)?.remove(),
+							this.launcher?.remove(),
+							(this.launcher = null),
 							removeHeaderToolsHostIfEmpty(),
 							this.root?.remove(),
 							document.getElementById(STYLE_ID15)?.remove());
@@ -30813,11 +31226,13 @@ ${locks}`
 							failures = 0,
 							timer = null,
 							schedule = (delay) => {
-								(clearTimeout(timer),
+								disposed ||
+									(clearTimeout(timer),
 									(timer = setTimeout(async () => {
 										if (disposed) return;
 										let ok = await panel.refresh();
-										((failures = ok ? 0 : Math.min(failures + 1, 6)),
+										disposed ||
+											((failures = ok ? 0 : Math.min(failures + 1, 6)),
 											schedule(ok ? 6e4 : Math.min(15 * 6e4, 6e4 * 2 ** failures)));
 									}, delay)));
 							},
@@ -30972,10 +31387,10 @@ ${locks}`
 						'[data-mwitools-battle-summary="true"],#script_battleNumbers,#script_totalIncome,#script_averageIncome,#script_totalIncomeDay,#script_avgRawCoinHour,#script_totalSkillsExp,#script_averageSkillsExp',
 					)
 					.forEach((node) => node.remove());
-				let appendSummary = (id, html) => {
+				let appendSummary = (id2, html) => {
 						let row = document.createElement("div");
 						return (
-							(row.id = id),
+							(row.id = id2),
 							(row.dataset.mwitoolsBattleSummary = "true"),
 							(row.style.color = runtime.config.SCRIPT_COLOR_MAIN),
 							(row.innerHTML = html),
@@ -32872,16 +33287,19 @@ ${locks}`
 	}
 	function persistSettings() {
 		let values = Object.fromEntries(
-				Object.entries(runtime.settings.settingsMap).map(([id, setting]) => [id, !!setting.isTrue]),
+				Object.entries(runtime.settings.settingsMap).map(([id2, setting]) => [id2, !!setting.isTrue]),
 			),
 			preferences = Object.fromEntries(
-				Object.keys(runtime.settings.preferenceDefinitions ?? {}).map((id) => [id, runtime.settings.getPreference(id)]),
+				Object.keys(runtime.settings.preferenceDefinitions ?? {}).map((id2) => [
+					id2,
+					runtime.settings.getPreference(id2),
+				]),
 			);
 		(sharedStorage.setItem(SETTINGS_V2_KEY, JSON.stringify({ version: 2, values, preferences })),
 			sharedStorage.setItem("script_settingsMap", JSON.stringify(runtime.settings.settingsMap)));
 	}
-	function applyStoredSetting(id, value) {
-		let setting = runtime.settings.settingsMap[id];
+	function applyStoredSetting(id2, value) {
+		let setting = runtime.settings.settingsMap[id2];
 		setting && (setting.isTrue = !!value);
 	}
 	function applyVisualSettings() {
@@ -32920,7 +33338,7 @@ ${locks}`
 		try {
 			let storedV2 = JSON.parse(sharedStorage.getItem(SETTINGS_V2_KEY) || "null");
 			if (storedV2?.version === 2 && storedV2.values) {
-				for (let [id, value] of Object.entries(storedV2.values)) applyStoredSetting(id, value);
+				for (let [id2, value] of Object.entries(storedV2.values)) applyStoredSetting(id2, value);
 				((storedPreferences = storedV2.preferences ?? null), (loadedV2 = !0));
 			}
 		} catch (error) {
@@ -32940,11 +33358,11 @@ ${locks}`
 				);
 			}
 		let legacyProductionSummaryEnabled = !!runtime.settings.settingsMap.productionSummary.isTrue;
-		for (let [id, definition] of Object.entries(runtime.settings.preferenceDefinitions ?? {})) {
+		for (let [id2, definition] of Object.entries(runtime.settings.preferenceDefinitions ?? {})) {
 			let value =
-				storedPreferences?.[id] ??
-				(id === "productionSummaryMode" && !legacyProductionSummaryEnabled ? "off" : definition.defaultValue);
-			runtime.settings.setPreference(id, value, { persist: !1 });
+				storedPreferences?.[id2] ??
+				(id2 === "productionSummaryMode" && !legacyProductionSummaryEnabled ? "off" : definition.defaultValue);
+			runtime.settings.setPreference(id2, value, { persist: !1 });
 		}
 		((runtime.settings.settingsMap.productionSummary.isTrue =
 			runtime.settings.getPreference("productionSummaryMode") !== "off"),
@@ -33029,13 +33447,13 @@ ${locks}`
 	function localizedText2(value) {
 		return value?.[runtime.config.isZH ? "zh" : "en"] ?? "";
 	}
-	function featureStatusForSetting(id) {
-		let featureStatus = runtime.features.getStatus(id);
+	function featureStatusForSetting(id2) {
+		let featureStatus = runtime.features.getStatus(id2);
 		return featureStatus.status !== "unregistered"
 			? featureStatus
 			: {
-					id,
-					status: runtime.settings.get(id) ? "active" : "disabled",
+					id: id2,
+					status: runtime.settings.get(id2) ? "active" : "disabled",
 					error: null,
 				};
 	}
@@ -33057,11 +33475,11 @@ ${locks}`
 				};
 		return labels[status] ?? labels.disabled;
 	}
-	function getSettingDescendants(id) {
+	function getSettingDescendants(id2) {
 		return Object.values(runtime.settings.catalog).filter((candidate) => {
 			let parent = candidate.parent;
 			for (; parent;) {
-				if (parent === id) return !0;
+				if (parent === id2) return !0;
 				parent = runtime.settings.catalog[parent]?.parent;
 			}
 			return !1;
@@ -33332,8 +33750,8 @@ ${locks}`
 			}
 			setStatus();
 		});
-		let stopStatusListener = runtime.features.onStatusChange((id) => {
-				id === definition.id && setStatus();
+		let stopStatusListener = runtime.features.onStatusChange((id2) => {
+				id2 === definition.id && setStatus();
 			}),
 			stopSettingListener = runtime.settings.onChange(definition.id, (value) => {
 				((checkbox.checked = !!value), setStatus());
@@ -34140,8 +34558,8 @@ ${locks}`
 				itemTooltip_profitRequireKey: !0,
 				leaderboardBadgeGlint: normalized.guildEnhancements && normalized.decorativeAnimations,
 			};
-		for (let id of COMPLEX_CALCULATION_SETTINGS) values[id] = normalized.complexCalculations;
-		for (let id of LEADERBOARD_SETTINGS) values[id] = normalized.guildEnhancements;
+		for (let id2 of COMPLEX_CALCULATION_SETTINGS) values[id2] = normalized.complexCalculations;
+		for (let id2 of LEADERBOARD_SETTINGS) values[id2] = normalized.guildEnhancements;
 		return {
 			values,
 			preferences: {
@@ -34156,7 +34574,7 @@ ${locks}`
 		};
 	}
 	function currentChoices() {
-		let get = (id) => !!runtime.settings.get?.(id),
+		let get = (id2) => !!runtime.settings.get?.(id2),
 			dps = runtime.api.dpsPerformance?.get?.() ?? {},
 			decorativeMotion = globalThis.document?.documentElement?.dataset.mwitoolsDecorativeMotion,
 			summaryMode = runtime.settings.getPreference?.("productionSummaryMode") ?? "collapsed";
@@ -34428,7 +34846,7 @@ ${locks}`
 			host
 		);
 	}
-	function optionCopy(kind, id) {
+	function optionCopy(kind, id2) {
 		return t18(
 			{
 				usage: {
@@ -34463,7 +34881,7 @@ ${locks}`
 						en: "Choose each feature group step by step.",
 					},
 				},
-			}[kind][id],
+			}[kind][id2],
 		);
 	}
 	function choiceStatus(field, value) {
@@ -34820,21 +35238,21 @@ ${locks}`
 							recommended = kind === "tier" ? recommendPerformanceTier() : null,
 							options = document.createElement("div");
 						((options.className = "mwi-performance-options"), options.setAttribute("role", "radiogroup"));
-						for (let id of ids) {
+						for (let id2 of ids) {
 							let button = document.createElement("button");
 							((button.type = "button"),
 								(button.className = "mwi-performance-option"),
 								button.setAttribute("role", "radio"),
-								button.setAttribute("aria-checked", String(selected === id)),
-								(button.dataset.value = id));
+								button.setAttribute("aria-checked", String(selected === id2)),
+								(button.dataset.value = id2));
 							let heading = document.createElement("div");
-							((heading.className = "mwi-performance-option-title"), (heading.textContent = t18(TEXT[kind][id])));
+							((heading.className = "mwi-performance-option-title"), (heading.textContent = t18(TEXT[kind][id2])));
 							let copy = document.createElement("div");
 							if (
 								((copy.className = "mwi-performance-option-copy"),
-								(copy.textContent = optionCopy(kind, id)),
+								(copy.textContent = optionCopy(kind, id2)),
 								button.append(heading, copy),
-								recommended === id)
+								recommended === id2)
 							) {
 								let badge = document.createElement("span");
 								((badge.className = "mwi-performance-recommended"),
@@ -34843,10 +35261,10 @@ ${locks}`
 							}
 							(button.addEventListener("click", () => {
 								(kind === "usage"
-									? (this.usage = id)
-									: ((this.tier = id),
+									? (this.usage = id2)
+									: ((this.tier = id2),
 										(this.choices =
-											id === "custom" ? { ...getProfileState().choices } : resolvePresetChoices(this.usage, id))),
+											id2 === "custom" ? { ...getProfileState().choices } : resolvePresetChoices(this.usage, id2))),
 									this.render());
 							}),
 								options.append(button));
@@ -35039,7 +35457,7 @@ ${locks}`
 		return typeof value == "string" ? value : (value?.[runtime.config.isZH ? "zh" : "en"] ?? value?.en ?? "");
 	}
 	function currentVersion() {
-		return String(globalThis.GM_info?.script?.version ?? "26.4.22");
+		return String(globalThis.GM_info?.script?.version ?? "26.4.23");
 	}
 	function isTestBuild() {
 		let info = globalThis.GM_info?.script;
@@ -35280,6 +35698,56 @@ ${locks}`
 			},
 		});
 
+	// src/features/dps/player-cache.js
+	function createPlayerCache(storage = globalThis.localStorage) {
+		let entries = /* @__PURE__ */ new Map(),
+			trim = () => {
+				for (; entries.size > 256;) entries.delete(entries.keys().next().value);
+			},
+			save = () => {
+				try {
+					storage?.setItem(KEY, JSON.stringify([...entries]));
+				} catch {}
+			};
+		try {
+			let raw = storage?.getItem(KEY) || "[]",
+				loaded = raw.length <= 512e3 ? JSON.parse(raw) : [];
+			if (Array.isArray(loaded))
+				for (let item of loaded) {
+					if (!Array.isArray(item) || item.length !== 2) continue;
+					let [name, value] = item;
+					if (typeof name != "string" || !value || typeof value != "object") continue;
+					let normalized = {};
+					for (let field of ["classId", "weaponHrid"])
+						typeof value[field] == "string" && (normalized[field] = value[field].slice(0, 256));
+					(entries.set(name.slice(0, 160), normalized), trim());
+				}
+			(trim(), Array.isArray(loaded) && loaded.length > entries.size && save());
+		} catch {}
+		return {
+			get(name, field) {
+				let value = entries.get(name);
+				if (value) return (entries.delete(name), entries.set(name, value), value[field]);
+			},
+			set(name, field, value) {
+				if (typeof name != "string" || !name || name.length > 160) return;
+				let previous = entries.get(name),
+					next = { ...previous };
+				(value ? (next[field] = String(value).slice(0, 256)) : delete next[field],
+					entries.delete(name),
+					Object.keys(next).length && entries.set(name, next),
+					trim(),
+					JSON.stringify(previous) !== JSON.stringify(next) && save());
+			},
+		};
+	}
+	var KEY,
+		init_player_cache = __esm({
+			"src/features/dps/player-cache.js"() {
+				KEY = "kikimeter:player-cache:v1";
+			},
+		});
+
 	// src/features/dps/assets/close.png
 	var close_default,
 		init_close = __esm({
@@ -35439,6 +35907,7 @@ ${locks}`
 		CombatIdentity,
 		init_bootstrap = __esm({
 			"src/features/dps/00-bootstrap.js"() {
+				init_player_cache();
 				init_shared_storage();
 				init_close();
 				init_copy();
@@ -35455,12 +35924,12 @@ ${locks}`
 					(TAB_CONTAINER_CLASS = "TabsComponent_tabsContainer__3BDUp"),
 					(ACCENT = "#d4af37"),
 					(GameAssets = Object.freeze({
-						ability: (id) => getGameSpriteHref("abilities", id),
-						skill: (id) => getGameSpriteHref("skills", id),
-						item: (id) => getGameSpriteHref("items", id),
-						monster: (id) => getGameSpriteHref("combat_monsters", id),
-						misc: (id) => getGameSpriteHref("misc", id),
-						avatar: (id) => getGameSpriteHref("avatars", id),
+						ability: (id2) => getGameSpriteHref("abilities", id2),
+						skill: (id2) => getGameSpriteHref("skills", id2),
+						item: (id2) => getGameSpriteHref("items", id2),
+						monster: (id2) => getGameSpriteHref("combat_monsters", id2),
+						misc: (id2) => getGameSpriteHref("misc", id2),
+						avatar: (id2) => getGameSpriteHref("avatars", id2),
 						ready: () => loadGameSpriteManifest(),
 						scan: () => scanGameSpriteSources({ force: !0 }),
 					})),
@@ -35492,7 +35961,7 @@ ${locks}`
 						close: close_default,
 					}),
 					(Settings = (() => {
-						let KEY = "kikimeter:settings:v4",
+						let KEY2 = "kikimeter:settings:v4",
 							LEGACY_KEY = "kikimeter:settings:v3",
 							defaultLanguage =
 								typeof runtime.config.isZH == "boolean"
@@ -35505,8 +35974,6 @@ ${locks}`
 							defaults = {
 								colors: {},
 								classOverrides: {},
-								classCache: {},
-								weaponCache: {},
 								mainMode: "dps",
 								showHealing: !0,
 								showGraph: !1,
@@ -35517,12 +35984,23 @@ ${locks}`
 							},
 							state = { ...defaults };
 						try {
-							let s = JSON.parse(sharedStorage.getItem(KEY) || sharedStorage.getItem(LEGACY_KEY) || "{}");
+							let s = JSON.parse(sharedStorage.getItem(KEY2) || sharedStorage.getItem(LEGACY_KEY) || "{}");
 							s && typeof s == "object" && (state = { ...defaults, ...s });
 						} catch {}
+						(delete state.classCache, delete state.weaponCache);
+						for (let key of [KEY2, LEGACY_KEY])
+							try {
+								let legacy = JSON.parse(localStorage.getItem(key) || "null");
+								legacy &&
+									(Object.hasOwn(legacy, "classCache") || Object.hasOwn(legacy, "weaponCache")) &&
+									(delete legacy.classCache,
+									delete legacy.weaponCache,
+									localStorage.setItem(key, JSON.stringify(legacy)));
+							} catch {}
+						let playerCache = createPlayerCache();
 						function save() {
 							try {
-								sharedStorage.setItem(KEY, JSON.stringify(state));
+								sharedStorage.setItem(KEY2, JSON.stringify(state));
 							} catch {}
 						}
 						return {
@@ -35534,13 +36012,13 @@ ${locks}`
 							setClassOverride: (n, c) => {
 								(c ? (state.classOverrides[n] = c) : delete state.classOverrides[n], save());
 							},
-							getCachedClass: (n) => state.classCache[n],
+							getCachedClass: (n) => playerCache.get(n, "classId"),
 							setCachedClass: (n, c) => {
-								(c ? (state.classCache[n] = c) : delete state.classCache[n], save());
+								playerCache.set(n, "classId", c);
 							},
-							getCachedWeapon: (n) => state.weaponCache[n] || "",
+							getCachedWeapon: (n) => playerCache.get(n, "weaponHrid") || "",
 							setCachedWeapon: (n, w) => {
-								(w ? (state.weaponCache[n] = w) : delete state.weaponCache[n], save());
+								playerCache.set(n, "weaponHrid", w);
 							},
 							getShowHealing: () => state.showHealing,
 							setShowHealing: (v) => {
@@ -35664,6 +36142,7 @@ ${locks}`
 		TakenSources,
 		init_combat_sources = __esm({
 			"src/features/dps/10-combat-sources.js"() {
+				init_player_cache();
 				init_bootstrap();
 				init_runtime();
 				init_game_localization();
@@ -35954,8 +36433,9 @@ ${locks}`
 					function setDetected(name, classId, source = "被动战斗数据") {
 						if (!name || !definitions[classId] || classId === UNKNOWN) return !1;
 						let changed = (detected.get(name) || Settings.getCachedClass(name)) !== classId;
+						for (detected.delete(name), detected.set(name, classId); detected.size > 256;)
+							detected.delete(detected.keys().next().value);
 						return (
-							detected.set(name, classId),
 							Settings.getCachedClass(name) !== classId && Settings.setCachedClass(name, classId),
 							changed && bus.dispatchEvent(new CustomEvent("change", { detail: { name, classId, source } })),
 							!0
@@ -36108,11 +36588,11 @@ ${locks}`
 					};
 				})()),
 					(ClassDebug = (() => {
-						let KEY = "kikimeter:class-debug:v1",
+						let KEY2 = "kikimeter:class-debug:v1",
 							bus = new EventTarget(),
 							events = [];
 						try {
-							let saved = JSON.parse(localStorage.getItem(KEY) || "[]");
+							let saved = JSON.parse(localStorage.getItem(KEY2) || "[]");
 							Array.isArray(saved) && (events = saved.slice(0, 12));
 						} catch {}
 						function tail2(v) {
@@ -36180,7 +36660,7 @@ ${locks}`
 						}
 						function save() {
 							try {
-								localStorage.setItem(KEY, JSON.stringify(events));
+								localStorage.setItem(KEY2, JSON.stringify(events));
 							} catch {}
 						}
 						function record(type, payload) {
@@ -36284,7 +36764,7 @@ ${locks}`
 						return { bus, record, clear, get, report, size: () => events.length };
 					})()),
 					(ClassProbe = (() => {
-						let KEY = "kikimeter:class-probe:v4",
+						let KEY2 = "kikimeter:class-probe:v4",
 							bus = new EventTarget(),
 							abilityCatalog = {},
 							ticker = null,
@@ -36317,8 +36797,10 @@ ${locks}`
 						}
 						function load() {
 							try {
-								let value = JSON.parse(localStorage.getItem(KEY) || "null");
-								return value && value.schemaVersion === 4 ? value : null;
+								let raw = localStorage.getItem(KEY2) || "null";
+								if (raw.length > 1e6 * 1.5) return (localStorage.removeItem(KEY2), null);
+								let value = JSON.parse(raw);
+								return value && value.schemaVersion === 4 ? ((value.fullMessages = []), value) : null;
 							} catch {
 								return null;
 							}
@@ -36326,8 +36808,9 @@ ${locks}`
 						function save() {
 							try {
 								state.storageNotice = "全量消息正文仅保留在当前页面内存中，请在刷新或关闭页面前下载";
-								let summary = { ...state, fullMessages: [] };
-								localStorage.setItem(KEY, JSON.stringify(summary));
+								let summary = { ...state, fullMessages: [] },
+									encoded = JSON.stringify(summary);
+								localStorage.setItem(KEY2, encoded.length <= 1e6 * 1.5 ? encoded : JSON.stringify(emptyState()));
 							} catch {}
 						}
 						function addUnique(array, value, limit = 16) {
@@ -36373,12 +36856,19 @@ ${locks}`
 								text = JSON.stringify({ type, error: "消息序列化失败：" + String(e) });
 							}
 							let entryChars = text.length + type.length + 80;
-							((captureChars += entryChars),
-								state.fullMessages.push({
-									offsetMs: state.startedAt ? Math.max(0, Date.now() - new Date(state.startedAt).getTime()) : 0,
-									type,
-									payloadText: text,
-								}));
+							return state.fullMessages.length >= 1e3 || !reserveCapture(entryChars)
+								? (active && stop("已达到采集容量上限 / Capture size limit reached"), !1)
+								: (state.fullMessages.push({
+										offsetMs: state.startedAt ? Math.max(0, Date.now() - new Date(state.startedAt).getTime()) : 0,
+										type,
+										payloadText: text,
+									}),
+									!0);
+						}
+						function reserveCapture(chars) {
+							return captureChars + chars > 1e6
+								? (stop("已达到采集容量上限 / Capture size limit reached"), !1)
+								: ((captureChars += chars), !0);
 						}
 						function recordUnparsed(payload) {
 							if (!active) return;
@@ -36456,13 +36946,14 @@ ${locks}`
 									)
 									.slice(0, 2e5),
 								previous = state.domSnapshots[state.domSnapshots.length - 1];
-							(previous && previous.signature === signature) ||
-								state.domSnapshots.push({
-									offsetMs: Math.max(0, Date.now() - new Date(state.startedAt).getTime()),
-									reason,
-									signature,
-									views,
-								});
+							if (previous && previous.signature === signature) return;
+							let snapshot = {
+								offsetMs: Math.max(0, Date.now() - new Date(state.startedAt).getTime()),
+								reason,
+								signature,
+								views,
+							};
+							reserveCapture(JSON.stringify(snapshot).length) && state.domSnapshots.push(snapshot);
 						}
 						function scheduleDomCapture(reason) {
 							active &&
@@ -36478,11 +36969,17 @@ ${locks}`
 									let target = event.target,
 										unit =
 											target && target.closest ? target.closest('[class*="CombatUnit"],[class*="MiniUnit"]') : null;
-									(state.clicks.push({
+									if (state.clicks.length >= 50) {
+										stop("已达到点击采集上限 / Click capture limit reached");
+										return;
+									}
+									let click = {
 										offsetMs: Math.max(0, Date.now() - new Date(state.startedAt).getTime()),
 										target: elementSnapshot(target),
 										unit: elementSnapshot(unit),
-									}),
+									};
+									reserveCapture(JSON.stringify(click).length) &&
+										(state.clicks.push(click),
 										scheduleDomCapture("点击后页面变化"),
 										setTimeout(() => captureDom("点击后500毫秒"), 500));
 								}),
@@ -36663,13 +37160,16 @@ ${locks}`
 							(target.count++, mergeScan(target, scan2));
 						}
 						function record(type, payload) {
-							if ((type === "init_client_data" && cacheClientData(payload), !!active)) {
-								if (
+							if (
+								(type === "init_client_data" && cacheClientData(payload),
+								!!active &&
 									((state.messageCounts[type] = (state.messageCounts[type] || 0) + 1),
 									state.messageShapes[type] || (state.messageShapes[type] = []),
 									Object.keys(payload || {}).forEach((key) => addUnique(state.messageShapes[type], key, 80)),
-									recordFullMessage(type, payload),
-									type === "new_guild_battle" && recordRoster(payload, "trial"),
+									!!recordFullMessage(type, payload)))
+							) {
+								if (
+									(type === "new_guild_battle" && recordRoster(payload, "trial"),
 									type === "new_battle" && recordRoster(payload, "combat"),
 									type === "guild_battle_updated" && recordPlayerMap(payload, "trial"),
 									type === "battle_updated" && recordPlayerMap(payload, "combat"),
@@ -36697,7 +37197,9 @@ ${locks}`
 									(ticker = setInterval(() => bus.dispatchEvent(new Event("change")), 1e3)),
 									save(),
 									bus.dispatchEvent(new Event("change")),
-									console.info("[MWI DPS Tracker] 全量入站消息采集已开始；点击“结束采集”才会停止。")),
+									console.info(
+										"[MWI DPS Tracker] 入站消息采集已开始；达到容量上限时自动停止。 / Capture stops automatically at its size limit.",
+									)),
 								status()
 							);
 						}
@@ -37181,6 +37683,7 @@ ${locks}`
 			"src/features/dps/20-session.js"() {
 				init_bootstrap();
 				init_combat_sources();
+				init_combat_fragments();
 				((Session = (() => {
 					let startTs = performance.now(),
 						elapsedOffset = 0,
@@ -37378,7 +37881,10 @@ ${locks}`
 					}
 					function closeFragment(reason) {
 						let part = currentFragment();
-						(part && (reason && (part.endReason = reason), fragments.push(part)),
+						(part &&
+							(reason && (part.endReason = reason),
+							fragments.push(part),
+							(fragments = compactCombatFragments(fragments, 99))),
 							(fragmentStart = null),
 							(fragmentBase = null),
 							(fragmentPrefix = null));
@@ -37566,7 +38072,7 @@ ${locks}`
 									restoreMap(playerKills, s.players && s.players.kills),
 									restoreAccuracy(playerAccuracy, s.players && s.players.accuracy),
 									ClassSystem.applyClasses(s.classes),
-									fragments = Array.isArray(s.fragments) ? s.fragments : [],
+									fragments = compactCombatFragments(s.fragments, 99),
 									fragmentStart = null,
 									fragmentBase = null,
 									fragmentPrefix = null,
@@ -37857,21 +38363,50 @@ ${locks}`
 					(Capture = /* @__PURE__ */ (() => {
 						let active = !1,
 							log = [],
-							counts = {};
+							counts = {},
+							chars = 0;
 						return {
 							start() {
-								((active = !0), (log = []), (counts = {}), console.info("[MWI DPS Tracker] 已开始抓取战斗消息。"));
+								((active = !0),
+									(log = []),
+									(counts = {}),
+									(chars = 0),
+									console.info("[MWI DPS Tracker] 已开始抓取战斗消息。"));
 							},
 							stop() {
 								((active = !1), console.info("[MWI DPS Tracker] 已停止抓取，共 " + log.length + " 条消息。"));
 							},
 							record(type, payload) {
-								active && ((counts[type] = (counts[type] || 0) + 1), log.push({ t: Date.now(), payload }));
+								if (!active) return;
+								let encoded;
+								try {
+									encoded = JSON.stringify({ t: Date.now(), payload });
+								} catch {
+									active = !1;
+									return;
+								}
+								if (log.length >= 1e3 || chars + encoded.length > 1e6) {
+									((active = !1),
+										console.warn(
+											"[MWI DPS Tracker] 战斗消息抓取已达到容量上限，已自动停止。 / Combat capture reached its size limit and stopped.",
+										));
+									return;
+								}
+								((counts[type] = (counts[type] || 0) + 1), log.push(encoded), (chars += encoded.length));
+							},
+							clear() {
+								((active = !1), (log = []), (counts = {}), (chars = 0));
 							},
 							download(fn) {
-								let blob = new Blob([JSON.stringify({ typeCounts: counts, combatLog: log })], {
-										type: "application/json",
-									}),
+								let blob = new Blob(
+										[
+											JSON.stringify({
+												typeCounts: counts,
+												combatLog: log.map((entry) => JSON.parse(entry)),
+											}),
+										],
+										{ type: "application/json" },
+									),
 									url = URL.createObjectURL(blob),
 									a = Object.assign(document.createElement("a"), {
 										href: url,
@@ -40172,14 +40707,14 @@ ${locks}`
 					whiteSpace: "nowrap",
 				});
 				row.dataset.segmentKey = item.key;
-				let id = item.entry ? HistoryStore.entryKey(item.entry) : "";
+				let id2 = item.entry ? HistoryStore.entryKey(item.entry) : "";
 				if (
 					(!fragment && item.entry
 						? options.filter((candidate) => candidate.fragment && candidate.entry === item.entry)
 						: []
 					).length
 				) {
-					let expanded = picker._expandedEntries.has(id),
+					let expanded = picker._expandedEntries.has(id2),
 						disclosure = el("button", {
 							width: "18px",
 							height: "20px",
@@ -40199,7 +40734,7 @@ ${locks}`
 							: langText("展开重连片段", "Expand reconnect fragments")),
 						disclosure.addEventListener("click", (event) => {
 							(event.stopPropagation(),
-								expanded ? picker._expandedEntries.delete(id) : picker._expandedEntries.add(id),
+								expanded ? picker._expandedEntries.delete(id2) : picker._expandedEntries.add(id2),
 								buildSegmentMenu(picker));
 						}),
 						row.appendChild(disclosure));
@@ -40255,7 +40790,7 @@ ${locks}`
 							item.entry.favorite === !0 ? "★" : "☆",
 							item.entry.favorite === !0 ? langText("取消收藏", "Remove favorite") : langText("收藏", "Favorite"),
 							"#facc15",
-							() => HistoryStore.setFavorite(id, item.entry.favorite !== !0),
+							() => HistoryStore.setFavorite(id2, item.entry.favorite !== !0),
 						),
 						rename =
 							item.entry.favorite === !0
@@ -40282,7 +40817,7 @@ ${locks}`
 											finish = (save) => {
 												finished ||
 													((finished = !0),
-													save && HistoryStore.rename(id, input.value),
+													save && HistoryStore.rename(id2, input.value),
 													notify(),
 													buildSegmentMenu(picker));
 											};
@@ -40307,8 +40842,8 @@ ${locks}`
 								: null,
 						remove = miniButton("✕", langText("删除记录", "Delete record"), "#f87171", () => {
 							let selected = SegmentSelection.resolve();
-							(selected.entry && HistoryStore.entryKey(selected.entry) === id && SegmentSelection.select("current"),
-								HistoryStore.remove(id));
+							(selected.entry && HistoryStore.entryKey(selected.entry) === id2 && SegmentSelection.select("current"),
+								HistoryStore.remove(id2));
 						});
 					(rename && row.append(rename), row.append(star, remove));
 				}
@@ -40471,7 +41006,7 @@ ${locks}`
 				init_session();
 				((langText = (zh, en) => (Settings.getLanguage() === "en" ? en : zh)), (UNATTRIBUTED_EPSILON = 1e-4));
 				((HistoryStore = /* @__PURE__ */ (() => {
-					let KEY = "kikimeter:history:v2",
+					let KEY2 = "kikimeter:history:v2",
 						LEGACY_KEY = "kikimeter:history:v1",
 						ACTIVE_KEY = "kikimeter:active:v2",
 						revision = 0;
@@ -40496,15 +41031,16 @@ ${locks}`
 						return utf8ByteLength(JSON.stringify(entries));
 					}
 					function entryTimestamp(entry) {
-						let timestamp = Date.parse(entry?.endedAt ?? entry?.date ?? entry?.startedAt ?? "");
-						return Number.isFinite(timestamp) ? timestamp : Number.NEGATIVE_INFINITY;
+						let timestamp2 = Date.parse(entry?.endedAt ?? entry?.date ?? entry?.startedAt ?? "");
+						return Number.isFinite(timestamp2) ? timestamp2 : Number.NEGATIVE_INFINITY;
 					}
 					function oldestEntryIndex(entries) {
 						let oldestIndex = -1,
 							oldestTime = 1 / 0;
 						for (let index = 0; index < entries.length; index += 1) {
-							let timestamp = entryTimestamp(entries[index]);
-							(timestamp < oldestTime || timestamp === oldestTime) && ((oldestTime = timestamp), (oldestIndex = index));
+							let timestamp2 = entryTimestamp(entries[index]);
+							(timestamp2 < oldestTime || timestamp2 === oldestTime) &&
+								((oldestTime = timestamp2), (oldestIndex = index));
 						}
 						return oldestIndex;
 					}
@@ -40522,7 +41058,7 @@ ${locks}`
 						}
 					}
 					function migrateLegacy() {
-						if (sharedStorage.getItem(KEY) !== null) return;
+						if (sharedStorage.getItem(KEY2) !== null) return;
 						let migrated = validArray(sharedStorage.getItem(LEGACY_KEY)).map((e, i) => ({
 							...e,
 							schemaVersion: 2,
@@ -40560,11 +41096,11 @@ ${locks}`
 					}
 					function load() {
 						migrateLegacy();
-						let raw = validArray(sharedStorage.getItem(KEY)),
+						let raw = validArray(sharedStorage.getItem(KEY2)),
 							data = trimToByteLimit(trim(raw));
 						if (data.length !== raw.length)
 							try {
-								sharedStorage.setItem(KEY, JSON.stringify(data));
+								sharedStorage.setItem(KEY2, JSON.stringify(data));
 							} catch {}
 						return data;
 					}
@@ -40572,7 +41108,7 @@ ${locks}`
 						let data = trimToByteLimit(trim(entries));
 						for (; data.length >= 0;)
 							try {
-								return (sharedStorage.setItem(KEY, JSON.stringify(data)), !0);
+								return (sharedStorage.setItem(KEY2, JSON.stringify(data)), !0);
 							} catch {
 								let idx = oldestEntryIndex(data);
 								if (idx < 0) return !1;
@@ -40590,9 +41126,9 @@ ${locks}`
 						let h = all.filter((item, index) => entryKey(item, index) !== key);
 						(h.unshift(entry), writeWithQuotaRetry(h), revision++);
 					}
-					function updateEntry(id, updater) {
+					function updateEntry(id2, updater) {
 						let all = load(),
-							index = all.findIndex((entry, i) => entryKey(entry, i) === String(id));
+							index = all.findIndex((entry, i) => entryKey(entry, i) === String(id2));
 						if (index < 0) return !1;
 						let next = updater({ ...all[index] });
 						next === null ? all.splice(index, 1) : (all[index] = next);
@@ -40610,34 +41146,34 @@ ${locks}`
 						clear(type) {
 							if (!type) {
 								try {
-									sharedStorage.removeItem(KEY);
+									sharedStorage.removeItem(KEY2);
 								} catch {}
 								revision++;
 								return;
 							}
 							let remaining = load().filter((e) => (e.type || "combat") !== type);
 							try {
-								sharedStorage.setItem(KEY, JSON.stringify(remaining));
+								sharedStorage.setItem(KEY2, JSON.stringify(remaining));
 							} catch {}
 							revision++;
 						},
-						setFavorite(id, value) {
-							return updateEntry(id, (entry) => ({
+						setFavorite(id2, value) {
+							return updateEntry(id2, (entry) => ({
 								...entry,
 								favorite: !!value,
 								favoritedAt: value ? /* @__PURE__ */ new Date().toISOString() : void 0,
 							}));
 						},
-						rename(id, name) {
-							return updateEntry(id, (entry) => {
+						rename(id2, name) {
+							return updateEntry(id2, (entry) => {
 								let customName = String(name || "")
 									.trim()
 									.slice(0, 40);
 								return { ...entry, customName: customName || void 0 };
 							});
 						},
-						remove(id) {
-							return updateEntry(id, () => null);
+						remove(id2) {
+							return updateEntry(id2, () => null);
 						},
 						entryKey,
 						saveActive(snapshot) {
@@ -40661,9 +41197,9 @@ ${locks}`
 							} catch {}
 						},
 						getRevision: () => revision,
-						getStoredByteSize: () => serializedBytes(validArray(sharedStorage.getItem(KEY))),
+						getStoredByteSize: () => serializedBytes(validArray(sharedStorage.getItem(KEY2))),
 						maxHistoryBytes: 1e6,
-						keys: { history: KEY, active: ACTIVE_KEY },
+						keys: { history: KEY2, active: ACTIVE_KEY },
 					};
 				})()),
 					(SegmentSelection = (() => {
@@ -40672,8 +41208,8 @@ ${locks}`
 							cachedLanguage = "",
 							cachedOptions = [],
 							bus = new EventTarget(),
-							fightKey = (id) => "fight:" + encodeURIComponent(String(id)),
-							fragmentKey = (id, index) => "fragment:" + encodeURIComponent(String(id)) + ":" + index;
+							fightKey = (id2) => "fight:" + encodeURIComponent(String(id2)),
+							fragmentKey = (id2, index) => "fragment:" + encodeURIComponent(String(id2)) + ":" + index;
 						function entryId(entry, index) {
 							return entry.id || entry.combatKey || entry.date || "history-" + index;
 						}
@@ -40719,12 +41255,12 @@ ${locks}`
 										return typeDiff || left.index - right.index;
 									})
 									.forEach(({ entry, index: entryIndex }) => {
-										let id = entryId(entry, entryIndex),
+										let id2 = entryId(entry, entryIndex),
 											favorite = entry.favorite === !0,
 											group = favorite ? "favorite" : entry.type || "combat",
 											displayName = favorite && entry.customName ? entry.customName : dateLabel(entry);
 										out.push({
-											key: fightKey(id),
+											key: fightKey(id2),
 											label: (favorite ? "★ " : "") + displayName,
 											entry,
 											group,
@@ -40734,7 +41270,7 @@ ${locks}`
 										parts.length > 1 &&
 											parts.forEach((fragment, index) =>
 												out.push({
-													key: fragmentKey(id, index),
+													key: fragmentKey(id2, index),
 													label:
 														langText("↳ 重连片段 ", "↳ Reconnect fragment ") +
 														(index + 1) +
@@ -41192,8 +41728,8 @@ ${locks}`
 			(select.dataset.kikimeter = "true"),
 			select.append(new Option(langText2("自动识别", "Auto-detect"), "auto")),
 			Object.entries(ClassSystem.definitions)
-				.filter(([id]) => id !== "unknown")
-				.forEach(([id, d]) => select.append(new Option(d.label, id))),
+				.filter(([id2]) => id2 !== "unknown")
+				.forEach(([id2, d]) => select.append(new Option(d.label, id2))),
 			(select.value = Settings.getClassOverride(name) || "auto"));
 		let r = anchor.getBoundingClientRect();
 		Object.assign(select.style, {
@@ -42941,8 +43477,8 @@ ${langText2("理论命中率", "Theoretical hit chance")}: ${pct.toFixed(2)}%`;
 								marginBottom: "7px",
 							});
 							hint.textContent = langText4(
-								"全量探针会从点击开始持续被动记录全部游戏入站消息，直到你手动结束；不会主动发送任何请求。聊天正文和凭证字段会脱敏，结束后请在刷新页面前下载。",
-								"The full probe passively records all incoming game messages after you start it until you stop it manually. It sends no requests. Chat content and credential fields are redacted; download the capture before refreshing the page.",
+								"手动采集最多保存 1,000 条消息，消息与页面快照合计最多 100 万字符，到上限自动停止。聊天正文和凭证字段会脱敏；关闭 DPS 会清空采集，请先下载。",
+								"Manual capture stores up to 1,000 messages and 1,000,000 characters across messages and page snapshots, then stops automatically. Chat content and credentials are redacted. Download before disabling DPS, which clears the capture.",
 							);
 							let probeStatus = ClassProbe.status(),
 								probeButtons = el("div", {
@@ -43006,8 +43542,8 @@ ${langText2("理论命中率", "Theoretical hit chance")}: ${pct.toFixed(2)}%`;
 							});
 							report.textContent = probeStatus.active
 								? langText4(
-										`全量探针正在采集，已记录 ${probeStatus.messageCount} 条消息，正文约 ${(probeStatus.captureChars / 1024 / 1024).toFixed(2)} MB；点击“结束采集”才会停止。`,
-										`The full probe is capturing. ${probeStatus.messageCount} messages recorded (${(probeStatus.captureChars / 1024 / 1024).toFixed(2)} MB). Click “Stop capture” to stop it.`,
+										`正在采集，已保存 ${probeStatus.fullMessageCount} 条消息、${probeStatus.captureChars.toLocaleString()} 字符；可随时结束，到容量上限自动停止。`,
+										`Capturing: ${probeStatus.fullMessageCount} messages and ${probeStatus.captureChars.toLocaleString()} characters saved. Stop at any time; capture stops automatically at its size limit.`,
 									)
 								: probeStatus.startedAt
 									? ClassProbe.report().slice(0, 6e3)
@@ -43729,6 +44265,8 @@ ${langText2("理论命中率", "Theoretical hit chance")}: ${pct.toFixed(2)}%`;
 			() => {
 				(persistActive(!0),
 					ClassProbe.stop(),
+					ClassProbe.clear(),
+					Capture.clear(),
 					DamageBreakdownTooltip.close(),
 					KikiMeter.destroy(),
 					document.getElementById("kikimeter-zh-theme")?.remove(),
@@ -44545,69 +45083,66 @@ ${langText2("理论命中率", "Theoretical hit chance")}: ${pct.toFixed(2)}%`;
 		let sec = hours * 60 * 60;
 		return runtime.api.timeReadable?.(sec) ?? `${Math.round(hours)}h`;
 	}
-	function addExportButton(obj) {
-		let timer = setInterval(() => {
-			let selectedElement = document.querySelector("div.SharableProfile_overviewTab__W4dCV");
-			if (selectedElement) {
-				clearInterval(timer);
-				let button = document.createElement("button");
-				return (
-					selectedElement.appendChild(button),
-					(button.textContent = runtime.config.isZH ? "导出人物到剪贴板" : "Export to clipboard"),
-					(button.style.borderRadius = "5px"),
-					(button.style.height = "30px"),
-					(button.style.backgroundColor = runtime.config.SCRIPT_COLOR_MAIN),
-					(button.style.color = "black"),
-					(button.style.boxShadow = "none"),
-					(button.style.border = "0px"),
-					(button.onclick = function () {
-						let exportString = "",
-							playerID = obj.profile.characterSkills[0].characterID,
-							clientObj = JSON.parse(GM_getValue("init_client_data", "")),
-							characterObj = JSON.parse(GM_getValue("init_character_data", ""));
-						if (playerID === characterObj.character.id)
-							exportString = JSON.stringify(constructSelfPlayerExportObjFromInitCharacterData(characterObj, clientObj));
-						else {
-							let profileList = JSON.parse(GM_getValue("profile_export_list", "[]")).filter(
-									(item) => item.characterID === playerID,
-								),
-								profile = null;
-							if (profileList.length !== 1) {
-								console.log(
-									runtime.config.isZH
-										? `[MWITools] 找不到角色 ${playerID} 的已保存资料。`
-										: `[MWITools] Cannot find a saved profile for character ${playerID}.`,
-								);
-								return;
-							}
-							profile = profileList[0];
-							let battlePlayer = null;
-							if (GM_getValue("new_battle", "")) {
-								let battlePlayerList = JSON.parse(GM_getValue("new_battle", "")).players.filter(
-									(item) => item.character.id === playerID,
-								);
-								battlePlayerList.length === 1 && (battlePlayer = battlePlayerList[0]);
-							}
-							exportString = JSON.stringify(
-								constructPlayerExportObjFromStoredProfile(profile, clientObj, battlePlayer),
-							);
-						}
-						return (
-							console.log(exportString),
-							navigator.clipboard.writeText(exportString),
-							(button.textContent = runtime.config.isZH ? "已复制" : "Copied"),
-							!1
+	async function addExportButton(obj) {
+		let request2 = ++profileExportRequest,
+			selectedElement = await waitForProfilePanel();
+		if (!selectedElement?.isConnected || request2 !== profileExportRequest) return;
+		selectedElement.querySelector("[data-mwitools-profile-export]")?.remove();
+		let button = document.createElement("button");
+		((button.dataset.mwitoolsProfileExport = "true"),
+			selectedElement.appendChild(button),
+			(button.textContent = runtime.config.isZH ? "导出人物到剪贴板" : "Export to clipboard"),
+			(button.style.borderRadius = "5px"),
+			(button.style.height = "30px"),
+			(button.style.backgroundColor = runtime.config.SCRIPT_COLOR_MAIN),
+			(button.style.color = "black"),
+			(button.style.boxShadow = "none"),
+			(button.style.border = "0px"),
+			(button.onclick = function () {
+				let exportString = "",
+					playerID = obj.profile.characterSkills[0].characterID,
+					clientObj = JSON.parse(GM_getValue("init_client_data", "")),
+					characterObj = JSON.parse(GM_getValue("init_character_data", ""));
+				if (playerID === characterObj.character.id)
+					exportString = JSON.stringify(constructSelfPlayerExportObjFromInitCharacterData(characterObj, clientObj));
+				else {
+					let profileList = JSON.parse(GM_getValue("profile_export_list", "[]")).filter(
+							(item) => item.characterID === playerID,
+						),
+						profile = null;
+					if (profileList.length !== 1) {
+						console.log(
+							runtime.config.isZH
+								? `[MWITools] 找不到角色 ${playerID} 的已保存资料。`
+								: `[MWITools] Cannot find a saved profile for character ${playerID}.`,
 						);
-					}),
+						return;
+					}
+					profile = profileList[0];
+					let battlePlayer = null;
+					if (GM_getValue("new_battle", "")) {
+						let battlePlayerList = JSON.parse(GM_getValue("new_battle", "")).players.filter(
+							(item) => item.character.id === playerID,
+						);
+						battlePlayerList.length === 1 && (battlePlayer = battlePlayerList[0]);
+					}
+					exportString = JSON.stringify(constructPlayerExportObjFromStoredProfile(profile, clientObj, battlePlayer));
+				}
+				return (
+					console.log(exportString),
+					navigator.clipboard.writeText(exportString),
+					(button.textContent = runtime.config.isZH ? "已复制" : "Copied"),
 					!1
 				);
-			}
-		}, 200);
+			}));
 	}
-	var addImportButtonFor9Battles,
+	var profileExportRequest,
+		addImportButtonFor9Battles,
 		init_external_tools = __esm({
 			"src/features/external-tools.js"() {
 				init_runtime();
+				init_profile_panel();
+				profileExportRequest = 0;
 				addImportButtonFor9Battles = addImportButtonForAmvoidguy;
 				Object.assign(runtime.api, {
 					addImportButtonFor9Battles,
@@ -44736,14 +45271,14 @@ ${langText2("理论命中率", "Theoretical hit chance")}: ${pct.toFixed(2)}%`;
 						},
 					},
 				};
-				for (let id of [
+				for (let id2 of [
 					"useOrangeAsMainColor",
 					"profileBuildScore",
 					"battlePanel",
 					"enhanceSim",
 					"forceMWIToolsDisplayZH",
 				])
-					adapters[id] = {};
+					adapters[id2] = {};
 				adapters.ThirdPartyLinks = {
 					initialize({ scope }) {
 						(runtime.api.add3rdPartyLinks?.(),
@@ -44788,11 +45323,11 @@ ${langText2("理论命中率", "Theoretical hit chance")}: ${pct.toFixed(2)}%`;
 							}));
 					},
 				};
-				for (let [id, adapter] of Object.entries(adapters))
-					runtime.features.getStatus(id).status === "unregistered" &&
+				for (let [id2, adapter] of Object.entries(adapters))
+					runtime.features.getStatus(id2).status === "unregistered" &&
 						runtime.features.register({
-							id,
-							setting: id,
+							id: id2,
+							setting: id2,
 							scope: adapter.scope ?? "global",
 							dependsOn: adapter.dependsOn,
 							initialize(context) {
@@ -44829,10 +45364,10 @@ ${langText2("理论命中率", "Theoretical hit chance")}: ${pct.toFixed(2)}%`;
 			init_shared_storage();
 			init_runtime();
 			runtime.onMessage("init_client_data", (payload, message) => {
-				(console.log(payload), GM_setValue("init_client_data", message));
+				GM_setValue("init_client_data", message);
 			});
 			runtime.onMessage("init_character_data", (payload, message) => {
-				(console.log(payload), GM_setValue("init_character_data", message), enableIronCowAdaptation());
+				(GM_setValue("init_character_data", message), enableIronCowAdaptation());
 				let settings2 = runtime.settings.settingsMap;
 				(refreshAssets(), settings2.checkEquipment.isTrue && runtime.api.checkEquipment());
 			});

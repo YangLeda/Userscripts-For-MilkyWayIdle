@@ -32,12 +32,10 @@ function enableIronCowAdaptation() {
 }
 
 runtime.onMessage("init_client_data", (payload, message) => {
-  console.log(payload);
   GM_setValue("init_client_data", message);
 });
 
 runtime.onMessage("init_character_data", (payload, message) => {
-  console.log(payload);
   GM_setValue("init_character_data", message);
   enableIronCowAdaptation();
   const settings = runtime.settings.settingsMap;
