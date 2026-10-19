@@ -1,3 +1,4 @@
+import { PLAYER_CACHE_LIMIT } from "./player-cache.js";
 import { GameAssets, Settings, VERSION } from "./00-bootstrap.js";
 import { runtime } from "../../core/runtime.js";
 import { getLocalizedEntityName } from "../../core/game-localization.js";
@@ -328,7 +329,10 @@ const ClassSystem = (() => {
     if (!name || !definitions[classId] || classId === UNKNOWN) return false;
     const changed =
       (detected.get(name) || Settings.getCachedClass(name)) !== classId;
+    detected.delete(name);
     detected.set(name, classId);
+    while (detected.size > PLAYER_CACHE_LIMIT)
+      detected.delete(detected.keys().next().value);
     if (Settings.getCachedClass(name) !== classId)
       Settings.setCachedClass(name, classId);
     if (changed)
@@ -728,6 +732,9 @@ const ClassProbe = (() => {
     MAX_SAMPLES = 5;
   const MAX_DOM_SNAPSHOTS = 36,
     MAX_DOM_HTML = 120_000;
+  const MAX_CAPTURE_CHARS = 1_000_000,
+    MAX_MESSAGES = 1000,
+    MAX_CLICKS = 50;
   const bus = new EventTarget();
   let abilityCatalog = {},
     ticker = null,
@@ -761,21 +768,35 @@ const ClassProbe = (() => {
   }
   function load() {
     try {
-      const value = JSON.parse(localStorage.getItem(KEY) || "null");
-      return value && value.schemaVersion === 4 ? value : null;
+      const raw = localStorage.getItem(KEY) || "null";
+      if (raw.length > MAX_CAPTURE_CHARS * 1.5) {
+        localStorage.removeItem(KEY);
+        return null;
+      }
+      const value = JSON.parse(raw);
+      if (value && value.schemaVersion === 4) {
+        value.fullMessages = [];
+        return value;
+      }
+      return null;
     } catch (e) {
       return null;
     }
   }
   function save() {
-    // 全量正文可能达到数百 MB，不写入 localStorage，避免停止采集时因
-    // JSON 序列化和存储配额导致页面卡死。正文保留在当前页面内存中，
-    // 摘要跨刷新保留；用户应在刷新或关闭页面前下载 TXT。
+    // Keep only a bounded summary across reloads; message bodies stay in the
+    // bounded in-memory capture until download or feature cleanup.
     try {
       state.storageNotice =
         "全量消息正文仅保留在当前页面内存中，请在刷新或关闭页面前下载";
       const summary = { ...state, fullMessages: [] };
-      localStorage.setItem(KEY, JSON.stringify(summary));
+      const encoded = JSON.stringify(summary);
+      localStorage.setItem(
+        KEY,
+        encoded.length <= MAX_CAPTURE_CHARS * 1.5
+          ? encoded
+          : JSON.stringify(emptyState()),
+      );
     } catch (ignore) {}
   }
   function addUnique(array, value, limit = MAX_VALUES) {
@@ -843,7 +864,13 @@ const ClassProbe = (() => {
       text = JSON.stringify({ type, error: "消息序列化失败：" + String(e) });
     }
     const entryChars = text.length + type.length + 80;
-    captureChars += entryChars;
+    if (
+      state.fullMessages.length >= MAX_MESSAGES ||
+      !reserveCapture(entryChars)
+    ) {
+      if (active) stop("已达到采集容量上限 / Capture size limit reached");
+      return false;
+    }
     state.fullMessages.push({
       offsetMs: state.startedAt
         ? Math.max(0, Date.now() - new Date(state.startedAt).getTime())
@@ -851,6 +878,15 @@ const ClassProbe = (() => {
       type,
       payloadText: text,
     });
+    return true;
+  }
+  function reserveCapture(chars) {
+    if (captureChars + chars > MAX_CAPTURE_CHARS) {
+      stop("已达到采集容量上限 / Capture size limit reached");
+      return false;
+    }
+    captureChars += chars;
+    return true;
   }
   function recordUnparsed(payload) {
     if (!active) return;
@@ -937,12 +973,14 @@ const ClassProbe = (() => {
       .slice(0, 200_000);
     const previous = state.domSnapshots[state.domSnapshots.length - 1];
     if (previous && previous.signature === signature) return;
-    state.domSnapshots.push({
+    const snapshot = {
       offsetMs: Math.max(0, Date.now() - new Date(state.startedAt).getTime()),
       reason,
       signature,
       views,
-    });
+    };
+    if (reserveCapture(JSON.stringify(snapshot).length))
+      state.domSnapshots.push(snapshot);
   }
   function scheduleDomCapture(reason) {
     if (!active) return;
@@ -961,11 +999,17 @@ const ClassProbe = (() => {
         target && target.closest
           ? target.closest('[class*="CombatUnit"],[class*="MiniUnit"]')
           : null;
-      state.clicks.push({
+      if (state.clicks.length >= MAX_CLICKS) {
+        stop("已达到点击采集上限 / Click capture limit reached");
+        return;
+      }
+      const click = {
         offsetMs: Math.max(0, Date.now() - new Date(state.startedAt).getTime()),
         target: elementSnapshot(target),
         unit: elementSnapshot(unit),
-      });
+      };
+      if (!reserveCapture(JSON.stringify(click).length)) return;
+      state.clicks.push(click);
       scheduleDomCapture("点击后页面变化");
       setTimeout(() => captureDom("点击后500毫秒"), 500);
     };
@@ -1203,7 +1247,7 @@ const ClassProbe = (() => {
     Object.keys(payload || {}).forEach((key) =>
       addUnique(state.messageShapes[type], key, 80),
     );
-    recordFullMessage(type, payload);
+    if (!recordFullMessage(type, payload)) return;
     if (type === "new_guild_battle") recordRoster(payload, "trial");
     if (type === "new_battle") recordRoster(payload, "combat");
     if (type === "guild_battle_updated") recordPlayerMap(payload, "trial");
@@ -1230,7 +1274,7 @@ const ClassProbe = (() => {
     save();
     bus.dispatchEvent(new Event("change"));
     console.info(
-      "[MWI DPS Tracker] 全量入站消息采集已开始；点击“结束采集”才会停止。",
+      "[MWI DPS Tracker] 入站消息采集已开始；达到容量上限时自动停止。 / Capture stops automatically at its size limit.",
     );
     return status();
   }

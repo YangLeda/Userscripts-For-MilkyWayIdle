@@ -1,3 +1,4 @@
+import { createPlayerCache } from "./player-cache.js";
 import { sharedStorage } from "../../core/shared-storage.js";
 import closeIcon from "./assets/close.png";
 import copyIcon from "./assets/copy.png";
@@ -97,8 +98,6 @@ const Settings = (() => {
   const defaults = {
     colors: {},
     classOverrides: {},
-    classCache: {},
-    weaponCache: {},
     mainMode: "dps",
     showHealing: true,
     showGraph: false,
@@ -114,6 +113,23 @@ const Settings = (() => {
     );
     if (s && typeof s === "object") state = { ...defaults, ...s };
   } catch (e) {}
+  delete state.classCache;
+  delete state.weaponCache;
+  for (const key of [KEY, LEGACY_KEY]) {
+    try {
+      const legacy = JSON.parse(localStorage.getItem(key) || "null");
+      if (
+        legacy &&
+        (Object.hasOwn(legacy, "classCache") ||
+          Object.hasOwn(legacy, "weaponCache"))
+      ) {
+        delete legacy.classCache;
+        delete legacy.weaponCache;
+        localStorage.setItem(key, JSON.stringify(legacy));
+      }
+    } catch {}
+  }
+  const playerCache = createPlayerCache();
   function save() {
     try {
       sharedStorage.setItem(KEY, JSON.stringify(state));
@@ -131,17 +147,13 @@ const Settings = (() => {
       else delete state.classOverrides[n];
       save();
     },
-    getCachedClass: (n) => state.classCache[n],
+    getCachedClass: (n) => playerCache.get(n, "classId"),
     setCachedClass: (n, c) => {
-      if (c) state.classCache[n] = c;
-      else delete state.classCache[n];
-      save();
+      playerCache.set(n, "classId", c);
     },
-    getCachedWeapon: (n) => state.weaponCache[n] || "",
+    getCachedWeapon: (n) => playerCache.get(n, "weaponHrid") || "",
     setCachedWeapon: (n, w) => {
-      if (w) state.weaponCache[n] = w;
-      else delete state.weaponCache[n];
-      save();
+      playerCache.set(n, "weaponHrid", w);
     },
     getShowHealing: () => state.showHealing,
     setShowHealing: (v) => {

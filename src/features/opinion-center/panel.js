@@ -131,6 +131,7 @@ export class OpinionCenterPanel {
   }
 
   ensureButton() {
+    if (this.destroyed) return null;
     const host = ensureHeaderToolsHost();
     if (!host) {
       this.launcher?.remove();
@@ -167,6 +168,7 @@ export class OpinionCenterPanel {
   }
 
   updateUnreadIndicator() {
+    if (this.destroyed) return;
     const button = document.getElementById(BUTTON_ID);
     if (!button) return;
     const hasUnread = this.feedbackUnread > 0 || this.announcementUnread > 0;
@@ -185,6 +187,7 @@ export class OpinionCenterPanel {
   }
 
   async open() {
+    if (this.destroyed) return;
     const hadAnnouncementUnread = this.announcementUnread > 0;
     const hadFeedbackUnread = this.feedbackUnread > 0;
     if (this.root.hidden) {
@@ -204,6 +207,7 @@ export class OpinionCenterPanel {
     this.feedbackUnread = 0;
     this.updateUnreadIndicator();
     await this.refresh({ keepIndicatorClear: true });
+    if (this.destroyed) return;
     const discoveredFeedbackUnread = this.feedbackUnread > 0;
     if (
       !hadAnnouncementUnread &&
@@ -352,8 +356,10 @@ export class OpinionCenterPanel {
   }
 
   async refresh({ keepIndicatorClear = false } = {}) {
+    if (this.destroyed) return false;
     try {
       const result = await this.client.list();
+      if (this.destroyed) return false;
       this.items = result.items ?? [];
       this.quota = result.quota;
       this.feedbackUnread = this.unreadFeedbackCount(result);
@@ -371,6 +377,7 @@ export class OpinionCenterPanel {
       this.retryPendingReads();
       return true;
     } catch (error) {
+      if (this.destroyed) return false;
       this.renderQuota(error.message);
       this.root.querySelector(
         '[data-view="mine"] .mwi-feedback-error',
@@ -648,6 +655,9 @@ export class OpinionCenterPanel {
   }
 
   destroy() {
+    if (this.destroyed) return;
+    this.destroyed = true;
+    this.items = [];
     if (!this.root?.hidden) this.close();
     document.getElementById(BUTTON_ID)?.remove();
     this.launcher?.remove();

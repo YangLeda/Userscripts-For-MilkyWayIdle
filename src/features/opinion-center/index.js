@@ -27,10 +27,12 @@ runtime.features.register({
     let timer = null;
 
     const schedule = (delay) => {
+      if (disposed) return;
       clearTimeout(timer);
       timer = setTimeout(async () => {
         if (disposed) return;
         const ok = await panel.refresh();
+        if (disposed) return;
         failures = ok ? 0 : Math.min(failures + 1, 6);
         schedule(ok ? 60_000 : Math.min(15 * 60_000, 60_000 * 2 ** failures));
       }, delay);

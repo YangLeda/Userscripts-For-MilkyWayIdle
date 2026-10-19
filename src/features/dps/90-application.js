@@ -490,6 +490,8 @@ function start(scope) {
   return () => {
     persistActive(true);
     ClassProbe.stop();
+    ClassProbe.clear();
+    Capture.clear();
     DamageBreakdownTooltip.close();
     KikiMeter.destroy();
     document.getElementById("kikimeter-zh-theme")?.remove();
