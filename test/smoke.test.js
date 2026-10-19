@@ -189,14 +189,18 @@ for (const [buildName, userscript] of userscripts) {
       },
     });
     const scheduled = [];
-    const oldTimeout = window.setTimeout;
-    window.setTimeout = (callback) => {
+    const oldQueueMicrotask = window.queueMicrotask;
+    window.queueMicrotask = (callback) => {
       scheduled.push(callback);
       return 0;
     };
     void event.data;
-    window.setTimeout = oldTimeout;
-    assert.equal(scheduled.length, 1, "native frame queues one plugin task");
+    window.queueMicrotask = oldQueueMicrotask;
+    assert.equal(
+      scheduled.length,
+      1,
+      "native frame queues one plugin microtask even with timers paused",
+    );
     scheduled[0]();
     for (let index = 0; index < 300; index += 1) await Promise.resolve();
 

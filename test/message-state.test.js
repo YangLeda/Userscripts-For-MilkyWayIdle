@@ -89,7 +89,7 @@ test("a plugin state failure cannot interrupt the game's getter or later frames"
   }
 });
 
-test("bursts preserve frame order and yield between batches", async () => {
+test("bursts preserve frame order and yield between microtask batches", async () => {
   const received = [];
   let halfway = 0;
   let resolveComplete;
@@ -109,9 +109,9 @@ test("bursts preserve frame order and yield between batches", async () => {
     });
     void event.data;
   }
-  setTimeout(() => {
+  globalThis.queueMicrotask(() => {
     halfway = received.length;
-  }, 0);
+  });
   await complete;
   unsubscribe();
   assert.ok(
@@ -122,6 +122,43 @@ test("bursts preserve frame order and yield between batches", async () => {
     received,
     Array.from({ length: 40 }, (_, index) => index),
   );
+});
+
+test("background combat messages drain with timers suspended", async () => {
+  const originalTimeout = globalThis.setTimeout;
+  let timerCalls = 0;
+  let received = 0;
+  let inOrder = true;
+  const unsubscribe = runtime.onMessage("background_combat", (payload) => {
+    if (payload.index !== received) inOrder = false;
+    received++;
+  });
+  globalThis.setTimeout = () => {
+    timerCalls++;
+    return 1;
+  };
+  try {
+    for (let burst = 0; burst < 100; burst++) {
+      for (let offset = 0; offset < 40; offset++) {
+        const index = burst * 40 + offset;
+        const raw = JSON.stringify({ type: "background_combat", index });
+        const event = new MessageEvent("message", { data: raw });
+        Object.defineProperty(event, "currentTarget", {
+          value: { url: "wss://api.milkywayidle.com/ws", send() {} },
+        });
+        assert.equal(event.data, raw);
+        assert.equal(event.data, raw);
+      }
+      // One microtask checkpoint per simulated incoming socket task.
+      for (let batch = 0; batch <= 10; batch++) await Promise.resolve();
+      assert.equal(received, (burst + 1) * 40);
+    }
+    assert.equal(inOrder, true, "all combat frames must arrive in order");
+    assert.equal(timerCalls, 0, "message processing must not depend on timers");
+  } finally {
+    globalThis.setTimeout = originalTimeout;
+    unsubscribe();
+  }
 });
 
 test("client data is available before message effects run", () => {

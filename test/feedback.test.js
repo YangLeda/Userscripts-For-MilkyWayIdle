@@ -431,8 +431,10 @@ test("the shared Ctrl tooltip announcement is red, bold, and underlined", () => 
 
 test("announcement history preserves each release separately through 26.4.22", () => {
   assert.equal(ANNOUNCEMENTS[0].publishedAt, "2026-10-13");
-  assert.equal(ANNOUNCEMENTS[0].body.zh.length, 4);
-  assert.equal(ANNOUNCEMENTS[0].body.en.length, 4);
+  assert.equal(ANNOUNCEMENTS[0].body.zh.length, 5);
+  assert.equal(ANNOUNCEMENTS[0].body.en.length, 5);
+  assert.match(ANNOUNCEMENTS[0].body.zh[0], /后台战斗.*消息.*堆积/);
+  assert.match(ANNOUNCEMENTS[0].body.en[0], /Background combat.*backlog/);
   assert.match(
     ANNOUNCEMENTS[0].body.zh.join("\n"),
     /分批删除.*公会经验[\s\S]*导入旧备份/,

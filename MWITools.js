@@ -9902,7 +9902,7 @@
 			} catch (error) {
 				console.error("[MWITools] Game message processing failed", error);
 			}
-		queue.length ? setTimeout(drainMessages, 0) : (scheduled = !1);
+		queue.length ? globalThis.queueMicrotask(drainMessages) : (scheduled = !1);
 	}
 	function hookWS() {
 		if (hooked) return;
@@ -9920,7 +9920,7 @@
 			try {
 				(Object.defineProperty(this, "data", { value: message }),
 					queue.push(message),
-					scheduled || ((scheduled = !0), setTimeout(drainMessages, 0)));
+					scheduled || ((scheduled = !0), globalThis.queueMicrotask(drainMessages)));
 			} catch (error) {
 				console.error("[MWITools] Message hook failed", error);
 			}
@@ -29435,12 +29435,14 @@ ${locks}`
 							}),
 							body: Object.freeze({
 								zh: Object.freeze([
+									"后台战斗：消息处理不再依赖后台会变慢的定时器，避免挂机战斗时待处理消息持续堆积；保留消息顺序与完整性。",
 									"内存：人物资料面板未出现或已关闭时，着装评分与导出按钮共用有超时的等待，停止无限递归和长期轮询；较新的资料请求取代旧请求。意见中心复用页头入口，避免页头重建后保留旧页面；不再向控制台输出完整初始化数据。",
 									"发布：移除调试专用脚本、构建入口、启动诊断面板和详细追踪，正式版保留自动清理旧公会经验存储的功能。",
 									"存储与启动：启动时分批删除已移除的公会经验功能留下的本地历史、共享记录、压缩数据页、恢复副本、迁移标记与旧经验数据库，不读取或解压历史内容。其他设置、资产历史、DPS 历史及仍在使用的公会功能保留；清理失败会在下次启动重试，旧标签页占用数据库时会提示关闭。",
 									"备份与恢复：新备份不再包含已移除的公会经验历史，导入旧备份时跳过这部分数据，避免清理后的历史重新出现。",
 								]),
 								en: Object.freeze([
+									"Background combat: Message processing no longer relies on timers that can slow down in background tabs, preventing a growing backlog during idle combat while preserving every message in order.",
 									"Memory: Gear scores and export buttons now share a timed wait when the profile panel is missing or closed, avoiding endless promise recursion and polling. Newer profile requests supersede older ones. The feedback center reuses its header launcher so rebuilt headers can be released, and full initialization payloads are no longer printed to the console.",
 									"Release: Removed the dedicated debug script, build entry, startup diagnostic panel and detailed tracing. The production release retains automatic cleanup of retired guild XP storage.",
 									"Storage and startup: Startup deletes retired guild XP local history, shared records, compressed pages, recovery copies, migration markers and the old XP database in batches without reading or decompressing history. Other settings, asset history, DPS history and active guild features are preserved. Failed cleanup retries on the next startup; a database held by an old tab prompts you to close it.",
