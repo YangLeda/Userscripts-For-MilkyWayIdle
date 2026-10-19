@@ -22,6 +22,42 @@ await import("../src/core/state.js");
 await import("../src/core/market.js");
 await import("../src/features/build-score.js");
 
+test("profile scoring settles when the profile dialog never mounts", async (t) => {
+  const oldPanel = document.querySelector(
+    ".SharableProfile_overviewTab__W4dCV",
+  );
+  oldPanel?.remove();
+  t.after(() => {
+    if (oldPanel) document.body.append(oldPanel);
+  });
+  let now = 0;
+  const timers = [];
+  t.mock.method(Date, "now", () => now);
+  t.mock.method(globalThis, "setTimeout", (callback, delay) => {
+    timers.push({ callback, delay });
+    return timers.length;
+  });
+  const pending = runtime.api.showBuildScoreOnProfile({
+    profile: {
+      characterHouseRoomMap: {},
+      hideWearableItems: true,
+      guildId: null,
+    },
+  });
+  for (let i = 0; i < 15; i++) await Promise.resolve();
+  assert.equal(timers.length, 1);
+  let polls = 0;
+  while (timers.length) {
+    const { callback, delay } = timers.shift();
+    now += delay;
+    callback();
+    assert.ok(++polls <= 50);
+  }
+  await pending;
+  assert.equal(timers.length, 0);
+  assert.equal(document.querySelector("#script_profile_gear_scores"), null);
+});
+
 const combatHouseHrids = Array.from(
   { length: 7 },
   (_, index) => `/house_rooms/combat_${index}`,

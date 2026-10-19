@@ -1,4 +1,5 @@
 import { runtime } from "../core/runtime.js";
+import { waitForProfilePanel } from "./profile-panel.js";
 
 const SCORE_UNIT = 1000000;
 
@@ -308,21 +309,13 @@ async function calculateAbilityScore(isAll = false) {
 
 /* 查看人物面板显示打造分 */
 // by Ratatatata (https://greasyfork.org/zh-CN/scripts/511240)
-function getInfoPanel() {
-  const selectedElement = document.querySelector(
-    `div.SharableProfile_overviewTab__W4dCV`,
-  );
-  if (selectedElement) {
-    return selectedElement;
-  } else {
-    return new Promise((resolve) => {
-      setTimeout(() => resolve(getInfoPanel()), 500);
-    });
-  }
-}
+const getInfoPanel = waitForProfilePanel;
+let profileScoreRequest = 0;
 
 async function showBuildScoreOnProfile(profile_shared_obj) {
+  const request = ++profileScoreRequest;
   const scores = await getBuildScoreByProfile(profile_shared_obj);
+  if (request !== profileScoreRequest) return;
   const hiddenText = scores.equipmentHidden
     ? runtime.config.isZH
       ? "（装备隐藏）"
@@ -333,6 +326,7 @@ async function showBuildScoreOnProfile(profile_shared_obj) {
     Number.isFinite(value) ? runtime.api.formatScore(value) : "—";
 
   const panel = await getInfoPanel();
+  if (!panel?.isConnected || request !== profileScoreRequest) return;
   panel.style.height = "auto";
   panel.querySelector("#script_profile_gear_scores")?.remove();
   panel.insertAdjacentHTML(

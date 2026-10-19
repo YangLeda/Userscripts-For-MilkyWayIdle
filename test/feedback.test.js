@@ -149,6 +149,41 @@ test("feedback button shares the header tools row after settings and remains a s
   assert.equal(document.querySelector("#mwitools-header-tools"), null);
 });
 
+test("header replacement reuses one launcher without accumulating scope cleanup closures", () => {
+  const scope = runtime.createCleanupScope();
+  const event = scope.event;
+  let launcherBindings = 0;
+  scope.event = (target, ...args) => {
+    if (target.id === "mwitools-feedback-button") launcherBindings++;
+    return event(target, ...args);
+  };
+  const panel = new FeedbackPanel({ client: {}, scope });
+  const launcher = panel.ensureButton();
+  try {
+    for (let i = 0; i < 30; i++) {
+      document.querySelector("header").remove();
+      panel.ensureButton();
+      assert.equal(
+        launcher.parentElement,
+        null,
+        "removed headers must release the launcher immediately",
+      );
+      const header = document.createElement("header");
+      header.innerHTML =
+        '<div id="identity"><div class="Header_totalLevel__test">总等级: 2178</div></div>';
+      document.body.prepend(header);
+      assert.equal(panel.ensureButton(), launcher);
+    }
+    assert.equal(launcherBindings, 1);
+    assert.equal(
+      document.querySelectorAll("#mwitools-feedback-button").length,
+      1,
+    );
+  } finally {
+    scope.cleanup();
+  }
+});
+
 test("opinion center combines feedback and announcement unread states into one dot", async () => {
   const cases = [
     { feedback: 0, announcementSeen: true, unread: false },
@@ -396,8 +431,8 @@ test("the shared Ctrl tooltip announcement is red, bold, and underlined", () => 
 
 test("announcement history preserves each release separately through 26.4.22", () => {
   assert.equal(ANNOUNCEMENTS[0].publishedAt, "2026-10-13");
-  assert.equal(ANNOUNCEMENTS[0].body.zh.length, 3);
-  assert.equal(ANNOUNCEMENTS[0].body.en.length, 3);
+  assert.equal(ANNOUNCEMENTS[0].body.zh.length, 4);
+  assert.equal(ANNOUNCEMENTS[0].body.en.length, 4);
   assert.match(
     ANNOUNCEMENTS[0].body.zh.join("\n"),
     /分批删除.*公会经验[\s\S]*导入旧备份/,

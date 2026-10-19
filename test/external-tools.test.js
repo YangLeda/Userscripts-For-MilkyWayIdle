@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { JSDOM } from "jsdom";
 
 const storage = new Map();
 
@@ -14,6 +15,37 @@ await import("../src/core/message-state.js");
 await import("../src/core/messages.js");
 await import("../src/features/external-tools.js");
 await import("../src/features/message-effects.js");
+
+test("new profile exports replace older pending requests and keep one button", async (t) => {
+  const dom = new JSDOM(
+    '<div class="SharableProfile_overviewTab__W4dCV"></div>',
+  );
+  const previous = globalThis.document;
+  globalThis.document = dom.window.document;
+  t.after(() => {
+    globalThis.document = previous;
+    dom.window.close();
+  });
+  await Promise.all([
+    runtime.api.addExportButton({
+      profile: { characterSkills: [{ characterID: "old" }] },
+    }),
+    runtime.api.addExportButton({
+      profile: { characterSkills: [{ characterID: "new" }] },
+    }),
+  ]);
+  assert.equal(
+    document.querySelectorAll("[data-mwitools-profile-export]").length,
+    1,
+  );
+  await runtime.api.addExportButton({
+    profile: { characterSkills: [{ characterID: "latest" }] },
+  });
+  assert.equal(
+    document.querySelectorAll("[data-mwitools-profile-export]").length,
+    1,
+  );
+});
 
 function setGroupFixtures(battle) {
   const character = {

@@ -9965,6 +9965,39 @@
 			},
 		});
 
+	// src/features/profile-panel.js
+	function waitForProfilePanel() {
+		let documentRef = globalThis.document;
+		if (!documentRef) return Promise.resolve(null);
+		let panel = documentRef.querySelector(PROFILE_PANEL_SELECTOR);
+		if (panel) return Promise.resolve(panel);
+		if (pendingPanels.has(documentRef)) return pendingPanels.get(documentRef);
+		let started = Date.now(),
+			attempts = 0,
+			pending = new Promise((resolve) => {
+				let poll = () => {
+					let current = documentRef.querySelector(PROFILE_PANEL_SELECTOR);
+					if (current) return resolve(current);
+					if (Date.now() - started >= MAX_WAIT_MS || ++attempts > MAX_WAIT_MS / POLL_MS) return resolve(null);
+					setTimeout(poll, POLL_MS);
+				};
+				poll();
+			}).finally(() => pendingPanels.delete(documentRef));
+		return (pendingPanels.set(documentRef, pending), pending);
+	}
+	var pendingPanels,
+		PROFILE_PANEL_SELECTOR,
+		MAX_WAIT_MS,
+		POLL_MS,
+		init_profile_panel = __esm({
+			"src/features/profile-panel.js"() {
+				((pendingPanels = /* @__PURE__ */ new WeakMap()),
+					(PROFILE_PANEL_SELECTOR = "div.SharableProfile_overviewTab__W4dCV"),
+					(MAX_WAIT_MS = 5e3),
+					(POLL_MS = 100));
+			},
+		});
+
 	// src/features/build-score.js
 	function hasStats(stats) {
 		return !!(stats && Object.keys(stats).length);
@@ -10175,21 +10208,15 @@
 			(price /= 1e6)
 		);
 	}
-	function getInfoPanel() {
-		let selectedElement = document.querySelector("div.SharableProfile_overviewTab__W4dCV");
-		return (
-			selectedElement ||
-			new Promise((resolve) => {
-				setTimeout(() => resolve(getInfoPanel()), 500);
-			})
-		);
-	}
 	async function showBuildScoreOnProfile(profile_shared_obj) {
-		let scores = await getBuildScoreByProfile(profile_shared_obj),
-			hiddenText = scores.equipmentHidden ? (runtime.config.isZH ? "（装备隐藏）" : " (Equipment hidden)") : "",
+		let request2 = ++profileScoreRequest,
+			scores = await getBuildScoreByProfile(profile_shared_obj);
+		if (request2 !== profileScoreRequest) return;
+		let hiddenText = scores.equipmentHidden ? (runtime.config.isZH ? "（装备隐藏）" : " (Equipment hidden)") : "",
 			hiddenValue = scores.equipmentHidden ? "-" : null,
 			optionalScore = (value) => (Number.isFinite(value) ? runtime.api.formatScore(value) : "—"),
 			panel = await getInfoPanel();
+		if (!panel?.isConnected || request2 !== profileScoreRequest) return;
 		((panel.style.height = "auto"),
 			panel.querySelector("#script_profile_gear_scores")?.remove(),
 			panel.insertAdjacentHTML(
@@ -10333,10 +10360,14 @@
 			: createEmptyGearScores();
 	}
 	var SCORE_UNIT,
+		getInfoPanel,
+		profileScoreRequest,
 		init_build_score = __esm({
 			"src/features/build-score.js"() {
 				init_runtime();
+				init_profile_panel();
 				SCORE_UNIT = 1e6;
+				((getInfoPanel = waitForProfilePanel), (profileScoreRequest = 0));
 				Object.assign(runtime.api, {
 					getSelfBuildScores,
 					getHouseFullBuildPrice,
@@ -29404,11 +29435,13 @@ ${locks}`
 							}),
 							body: Object.freeze({
 								zh: Object.freeze([
+									"内存：人物资料面板未出现或已关闭时，着装评分与导出按钮共用有超时的等待，停止无限递归和长期轮询；较新的资料请求取代旧请求。意见中心复用页头入口，避免页头重建后保留旧页面；不再向控制台输出完整初始化数据。",
 									"发布：移除调试专用脚本、构建入口、启动诊断面板和详细追踪，正式版保留自动清理旧公会经验存储的功能。",
 									"存储与启动：启动时分批删除已移除的公会经验功能留下的本地历史、共享记录、压缩数据页、恢复副本、迁移标记与旧经验数据库，不读取或解压历史内容。其他设置、资产历史、DPS 历史及仍在使用的公会功能保留；清理失败会在下次启动重试，旧标签页占用数据库时会提示关闭。",
 									"备份与恢复：新备份不再包含已移除的公会经验历史，导入旧备份时跳过这部分数据，避免清理后的历史重新出现。",
 								]),
 								en: Object.freeze([
+									"Memory: Gear scores and export buttons now share a timed wait when the profile panel is missing or closed, avoiding endless promise recursion and polling. Newer profile requests supersede older ones. The feedback center reuses its header launcher so rebuilt headers can be released, and full initialization payloads are no longer printed to the console.",
 									"Release: Removed the dedicated debug script, build entry, startup diagnostic panel and detailed tracing. The production release retains automatic cleanup of retired guild XP storage.",
 									"Storage and startup: Startup deletes retired guild XP local history, shared records, compressed pages, recovery copies, migration markers and the old XP database in batches without reading or decompressing history. Other settings, asset history, DPS history and active guild features are preserved. Failed cleanup retries on the next startup; a database held by an old tab prompts you to close it.",
 									"Backup and recovery: New backups exclude retired guild XP history, and older backup imports skip it so removed archives cannot reappear.",
@@ -30418,8 +30451,8 @@ ${locks}`
 					}
 					ensureButton() {
 						let host = ensureHeaderToolsHost();
-						if (!host) return null;
-						let button = document.getElementById(BUTTON_ID);
+						if (!host) return (this.launcher?.remove(), null);
+						let button = document.getElementById(BUTTON_ID) ?? this.launcher;
 						if (!button) {
 							((button = document.createElement("button")), (button.type = "button"), (button.id = BUTTON_ID));
 							let icon = makeElement("span", "", "✉"),
@@ -30430,6 +30463,7 @@ ${locks}`
 								this.scope.event(button, "click", () => this.open()));
 						}
 						return (
+							(this.launcher = button),
 							(button.querySelector(".mwi-opinion-label").textContent = "MWITools"),
 							(button.parentElement !== host || button !== host.lastElementChild) && host.append(button),
 							this.updateUnreadIndicator(),
@@ -30772,6 +30806,8 @@ ${locks}`
 					destroy() {
 						(this.root?.hidden || this.close(),
 							document.getElementById(BUTTON_ID)?.remove(),
+							this.launcher?.remove(),
+							(this.launcher = null),
 							removeHeaderToolsHostIfEmpty(),
 							this.root?.remove(),
 							document.getElementById(STYLE_ID15)?.remove());
@@ -44545,69 +44581,66 @@ ${langText2("理论命中率", "Theoretical hit chance")}: ${pct.toFixed(2)}%`;
 		let sec = hours * 60 * 60;
 		return runtime.api.timeReadable?.(sec) ?? `${Math.round(hours)}h`;
 	}
-	function addExportButton(obj) {
-		let timer = setInterval(() => {
-			let selectedElement = document.querySelector("div.SharableProfile_overviewTab__W4dCV");
-			if (selectedElement) {
-				clearInterval(timer);
-				let button = document.createElement("button");
-				return (
-					selectedElement.appendChild(button),
-					(button.textContent = runtime.config.isZH ? "导出人物到剪贴板" : "Export to clipboard"),
-					(button.style.borderRadius = "5px"),
-					(button.style.height = "30px"),
-					(button.style.backgroundColor = runtime.config.SCRIPT_COLOR_MAIN),
-					(button.style.color = "black"),
-					(button.style.boxShadow = "none"),
-					(button.style.border = "0px"),
-					(button.onclick = function () {
-						let exportString = "",
-							playerID = obj.profile.characterSkills[0].characterID,
-							clientObj = JSON.parse(GM_getValue("init_client_data", "")),
-							characterObj = JSON.parse(GM_getValue("init_character_data", ""));
-						if (playerID === characterObj.character.id)
-							exportString = JSON.stringify(constructSelfPlayerExportObjFromInitCharacterData(characterObj, clientObj));
-						else {
-							let profileList = JSON.parse(GM_getValue("profile_export_list", "[]")).filter(
-									(item) => item.characterID === playerID,
-								),
-								profile = null;
-							if (profileList.length !== 1) {
-								console.log(
-									runtime.config.isZH
-										? `[MWITools] 找不到角色 ${playerID} 的已保存资料。`
-										: `[MWITools] Cannot find a saved profile for character ${playerID}.`,
-								);
-								return;
-							}
-							profile = profileList[0];
-							let battlePlayer = null;
-							if (GM_getValue("new_battle", "")) {
-								let battlePlayerList = JSON.parse(GM_getValue("new_battle", "")).players.filter(
-									(item) => item.character.id === playerID,
-								);
-								battlePlayerList.length === 1 && (battlePlayer = battlePlayerList[0]);
-							}
-							exportString = JSON.stringify(
-								constructPlayerExportObjFromStoredProfile(profile, clientObj, battlePlayer),
-							);
-						}
-						return (
-							console.log(exportString),
-							navigator.clipboard.writeText(exportString),
-							(button.textContent = runtime.config.isZH ? "已复制" : "Copied"),
-							!1
+	async function addExportButton(obj) {
+		let request2 = ++profileExportRequest,
+			selectedElement = await waitForProfilePanel();
+		if (!selectedElement?.isConnected || request2 !== profileExportRequest) return;
+		selectedElement.querySelector("[data-mwitools-profile-export]")?.remove();
+		let button = document.createElement("button");
+		((button.dataset.mwitoolsProfileExport = "true"),
+			selectedElement.appendChild(button),
+			(button.textContent = runtime.config.isZH ? "导出人物到剪贴板" : "Export to clipboard"),
+			(button.style.borderRadius = "5px"),
+			(button.style.height = "30px"),
+			(button.style.backgroundColor = runtime.config.SCRIPT_COLOR_MAIN),
+			(button.style.color = "black"),
+			(button.style.boxShadow = "none"),
+			(button.style.border = "0px"),
+			(button.onclick = function () {
+				let exportString = "",
+					playerID = obj.profile.characterSkills[0].characterID,
+					clientObj = JSON.parse(GM_getValue("init_client_data", "")),
+					characterObj = JSON.parse(GM_getValue("init_character_data", ""));
+				if (playerID === characterObj.character.id)
+					exportString = JSON.stringify(constructSelfPlayerExportObjFromInitCharacterData(characterObj, clientObj));
+				else {
+					let profileList = JSON.parse(GM_getValue("profile_export_list", "[]")).filter(
+							(item) => item.characterID === playerID,
+						),
+						profile = null;
+					if (profileList.length !== 1) {
+						console.log(
+							runtime.config.isZH
+								? `[MWITools] 找不到角色 ${playerID} 的已保存资料。`
+								: `[MWITools] Cannot find a saved profile for character ${playerID}.`,
 						);
-					}),
+						return;
+					}
+					profile = profileList[0];
+					let battlePlayer = null;
+					if (GM_getValue("new_battle", "")) {
+						let battlePlayerList = JSON.parse(GM_getValue("new_battle", "")).players.filter(
+							(item) => item.character.id === playerID,
+						);
+						battlePlayerList.length === 1 && (battlePlayer = battlePlayerList[0]);
+					}
+					exportString = JSON.stringify(constructPlayerExportObjFromStoredProfile(profile, clientObj, battlePlayer));
+				}
+				return (
+					console.log(exportString),
+					navigator.clipboard.writeText(exportString),
+					(button.textContent = runtime.config.isZH ? "已复制" : "Copied"),
 					!1
 				);
-			}
-		}, 200);
+			}));
 	}
-	var addImportButtonFor9Battles,
+	var profileExportRequest,
+		addImportButtonFor9Battles,
 		init_external_tools = __esm({
 			"src/features/external-tools.js"() {
 				init_runtime();
+				init_profile_panel();
+				profileExportRequest = 0;
 				addImportButtonFor9Battles = addImportButtonForAmvoidguy;
 				Object.assign(runtime.api, {
 					addImportButtonFor9Battles,
@@ -44829,10 +44862,10 @@ ${langText2("理论命中率", "Theoretical hit chance")}: ${pct.toFixed(2)}%`;
 			init_shared_storage();
 			init_runtime();
 			runtime.onMessage("init_client_data", (payload, message) => {
-				(console.log(payload), GM_setValue("init_client_data", message));
+				GM_setValue("init_client_data", message);
 			});
 			runtime.onMessage("init_character_data", (payload, message) => {
-				(console.log(payload), GM_setValue("init_character_data", message), enableIronCowAdaptation());
+				(GM_setValue("init_character_data", message), enableIronCowAdaptation());
 				let settings2 = runtime.settings.settingsMap;
 				(refreshAssets(), settings2.checkEquipment.isTrue && runtime.api.checkEquipment());
 			});

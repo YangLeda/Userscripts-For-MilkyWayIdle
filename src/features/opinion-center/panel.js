@@ -132,8 +132,11 @@ export class OpinionCenterPanel {
 
   ensureButton() {
     const host = ensureHeaderToolsHost();
-    if (!host) return null;
-    let button = document.getElementById(BUTTON_ID);
+    if (!host) {
+      this.launcher?.remove();
+      return null;
+    }
+    let button = document.getElementById(BUTTON_ID) ?? this.launcher;
     if (!button) {
       button = document.createElement("button");
       button.type = "button";
@@ -145,6 +148,7 @@ export class OpinionCenterPanel {
       button.append(icon, label, dot);
       this.scope.event(button, "click", () => this.open());
     }
+    this.launcher = button;
     button.querySelector(".mwi-opinion-label").textContent = "MWITools";
     if (button.parentElement !== host || button !== host.lastElementChild) {
       host.append(button);
@@ -646,6 +650,8 @@ export class OpinionCenterPanel {
   destroy() {
     if (!this.root?.hidden) this.close();
     document.getElementById(BUTTON_ID)?.remove();
+    this.launcher?.remove();
+    this.launcher = null;
     removeHeaderToolsHostIfEmpty();
     this.root?.remove();
     document.getElementById(STYLE_ID)?.remove();
